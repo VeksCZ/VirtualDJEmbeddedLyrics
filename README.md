@@ -56,7 +56,8 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
 - DX11 overlay renderer with alpha blending and graphics-state restoration.
 - Continuous lyric ribbon with three previous lines and top/bottom alpha fades.
 - Independent highlight and scroll timing. Long pauses are persistent timeline
-  rows that enter from below, count down from five to one, and leave above.
+  rows that enter from below, count down in yellow from five or ten to one
+  depending on pause length, and leave above.
 - Timed-line count has a minimum of two so a scroll target is always available.
 - Independent per-deck timing through `get_plugindeck` in the deck variant.
 - Stable selection of the audible left/right deck using `get_crossfader_result`

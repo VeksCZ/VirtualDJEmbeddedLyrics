@@ -17,7 +17,8 @@ inline float UnitProgress(std::int64_t now, std::int64_t start, std::int64_t dur
     return std::clamp(static_cast<float>(now - start) / static_cast<float>(duration), 0.0f, 1.0f);
 }
 
-inline int LyricCountdown(std::int64_t remainingMs) noexcept {
-    if (remainingMs <= 0 || remainingMs > 5000) return -1;
+inline int LyricCountdown(std::int64_t remainingMs, int maximumSeconds) noexcept {
+    const auto maximumMs = static_cast<std::int64_t>(maximumSeconds) * 1000;
+    if (remainingMs <= 0 || remainingMs > maximumMs) return -1;
     return static_cast<int>((remainingMs + 999) / 1000);
 }

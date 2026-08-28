@@ -266,17 +266,20 @@ private:
         const auto visibleEnd = std::min(timeline.size(), active + TimedLineCount());
         std::vector<std::wstring> visibleLines;
         visibleLines.reserve(visibleEnd - visibleStart);
+        bool countdownVisible = false;
         for (auto i = visibleStart; i < visibleEnd; ++i) {
             if (timeline[i].pause && i == active) {
-                const auto countdown = LyricCountdown(next - now);
-                visibleLines.push_back(countdown >= 1 ? std::to_wstring(countdown) : L"");
+                const int maximumSeconds = interval >= 10000 ? 10 : 5;
+                const auto countdown = LyricCountdown(next - now, maximumSeconds);
+                countdownVisible = countdown >= 1;
+                visibleLines.push_back(countdownVisible ? std::to_wstring(countdown) : L"");
             } else {
                 visibleLines.push_back(timeline[i].text);
             }
         }
 
         const auto activeOffset = active - visibleStart;
-        float highlightProgress = 0.0f;
+        float highlightProgress = countdownVisible ? 1.0f : 0.0f;
         if (!timeline[active].pause) {
             const auto highlightDuration = std::min(EstimateLyricHighlightMs(timeline[active].text),
                 std::max<std::int64_t>(500, interval - scrollDuration));
