@@ -233,54 +233,56 @@ private:
 
     void UpdateVisible(std::int64_t now) {
         if (lyrics_.lines.empty()) return;
-        const auto it = std::upper_bound(lyrics_.lines.begin(), lyrics_.lines.end(), now,
-            [](std::int64_t value, const LyricLine& line) { return value < line.timeMs; });
-        const auto index = it == lyrics_.lines.begin() ? 0u
-            : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), it) - 1);
-        const auto start = lyrics_.lines[index].timeMs;
-        const auto next = index + 1 < lyrics_.lines.size()
-            ? lyrics_.lines[index + 1].timeMs : start + 5000;
-        const auto interval = std::max<std::int64_t>(1, next - start);
+
+        struct DisplayLine {
+            std::wstring text;
+            std::int64_t timeMs{};
+            bool pause{};
+        };
         constexpr std::int64_t scrollDuration = 650;
-        const auto estimatedHighlight = EstimateLyricHighlightMs(lyrics_.lines[index].text);
-        const auto highlightDuration = std::min(estimatedHighlight,
-            std::max<std::int64_t>(500, interval - scrollDuration));
-        const auto blankStart = start + highlightDuration + 700;
-        const bool hasNext = index + 1 < lyrics_.lines.size();
-        const bool longPause = hasNext && next - blankStart > 2500;
-        const bool blankActive = longPause && now >= blankStart;
-
-        constexpr std::size_t previousLineCount = 4;
-        std::vector<std::wstring> visibleLines;
-        std::size_t activeOffset = 0;
-        float highlightProgress = 0.0f;
-        float scrollProgress = 0.0f;
-
-        if (blankActive) {
-            const auto first = index > previousLineCount - 1 ? index - (previousLineCount - 1) : 0u;
-            visibleLines.reserve(index - first + 1 + TimedLineCount());
-            for (auto i = first; i <= index; ++i) visibleLines.push_back(lyrics_.lines[i].text);
-            activeOffset = visibleLines.size();
-            const auto remaining = next - now;
-            const auto countdown = LyricCountdown(remaining);
-            visibleLines.push_back(countdown >= 0 ? std::to_wstring(countdown) : L"");
-            const auto futureEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
-            for (auto i = index + 1; i < futureEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
-            scrollProgress = UnitProgress(now, next - scrollDuration, scrollDuration);
-        } else {
-            const auto visibleStart = index > previousLineCount ? index - previousLineCount : 0u;
-            const auto visibleEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
-            visibleLines.reserve(visibleEnd - visibleStart + (longPause ? 1u : 0u));
-            for (auto i = visibleStart; i < visibleEnd; ++i) {
-                visibleLines.push_back(lyrics_.lines[i].text);
-                if (longPause && i == index) visibleLines.push_back(L"");
-            }
-            activeOffset = index - visibleStart;
-            highlightProgress = UnitProgress(now, start, highlightDuration);
-            const auto transitionAt = longPause ? blankStart : next;
-            scrollProgress = UnitProgress(now, transitionAt - scrollDuration, scrollDuration);
+        std::vector<DisplayLine> timeline;
+        timeline.reserve(lyrics_.lines.size() * 2);
+        for (std::size_t i = 0; i < lyrics_.lines.size(); ++i) {
+            const auto& lyric = lyrics_.lines[i];
+            timeline.push_back({lyric.text, lyric.timeMs, false});
+            if (i + 1 >= lyrics_.lines.size()) continue;
+            const auto nextTime = lyrics_.lines[i + 1].timeMs;
+            const auto highlight = std::min(EstimateLyricHighlightMs(lyric.text),
+                std::max<std::int64_t>(500, nextTime - lyric.timeMs - scrollDuration));
+            const auto pauseStart = lyric.timeMs + highlight + 700;
+            if (nextTime - pauseStart > 2500) timeline.push_back({L"", pauseStart, true});
         }
 
+        const auto it = std::upper_bound(timeline.begin(), timeline.end(), now,
+            [](std::int64_t value, const DisplayLine& line) { return value < line.timeMs; });
+        const auto active = it == timeline.begin() ? 0u
+            : static_cast<std::size_t>(std::distance(timeline.begin(), it) - 1);
+        const auto start = timeline[active].timeMs;
+        const auto next = active + 1 < timeline.size() ? timeline[active + 1].timeMs : start + 5000;
+        const auto interval = std::max<std::int64_t>(1, next - start);
+
+        constexpr std::size_t previousLineCount = 3;
+        const auto visibleStart = active > previousLineCount ? active - previousLineCount : 0u;
+        const auto visibleEnd = std::min(timeline.size(), active + TimedLineCount());
+        std::vector<std::wstring> visibleLines;
+        visibleLines.reserve(visibleEnd - visibleStart);
+        for (auto i = visibleStart; i < visibleEnd; ++i) {
+            if (timeline[i].pause && i == active) {
+                const auto countdown = LyricCountdown(next - now);
+                visibleLines.push_back(countdown >= 1 ? std::to_wstring(countdown) : L"");
+            } else {
+                visibleLines.push_back(timeline[i].text);
+            }
+        }
+
+        const auto activeOffset = active - visibleStart;
+        float highlightProgress = 0.0f;
+        if (!timeline[active].pause) {
+            const auto highlightDuration = std::min(EstimateLyricHighlightMs(timeline[active].text),
+                std::max<std::int64_t>(500, interval - scrollDuration));
+            highlightProgress = UnitProgress(now, start, highlightDuration);
+        }
+        const auto scrollProgress = UnitProgress(now, next - scrollDuration, scrollDuration);
         if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
                                   width, height, FontScale(), VerticalPosition()))
             Diagnostics::Error(L"Failed to update lyrics texture");
@@ -299,7 +301,7 @@ private:
     }
 
     std::size_t TimedLineCount() const noexcept {
-        return 1 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 5.0f + 0.5f);
+        return 2 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 4.0f + 0.5f);
     }
 
     std::filesystem::path TextPath() const {
