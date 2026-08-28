@@ -62,7 +62,8 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
   in the master variant.
 - Deck variants are advertised as visualisations for audio-only tracks and
   generate their own black background.
-- `Blackout` is a Master-only effect and is included only in the Full edition.
+- `Blackout` is a Master-only, process-first background effect included only in
+  the Full edition, allowing later Master effects to render above it.
 - Full HD responsive typography with automatic wrapping of long lines.
 
 ## Import LRC and TXT into MP3 tags
