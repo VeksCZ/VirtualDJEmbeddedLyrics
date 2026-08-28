@@ -18,7 +18,7 @@ public:
             FAILED(DeclareParameterButton(&previousPageButton_, 2, "Previous lyrics page", "Prev"))
 #ifdef EMBEDDED_LYRICS_MASTER
             || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 3,
-                                             "Use volume faders", "Upfaders", true))
+                                             "Upfaders", "Upfaders", false))
 #endif
             ) return E_FAIL;
         return S_OK;
@@ -45,11 +45,11 @@ public:
         info->Author = "Slava / OpenAI";
         info->Description = "Minimal embedded/LRC/TXT lyrics overlay";
         info->Version = "0.2.0-basic";
-        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION;
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->Flags |= VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION |
+                      VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
 #else
-        info->Flags |= VDJFLAG_VIDEO_VISUALISATION;
+        info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif
         info->Bitmap = nullptr;
         return S_OK;
@@ -172,7 +172,7 @@ private:
     static constexpr std::size_t pageSize_ = 10;
 #ifdef EMBEDDED_LYRICS_MASTER
     MasterDeckSelector masterDeckSelector_;
-    int useVolumeFadersParameter_{1};
+    int useVolumeFadersParameter_{};
 #endif
 };
 

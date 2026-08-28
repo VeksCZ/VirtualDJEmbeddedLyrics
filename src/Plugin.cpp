@@ -40,7 +40,7 @@ public:
             FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
 #ifdef EMBEDDED_LYRICS_MASTER
-            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Use volume faders", "Upfaders", true))
+            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
 #endif
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
@@ -86,11 +86,11 @@ public:
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
         info->Version = "0.2.0-rc4";
-        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION;
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->Flags |= VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION |
+                      VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
 #else
-        info->Flags |= VDJFLAG_VIDEO_VISUALISATION;
+        info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif
         info->Bitmap = nullptr;
         return S_OK;
@@ -443,7 +443,7 @@ private:
     std::chrono::steady_clock::time_point nextTextCheck_{};
 #ifdef EMBEDDED_LYRICS_MASTER
     MasterDeckSelector masterDeckSelector_;
-    int useVolumeFadersParameter_{1};
+    int useVolumeFadersParameter_{};
 #endif
 };
 

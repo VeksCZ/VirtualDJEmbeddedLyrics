@@ -22,7 +22,7 @@ or `Install-Basic.cmd`. VirtualDJ itself loads the DLL files copied into its
 - **LRC Master** draws over the final master output and selects the
   audible left/right source from `get_crossfader_result`. A small hysteresis
   keeps the selected deck stable around the midpoint during transitions.
-  Its **Upfaders** switch selects between `get_crossfader_result` (enabled) and
+  Its **Upfaders** switch selects between `get_crossfader_result` (enabled, default off) and
   `video_crossfader` (disabled), so both behaviours can be tested live.
 
 ## Lookup order
