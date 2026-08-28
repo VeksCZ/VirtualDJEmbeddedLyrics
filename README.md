@@ -54,8 +54,9 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
 - Separate line counts for synchronized lyrics (1–6, default 4) and untimed
   pages (3–15, default 10).
 - DX11 overlay renderer with alpha blending and graphics-state restoration.
-- Continuous timestamp-to-timestamp lyric ribbon with two previous lines,
-  progressive line highlighting and top/bottom alpha fades.
+- Continuous lyric ribbon with four previous lines and top/bottom alpha fades.
+- Independent highlight and scroll timing, including a stationary blank row and
+  a five-second countdown before vocals resume after a long pause.
 - Independent per-deck timing through `get_plugindeck` in the deck variant.
 - Stable selection of the audible left/right deck using `get_crossfader_result`
   in the master variant.

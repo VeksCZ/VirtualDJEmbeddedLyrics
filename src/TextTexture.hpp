@@ -16,8 +16,8 @@ public:
                 float progress, int width, int height, float fontScale = 1.0f,
                 float verticalPosition = 0.5f);
     bool UpdateTimed(const std::vector<std::wstring>& lines, std::size_t activeLine,
-                     float progress, int width, int height, float fontScale = 1.0f,
-                     float verticalPosition = 0.5f);
+                     float highlightProgress, float scrollProgress, int width, int height,
+                     float fontScale = 1.0f, float verticalPosition = 0.5f);
     bool UpdatePage(const std::vector<std::wstring>& lines, std::size_t page,
                     std::size_t pageSize, std::size_t activeLine, int width, int height,
                     float fontScale = 1.0f, float verticalPosition = 0.5f);

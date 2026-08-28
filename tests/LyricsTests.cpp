@@ -1,4 +1,5 @@
 #include "Lyrics.hpp"
+#include "LyricsTiming.hpp"
 #include "MasterDeckSelector.hpp"
 
 #include <cassert>
@@ -7,6 +8,14 @@
 #include <iostream>
 
 int main(int argc, char** argv) {
+    assert(EstimateLyricHighlightMs(L"Short line") >= 1200);
+    assert(EstimateLyricHighlightMs(std::wstring(200, L'a')) == 4500);
+    assert(UnitProgress(2000, 1000, 2000) == 0.5f);
+    assert(UnitProgress(10000, 1000, 2000) == 1.0f);
+    assert(LyricCountdown(5000) == 5);
+    assert(LyricCountdown(1) == 0);
+    assert(LyricCountdown(5001) == -1);
+
     MasterDeckSelector selector;
     assert(selector.Select(0.2, 1, 2) == 1);
     assert(selector.Select(0.59, 1, 2) == 1);

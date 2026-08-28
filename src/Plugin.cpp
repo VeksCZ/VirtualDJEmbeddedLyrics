@@ -1,5 +1,6 @@
 #ifdef _WIN32
 #include "Lyrics.hpp"
+#include "LyricsTiming.hpp"
 #include "AsyncLyricsLoader.hpp"
 #include "BlackoutRenderer.hpp"
 #include "Diagnostics.hpp"
@@ -234,18 +235,54 @@ private:
         if (lyrics_.lines.empty()) return;
         const auto it = std::upper_bound(lyrics_.lines.begin(), lyrics_.lines.end(), now,
             [](std::int64_t value, const LyricLine& line) { return value < line.timeMs; });
-        const auto index = it == lyrics_.lines.begin() ? 0u : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), it) - 1);
-        const auto end = index + 1 < lyrics_.lines.size() ? lyrics_.lines[index + 1].timeMs : lyrics_.lines[index].timeMs + 5000;
-        const auto duration = std::max<std::int64_t>(1, end - lyrics_.lines[index].timeMs);
-        const auto progress = static_cast<float>(now - lyrics_.lines[index].timeMs) / static_cast<float>(duration);
-        constexpr std::size_t previousLineCount = 2;
-        const auto visibleStart = index > previousLineCount ? index - previousLineCount : 0u;
-        const auto visibleEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
+        const auto index = it == lyrics_.lines.begin() ? 0u
+            : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), it) - 1);
+        const auto start = lyrics_.lines[index].timeMs;
+        const auto next = index + 1 < lyrics_.lines.size()
+            ? lyrics_.lines[index + 1].timeMs : start + 5000;
+        const auto interval = std::max<std::int64_t>(1, next - start);
+        constexpr std::int64_t scrollDuration = 650;
+        const auto estimatedHighlight = EstimateLyricHighlightMs(lyrics_.lines[index].text);
+        const auto highlightDuration = std::min(estimatedHighlight,
+            std::max<std::int64_t>(500, interval - scrollDuration));
+        const auto blankStart = start + highlightDuration + 700;
+        const bool hasNext = index + 1 < lyrics_.lines.size();
+        const bool longPause = hasNext && next - blankStart > 2500;
+        const bool blankActive = longPause && now >= blankStart;
+
+        constexpr std::size_t previousLineCount = 4;
         std::vector<std::wstring> visibleLines;
-        visibleLines.reserve(visibleEnd - visibleStart);
-        for (auto i = visibleStart; i < visibleEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
-        if (!texture_.UpdateTimed(visibleLines, index - visibleStart, progress, width, height,
-                                  FontScale(), VerticalPosition()))
+        std::size_t activeOffset = 0;
+        float highlightProgress = 0.0f;
+        float scrollProgress = 0.0f;
+
+        if (blankActive) {
+            const auto first = index > previousLineCount - 1 ? index - (previousLineCount - 1) : 0u;
+            visibleLines.reserve(index - first + 1 + TimedLineCount());
+            for (auto i = first; i <= index; ++i) visibleLines.push_back(lyrics_.lines[i].text);
+            activeOffset = visibleLines.size();
+            const auto remaining = next - now;
+            const auto countdown = LyricCountdown(remaining);
+            visibleLines.push_back(countdown >= 0 ? std::to_wstring(countdown) : L"");
+            const auto futureEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
+            for (auto i = index + 1; i < futureEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
+            scrollProgress = UnitProgress(now, next - scrollDuration, scrollDuration);
+        } else {
+            const auto visibleStart = index > previousLineCount ? index - previousLineCount : 0u;
+            const auto visibleEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
+            visibleLines.reserve(visibleEnd - visibleStart + (longPause ? 1u : 0u));
+            for (auto i = visibleStart; i < visibleEnd; ++i) {
+                visibleLines.push_back(lyrics_.lines[i].text);
+                if (longPause && i == index) visibleLines.push_back(L"");
+            }
+            activeOffset = index - visibleStart;
+            highlightProgress = UnitProgress(now, start, highlightDuration);
+            const auto transitionAt = longPause ? blankStart : next;
+            scrollProgress = UnitProgress(now, transitionAt - scrollDuration, scrollDuration);
+        }
+
+        if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
+                                  width, height, FontScale(), VerticalPosition()))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
 

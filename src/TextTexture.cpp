@@ -81,21 +81,23 @@ bool TextTexture::Update(const std::wstring& current, const std::wstring& next,
                          float progress, int width, int height, float fontScale, float verticalPosition) {
     std::vector<std::wstring> lines{current};
     if (!next.empty()) lines.push_back(next);
-    return UpdateTimed(lines, 0, progress, width, height, fontScale, verticalPosition);
+    return UpdateTimed(lines, 0, progress, progress, width, height, fontScale, verticalPosition);
 }
 
 bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_t activeLine,
-                              float progress, int width, int height, float fontScale,
-                              float verticalPosition) {
+                              float highlightProgress, float scrollProgress, int width, int height,
+                              float fontScale, float verticalPosition) {
     if (!device_ || width <= 0 || height <= 0 || lines.empty() || activeLine >= lines.size()) return false;
-    progress = std::clamp(progress, 0.0f, 1.0f);
+    highlightProgress = std::clamp(highlightProgress, 0.0f, 1.0f);
+    scrollProgress = std::clamp(scrollProgress, 0.0f, 1.0f);
     fontScale = std::clamp(fontScale, 0.5f, 2.0f);
     verticalPosition = std::clamp(verticalPosition, 0.1f, 0.9f);
 
     std::wstring key = L"timed:" + std::to_wstring(activeLine) + L':';
     for (const auto& line : lines) key += line + L'\n';
     key += std::to_wstring(width) + L"x" + std::to_wstring(height) + L":" +
-           std::to_wstring(static_cast<int>(progress * 200)) + L":" +
+           std::to_wstring(static_cast<int>(highlightProgress * 200)) + L":" +
+           std::to_wstring(static_cast<int>(scrollProgress * 200)) + L":" +
            std::to_wstring(static_cast<int>(fontScale * 100)) + L":" +
            std::to_wstring(static_cast<int>(verticalPosition * 100));
     if (key == cacheKey_ && view_) return true;
@@ -136,7 +138,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
 
     const int activeHeight = std::max(1, static_cast<int>(wrappedLines[activeLine].size())) * spacing;
     const int anchor = static_cast<int>(height * verticalPosition) + fontSize / 2;
-    int y = anchor - static_cast<int>(progress * activeHeight + 0.5f);
+    int y = anchor - static_cast<int>(scrollProgress * activeHeight + 0.5f);
     for (std::size_t i = 0; i < activeLine; ++i)
         y -= std::max(1, static_cast<int>(wrappedLines[i].size())) * spacing;
 
@@ -151,7 +153,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         }
     }
 
-    int completedWidth = static_cast<int>(progress * std::accumulate(
+    int completedWidth = static_cast<int>(highlightProgress * std::accumulate(
         wrappedLines[activeLine].begin(), wrappedLines[activeLine].end(), 0,
         [dc](int total, const std::wstring& line) { return total + TextWidth(dc, line); }));
     int highlightY = activeFirstY;
@@ -177,8 +179,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
 
     FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
     auto* pixelValues = static_cast<std::uint32_t*>(pixels);
-    const float topZero = static_cast<float>(anchor) - spacing * 3.0f;
-    const float topOpaque = static_cast<float>(anchor) - spacing * 1.25f;
+    const float topZero = static_cast<float>(anchor) - spacing * 5.25f;
+    const float topOpaque = static_cast<float>(anchor) - spacing * 2.5f;
     const float bottomOpaque = static_cast<float>(anchor) + spacing * 2.5f;
     const float bottomZero = static_cast<float>(anchor) + spacing * 4.0f;
     for (int row = 0; row < height; ++row) {
