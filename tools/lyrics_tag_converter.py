@@ -52,9 +52,9 @@ def timestamp_ms(match: re.Match[str]) -> int:
     return (int(match.group("minutes")) * 60 + int(match.group("seconds"))) * 1000 + milliseconds
 
 
-def parse_lrc(path: Path) -> list[TimedLine]:
+def parse_timestamped_text(text: str) -> list[TimedLine]:
     result: list[TimedLine] = []
-    for raw_line in decode_text_file(path).splitlines():
+    for raw_line in text.splitlines():
         matches = list(LINE_TIMESTAMP.finditer(raw_line))
         if not matches:
             continue
@@ -63,6 +63,10 @@ def parse_lrc(path: Path) -> list[TimedLine]:
             result.extend(TimedLine(text, timestamp_ms(match)) for match in matches)
     result.sort(key=lambda line: line.time_ms)
     return result
+
+
+def parse_lrc(path: Path) -> list[TimedLine]:
+    return parse_timestamped_text(decode_text_file(path))
 
 
 def find_sidecar(mp3_path: Path, extension: str) -> Path | None:
@@ -137,6 +141,7 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
     changed = False
     lrc_written = False
     txt_written = False
+    txt_written_synced = False
     messages: list[str] = []
     if lrc_path:
         timed_lines = parse_lrc(lrc_path)
@@ -167,26 +172,56 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                 lrc_written = True
                 messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
     if txt_path:
-        plain_text = sanitize_untimed_text(decode_text_file(txt_path))
-        matching_uslt = [frame for frame in tags.getall("USLT") if frame.lang == language]
-        matching_txxx = [frame for frame in tags.getall("TXXX")
-                         if frame.desc.upper() == "UNSYNCEDLYRICS"
-                         and any(str(value).strip() for value in frame.text)]
-        if not plain_text:
-            messages.append("TXT is empty")
-        elif (matching_uslt or matching_txxx) and not overwrite:
-            messages.append("unsynchronized lyrics exist (skipped)")
+        txt_content = decode_text_file(txt_path)
+        txt_timed_lines = parse_timestamped_text(txt_content)
+        if txt_timed_lines and lrc_path:
+            messages.append("timed TXT ignored because LRC has priority")
+        elif txt_timed_lines:
+            synced_txxx = [frame for frame in tags.getall("TXXX")
+                           if frame.desc.upper() == "SYNCEDLYRICS"
+                           and any(str(value).strip() for value in frame.text)]
+            if (tags.getall("SYLT") or synced_txxx) and not overwrite:
+                messages.append("synchronized lyrics exist (timed TXT skipped)")
+            else:
+                if overwrite:
+                    tags.delall("SYLT")
+                    tags.delall("TXXX:SYNCEDLYRICS")
+                descriptor = "Imported from timed TXT by VirtualDJ Embedded Lyrics"
+                tags.add(SYLT(encoding=Encoding.UTF16, lang=language, format=2, type=1,
+                              desc=descriptor,
+                              text=[(line.text, line.time_ms) for line in txt_timed_lines]))
+                formatted = ["[re:VirtualDJ Embedded Lyrics - imported from timed TXT]"]
+                for line in txt_timed_lines:
+                    minutes, remainder = divmod(line.time_ms, 60000)
+                    seconds, millis = divmod(remainder, 1000)
+                    formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{line.text}")
+                tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS",
+                              text=["\n".join(formatted)]))
+                changed = True
+                txt_written = True
+                txt_written_synced = True
+                messages.append(f"SYLT + SYNCEDLYRICS from timed TXT {len(txt_timed_lines)} lines")
         else:
-            if overwrite:
-                tags.delall("USLT")
-                tags.delall("TXXX:UNSYNCEDLYRICS")
-            tags.add(USLT(encoding=Encoding.UTF16, lang=language,
-                          desc="Imported from TXT", text=plain_text))
-            tags.add(TXXX(encoding=Encoding.UTF16, desc="UNSYNCEDLYRICS",
-                          text=[plain_text]))
-            changed = True
-            txt_written = True
-            messages.append("USLT + UNSYNCEDLYRICS from TXT")
+            plain_text = sanitize_untimed_text(txt_content)
+            matching_uslt = [frame for frame in tags.getall("USLT") if frame.lang == language]
+            matching_txxx = [frame for frame in tags.getall("TXXX")
+                             if frame.desc.upper() == "UNSYNCEDLYRICS"
+                             and any(str(value).strip() for value in frame.text)]
+            if not plain_text:
+                messages.append("TXT is empty")
+            elif (matching_uslt or matching_txxx) and not overwrite:
+                messages.append("unsynchronized lyrics exist (skipped)")
+            else:
+                if overwrite:
+                    tags.delall("USLT")
+                    tags.delall("TXXX:UNSYNCEDLYRICS")
+                tags.add(USLT(encoding=Encoding.UTF16, lang=language,
+                              desc="Imported from TXT", text=plain_text))
+                tags.add(TXXX(encoding=Encoding.UTF16, desc="UNSYNCEDLYRICS",
+                              text=[plain_text]))
+                changed = True
+                txt_written = True
+                messages.append("USLT + UNSYNCEDLYRICS from TXT")
     if changed:
         version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
         tags.save(mp3_path, v2_version=version)
@@ -198,7 +233,13 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                            for frame in verify.getall("TXXX"))
             if not has_sylt or not has_txxx:
                 raise RuntimeError("synchronized lyrics verification failed")
-        if txt_written:
+        if txt_written_synced:
+            has_sylt = bool(verify.getall("SYLT"))
+            has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
+                           for frame in verify.getall("TXXX"))
+            if not has_sylt or not has_txxx:
+                raise RuntimeError("timed TXT lyrics verification failed")
+        elif txt_written:
             has_uslt = any(frame.lang == language and frame.text.strip()
                            for frame in verify.getall("USLT"))
             has_unsynced_txxx = any(frame.desc.upper() == "UNSYNCEDLYRICS" and frame.text
