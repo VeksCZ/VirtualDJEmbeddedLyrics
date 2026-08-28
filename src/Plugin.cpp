@@ -238,11 +238,14 @@ private:
         const auto end = index + 1 < lyrics_.lines.size() ? lyrics_.lines[index + 1].timeMs : lyrics_.lines[index].timeMs + 5000;
         const auto duration = std::max<std::int64_t>(1, end - lyrics_.lines[index].timeMs);
         const auto progress = static_cast<float>(now - lyrics_.lines[index].timeMs) / static_cast<float>(duration);
+        constexpr std::size_t previousLineCount = 2;
+        const auto visibleStart = index > previousLineCount ? index - previousLineCount : 0u;
         const auto visibleEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
         std::vector<std::wstring> visibleLines;
-        visibleLines.reserve(visibleEnd - index);
-        for (auto i = index; i < visibleEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
-        if (!texture_.UpdateTimed(visibleLines, progress, width, height, FontScale(), VerticalPosition()))
+        visibleLines.reserve(visibleEnd - visibleStart);
+        for (auto i = visibleStart; i < visibleEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
+        if (!texture_.UpdateTimed(visibleLines, index - visibleStart, progress, width, height,
+                                  FontScale(), VerticalPosition()))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
 
