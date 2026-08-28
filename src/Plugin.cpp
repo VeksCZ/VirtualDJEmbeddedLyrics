@@ -207,8 +207,13 @@ private:
 #ifndef EMBEDDED_LYRICS_MASTER
     int PluginDeck() {
         double deck = 0.0;
-        if (FAILED(GetInfo("get_plugindeck", &deck))) return 0;
-        return static_cast<int>(deck);
+        if (SUCCEEDED(GetInfo("get_deck", &deck)) && deck > 0.0)
+            return static_cast<int>(deck);
+        if (SUCCEEDED(GetInfo("get_plugindeck", &deck)) && deck > 0.0)
+            return static_cast<int>(deck);
+        if (SUCCEEDED(GetInfo("get_activedeck", &deck)) && deck > 0.0)
+            return static_cast<int>(deck);
+        return 0;
     }
 #else
     int VisibleVideoDeck() {

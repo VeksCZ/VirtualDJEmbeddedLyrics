@@ -45,6 +45,12 @@ foreach ($DllPath in $DllPaths) {
     Write-Host "Installed: $Target"
 }
 if ($Edition -eq "Full") {
+    $VisualisationsDirectory = Join-Path $VirtualDJHome "Plugins64\Visualisations"
+    New-Item -ItemType Directory -Force -Path $VisualisationsDirectory | Out-Null
+    $DeckVisualisation = Join-Path $VisualisationsDirectory "EmbeddedLyricsDeck.dll"
+    Copy-Item -LiteralPath (Join-Path $EditionDirectory "EmbeddedLyricsDeck.dll") -Destination $DeckVisualisation -Force
+    Write-Host "Installed audio-only visualisation: $DeckVisualisation"
+
     $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
     $WriterTarget = Join-Path $TargetDirectory "EmbeddedLyricsTagWriter.py"
     Copy-Item -LiteralPath $Writer -Destination $WriterTarget -Force
