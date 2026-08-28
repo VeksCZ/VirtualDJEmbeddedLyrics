@@ -55,7 +55,8 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
   pages (3–15, default 10).
 - DX11 overlay renderer with alpha blending and graphics-state restoration.
 - Continuous lyric ribbon with three previous lines and top/bottom alpha fades.
-- Independent highlight and scroll timing. Long pauses are persistent timeline
+- Independent highlight timing with continuous scrolling on lyric rows. Long
+  pauses stop on persistent timeline
   rows that enter from below, count down in yellow from five or ten to one
   depending on pause length, and leave above.
 - Timed-line count has a minimum of two so a scroll target is always available.

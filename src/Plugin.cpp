@@ -285,7 +285,9 @@ private:
                 std::max<std::int64_t>(500, interval - scrollDuration));
             highlightProgress = UnitProgress(now, start, highlightDuration);
         }
-        const auto scrollProgress = UnitProgress(now, next - scrollDuration, scrollDuration);
+        const auto scrollProgress = timeline[active].pause
+            ? UnitProgress(now, next - scrollDuration, scrollDuration)
+            : UnitProgress(now, start, interval);
         if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
                                   width, height, FontScale(), VerticalPosition()))
             Diagnostics::Error(L"Failed to update lyrics texture");
