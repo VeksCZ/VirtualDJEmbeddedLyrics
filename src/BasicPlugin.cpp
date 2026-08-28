@@ -46,8 +46,7 @@ public:
         info->Description = "Minimal embedded/LRC/TXT lyrics overlay";
         info->Version = "0.2.0-basic";
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION |
-                      VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OVERLAY;
 #else
         info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif

@@ -87,8 +87,7 @@ public:
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
         info->Version = "0.2.0-rc4";
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION |
-                      VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OVERLAY;
 #else
         info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif
