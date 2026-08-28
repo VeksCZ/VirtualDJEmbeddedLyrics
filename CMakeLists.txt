@@ -68,8 +68,8 @@ if(WIN32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 
-        add_vdj_lyrics_plugin(EmbeddedLyricsDeck "EmbeddedLyricsDeck" FALSE)
-        add_vdj_lyrics_plugin(EmbeddedLyricsMaster "EmbeddedLyricsMaster" TRUE)
+        add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
+        add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" TRUE)
 
         function(add_vdj_basic_plugin target output_name is_master)
             add_library(${target} SHARED
@@ -93,8 +93,8 @@ if(WIN32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 
-        add_vdj_basic_plugin(EmbeddedLyricsDeckBasic "EmbeddedLyricsDeckBasic" FALSE)
-        add_vdj_basic_plugin(EmbeddedLyricsMasterBasic "EmbeddedLyricsMasterBasic" TRUE)
+        add_vdj_basic_plugin(EmbeddedLyricsDeckBasic "LRC Deck Basic" FALSE)
+        add_vdj_basic_plugin(EmbeddedLyricsMasterBasic "LRC Master Basic" TRUE)
 
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp
@@ -109,7 +109,7 @@ if(WIN32)
             set_property(TARGET Blackout PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
         endif()
         target_link_libraries(Blackout PRIVATE lyrics_core d3d11 d3dcompiler)
-        set_target_properties(Blackout PROPERTIES PREFIX "" OUTPUT_NAME "Blackout")
+        set_target_properties(Blackout PROPERTIES PREFIX "" OUTPUT_NAME "LRC BlackOut")
     else()
         message(FATAL_ERROR "VirtualDJ SDK headers were not found")
     endif()

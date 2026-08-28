@@ -4,9 +4,9 @@ LRC Lyrics plugin pro VirtualDJ (Windows 64-bit)
 Obsah
 -----
 
-- EmbeddedLyricsMaster.dll  -> ve VirtualDJ se zobrazí jako "LRC Master"
-- EmbeddedLyricsDeck.dll    -> ve VirtualDJ se zobrazí jako "LRC Deck"
-- Blackout.dll              -> ve VirtualDJ se zobrazí jako "LRC BlackOut"
+- LRC Master.dll  -> ve VirtualDJ se zobrazí jako "LRC Master"
+- LRC Deck.dll    -> ve VirtualDJ se zobrazí jako "LRC Deck"
+- LRC BlackOut.dll              -> ve VirtualDJ se zobrazí jako "LRC BlackOut"
 
 Instalace
 ---------
@@ -18,14 +18,14 @@ Instalace
 
 3. Do této složky zkopírujte:
 
-   EmbeddedLyricsMaster.dll
-   Blackout.dll
+   LRC Master.dll
+   LRC BlackOut.dll
 
 4. Pro použití LRC Deck jako efektu konkrétního decku zkopírujte do stejné
-   složky také EmbeddedLyricsDeck.dll.
+   složky také LRC Deck.dll.
 
 5. Pro zobrazení LRC Deck dole v nabídce "Source for audio-only tracks"
-   zkopírujte EmbeddedLyricsDeck.dll také do:
+   zkopírujte LRC Deck.dll také do:
 
    %LOCALAPPDATA%\VirtualDJ\Plugins64\Visualisations
 

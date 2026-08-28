@@ -9,14 +9,14 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EditionDirectory = Join-Path (Join-Path $ProjectRoot "dist") $Edition.ToLowerInvariant()
 if ($Edition -eq "Basic") {
     $DllPaths = @(
-        (Join-Path $EditionDirectory "EmbeddedLyricsDeckBasic.dll"),
-        (Join-Path $EditionDirectory "EmbeddedLyricsMasterBasic.dll")
+        (Join-Path $EditionDirectory "LRC Deck Basic.dll"),
+        (Join-Path $EditionDirectory "LRC Master Basic.dll")
     )
 } else {
     $DllPaths = @(
-        (Join-Path $EditionDirectory "EmbeddedLyricsDeck.dll"),
-        (Join-Path $EditionDirectory "EmbeddedLyricsMaster.dll"),
-        (Join-Path $EditionDirectory "Blackout.dll")
+        (Join-Path $EditionDirectory "LRC Deck.dll"),
+        (Join-Path $EditionDirectory "LRC Master.dll"),
+        (Join-Path $EditionDirectory "LRC BlackOut.dll")
     )
 }
 if ($DllPaths | Where-Object { -not (Test-Path $_) }) {
@@ -38,6 +38,14 @@ if (-not $VirtualDJHome) {
 }
 
 $TargetDirectory = Join-Path $VirtualDJHome "Plugins64\VideoEffect"
+$LegacyVideoDlls = @("EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll")
+foreach ($LegacyName in $LegacyVideoDlls) {
+    $LegacyPath = Join-Path $TargetDirectory $LegacyName
+    if (Test-Path -LiteralPath $LegacyPath) {
+        Remove-Item -LiteralPath $LegacyPath
+        Write-Host "Removed legacy plugin: $LegacyPath"
+    }
+}
 New-Item -ItemType Directory -Force -Path $TargetDirectory | Out-Null
 foreach ($DllPath in $DllPaths) {
     $Target = Join-Path $TargetDirectory (Split-Path $DllPath -Leaf)
@@ -47,8 +55,13 @@ foreach ($DllPath in $DllPaths) {
 if ($Edition -eq "Full") {
     $VisualisationsDirectory = Join-Path $VirtualDJHome "Plugins64\Visualisations"
     New-Item -ItemType Directory -Force -Path $VisualisationsDirectory | Out-Null
-    $DeckVisualisation = Join-Path $VisualisationsDirectory "EmbeddedLyricsDeck.dll"
-    Copy-Item -LiteralPath (Join-Path $EditionDirectory "EmbeddedLyricsDeck.dll") -Destination $DeckVisualisation -Force
+    $LegacyDeckVisualisation = Join-Path $VisualisationsDirectory "EmbeddedLyricsDeck.dll"
+    if (Test-Path -LiteralPath $LegacyDeckVisualisation) {
+        Remove-Item -LiteralPath $LegacyDeckVisualisation
+        Write-Host "Removed legacy plugin: $LegacyDeckVisualisation"
+    }
+    $DeckVisualisation = Join-Path $VisualisationsDirectory "LRC Deck.dll"
+    Copy-Item -LiteralPath (Join-Path $EditionDirectory "LRC Deck.dll") -Destination $DeckVisualisation -Force
     Write-Host "Installed audio-only visualisation: $DeckVisualisation"
 
     $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
@@ -56,4 +69,4 @@ if ($Edition -eq "Full") {
     Copy-Item -LiteralPath $Writer -Destination $WriterTarget -Force
     Write-Host "Installed: $WriterTarget"
 }
-Write-Host "Restart VirtualDJ. Use Embedded Lyrics Deck on each deck, or Embedded Lyrics Master on master Video FX."
+Write-Host "Restart VirtualDJ. Use LRC Deck for audio-only tracks or LRC Master in master Video FX."

@@ -20,11 +20,19 @@ ctest --test-dir $BuildDirectory -C Release --output-on-failure
 New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $FullDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $BasicDirectory | Out-Null
-Copy-Item (Join-Path $BuildDirectory "Release\EmbeddedLyricsDeck.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\EmbeddedLyricsMaster.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\Blackout.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\EmbeddedLyricsDeckBasic.dll") $BasicDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\EmbeddedLyricsMasterBasic.dll") $BasicDirectory -Force
+$LegacyArtifacts = @(
+    (Join-Path $FullDirectory "EmbeddedLyricsDeck.dll"),
+    (Join-Path $FullDirectory "EmbeddedLyricsMaster.dll"),
+    (Join-Path $FullDirectory "Blackout.dll"),
+    (Join-Path $BasicDirectory "EmbeddedLyricsDeckBasic.dll"),
+    (Join-Path $BasicDirectory "EmbeddedLyricsMasterBasic.dll")
+)
+$LegacyArtifacts | Where-Object { Test-Path -LiteralPath $_ } | Remove-Item
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory -Force
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory -Force
+Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory -Force
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck Basic.dll") $BasicDirectory -Force
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Master Basic.dll") $BasicDirectory -Force
 Write-Host "Release created:"
 Write-Host "  Full:  $FullDirectory"
 Write-Host "  Basic: $BasicDirectory"
