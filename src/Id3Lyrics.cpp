@@ -161,6 +161,17 @@ LyricsLoadResult ParseTimestampedText(const std::wstring& text, const std::wstri
     return result;
 }
 
+std::wstring SanitizeUntimedLine(std::wstring line) {
+    static const std::wregex leadingTimestamps(
+        LR"(^\s*(?:[\(\[]\d{1,3}:\d{2}(?:[\.:]\d{1,3})?[\)\]]\s*)+)");
+    static const std::wregex wordTimestamps(LR"(<\d{1,3}:\d{2}[\.:]\d{1,3}>)");
+    static const std::wregex metadata(LR"(^\s*\[[A-Za-z]{1,8}:.*\]\s*$)");
+    if (std::regex_match(line, metadata)) return {};
+    line = std::regex_replace(line, leadingTimestamps, L"");
+    line = std::regex_replace(line, wordTimestamps, L"");
+    return line;
+}
+
 LyricsLoadResult ParseTxxxUntimedLyrics(std::span<const unsigned char> frame) {
     LyricsLoadResult result;
     if (frame.size() < 4) return result;
@@ -176,7 +187,7 @@ LyricsLoadResult ParseTxxxUntimedLyrics(std::span<const unsigned char> frame) {
     std::size_t start = 0;
     while (start <= value.size()) {
         const auto end = value.find_first_of(L"\r\n", start);
-        auto line = value.substr(start, end == std::wstring::npos ? end : end - start);
+        auto line = SanitizeUntimedLine(value.substr(start, end == std::wstring::npos ? end : end - start));
         if (!line.empty()) result.document.lines.push_back({0, std::move(line), {}});
         if (end == std::wstring::npos) break;
         start = value.find_first_not_of(L"\r\n", end);
@@ -291,7 +302,7 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
                 std::size_t start = 0;
                 while (start <= value.size()) {
                     const auto end = value.find_first_of(L"\r\n", start);
-                    auto line = value.substr(start, end == std::wstring::npos ? end : end - start);
+                    auto line = SanitizeUntimedLine(value.substr(start, end == std::wstring::npos ? end : end - start));
                     if (!line.empty()) candidate.document.lines.push_back({0, std::move(line), {}});
                     if (end == std::wstring::npos) break;
                     start = value.find_first_not_of(L"\r\n", end);

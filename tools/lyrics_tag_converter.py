@@ -12,6 +12,10 @@ from pathlib import Path
 
 LINE_TIMESTAMP = re.compile(r"\[(?P<minutes>\d{1,3}):(?P<seconds>\d{2})[.:](?P<fraction>\d{1,3})\]")
 WORD_TIMESTAMP = re.compile(r"<\d{1,3}:\d{2}[.:]\d{1,3}>")
+UNTIMED_TIMESTAMP = re.compile(
+    r"^\s*(?:[\[(]\d{1,3}:\d{2}(?:[.:]\d{1,3})?[\])]\s*)+"
+)
+LRC_METADATA = re.compile(r"^\s*\[[a-zA-Z]{1,8}:.*]\s*$")
 
 
 @dataclass(frozen=True)
@@ -28,6 +32,18 @@ def decode_text_file(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", errors="replace")
+
+
+def sanitize_untimed_text(text: str) -> str:
+    """Remove LRC timing/metadata while preserving ordinary lyric line breaks."""
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        if LRC_METADATA.match(raw_line):
+            continue
+        line = UNTIMED_TIMESTAMP.sub("", raw_line)
+        line = WORD_TIMESTAMP.sub("", line).strip()
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def timestamp_ms(match: re.Match[str]) -> int:
@@ -151,7 +167,7 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                 lrc_written = True
                 messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
     if txt_path:
-        plain_text = decode_text_file(txt_path).strip()
+        plain_text = sanitize_untimed_text(decode_text_file(txt_path))
         matching_uslt = [frame for frame in tags.getall("USLT") if frame.lang == language]
         matching_txxx = [frame for frame in tags.getall("TXXX")
                          if frame.desc.upper() == "UNSYNCEDLYRICS"
