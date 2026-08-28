@@ -15,7 +15,7 @@ py tools\lyrics_tag_converter.py "%TARGET%"
 if errorlevel 1 goto :failed
 
 echo.
-choice /C YN /N /M "Write SYLT and TXXX:SYNCEDLYRICS tags? [Y/N] "
+choice /C YN /N /M "Write LRC to synced tags and TXT to unsynced tags? [Y/N] "
 if errorlevel 2 goto :done
 
 choice /C YN /N /M "Delete each LRC after both tags are verified? [Y/N] "

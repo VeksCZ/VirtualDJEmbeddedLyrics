@@ -148,30 +148,44 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                 messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
     if txt_path:
         plain_text = decode_text_file(txt_path).strip()
-        matching = [frame for frame in tags.getall("USLT") if frame.lang == language]
+        matching_uslt = [frame for frame in tags.getall("USLT") if frame.lang == language]
+        matching_txxx = [frame for frame in tags.getall("TXXX")
+                         if frame.desc.upper() == "UNSYNCEDLYRICS"
+                         and any(str(value).strip() for value in frame.text)]
         if not plain_text:
             messages.append("TXT is empty")
-        elif matching and not overwrite:
-            messages.append(f"USLT/{language} exists (skipped)")
+        elif (matching_uslt or matching_txxx) and not overwrite:
+            messages.append("unsynchronized lyrics exist (skipped)")
         else:
             if overwrite:
                 tags.delall("USLT")
+                tags.delall("TXXX:UNSYNCEDLYRICS")
             tags.add(USLT(encoding=Encoding.UTF16, lang=language,
                           desc="Imported from TXT", text=plain_text))
+            tags.add(TXXX(encoding=Encoding.UTF16, desc="UNSYNCEDLYRICS",
+                          text=[plain_text]))
             changed = True
-            messages.append("USLT from TXT")
+            messages.append("USLT + UNSYNCEDLYRICS from TXT")
     if changed:
         version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
         tags.save(mp3_path, v2_version=version)
-    if lrc_path and changed:
+    if changed:
         verify = ID3(mp3_path)
-        has_sylt = bool(verify.getall("SYLT"))
-        has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
-                       for frame in verify.getall("TXXX"))
-        if not has_sylt or not has_txxx:
-            raise RuntimeError("synchronized lyrics verification failed")
+        if lrc_path and timed_lines:
+            has_sylt = bool(verify.getall("SYLT"))
+            has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
+                           for frame in verify.getall("TXXX"))
+            if not has_sylt or not has_txxx:
+                raise RuntimeError("synchronized lyrics verification failed")
+        if txt_path and plain_text:
+            has_uslt = any(frame.lang == language and frame.text.strip()
+                           for frame in verify.getall("USLT"))
+            has_unsynced_txxx = any(frame.desc.upper() == "UNSYNCEDLYRICS" and frame.text
+                                    for frame in verify.getall("TXXX"))
+            if not has_uslt or not has_unsynced_txxx:
+                raise RuntimeError("unsynchronized lyrics verification failed")
         messages.append("verified")
-        if delete_lrc:
+        if lrc_path and delete_lrc:
             lrc_path.unlink()
             messages.append("LRC deleted")
     return "; ".join(messages), changed
@@ -220,7 +234,8 @@ def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "--write-recording":
         return write_recording(Path(sys.argv[2]), Path(sys.argv[3]))
     parser = argparse.ArgumentParser(
-        description="Find same-name MP3/LRC/TXT files; write LRC to SYLT and TXT to USLT.")
+        description=("Find same-name MP3/LRC/TXT files; write LRC to SYLT + "
+                     "SYNCEDLYRICS and TXT to USLT + UNSYNCEDLYRICS."))
     parser.add_argument(
         "root", nargs="?", type=Path, default=Path(__file__).resolve().parent,
         help="MP3, LRC, TXT, or library directory; default: the script's own directory",
