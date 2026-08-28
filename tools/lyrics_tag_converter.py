@@ -153,7 +153,48 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
     return "; ".join(messages), changed
 
 
+def write_recording(mp3_path: Path, timing_path: Path) -> int:
+    try:
+        from mutagen.id3 import Encoding, ID3, ID3NoHeaderError, SYLT, TXXX
+    except ImportError:
+        return 2
+    try:
+        tags = ID3(mp3_path)
+    except ID3NoHeaderError:
+        tags = ID3()
+    synced_txxx = [frame for frame in tags.getall("TXXX")
+                   if frame.desc.upper() in ("SYNCEDLYRICS", "USLT", "LYRICS")
+                   and any(str(value).strip() for value in frame.text)]
+    if tags.getall("SYLT") or synced_txxx:
+        return 3
+    entries: list[tuple[str, int]] = []
+    for raw in timing_path.read_text(encoding="utf-8").splitlines():
+        timestamp, separator, text = raw.partition("\t")
+        if separator and text and int(timestamp) >= 0:
+            entries.append((text, int(timestamp)))
+    if not entries:
+        return 4
+    descriptor = "Manually timed in VirtualDJ Embedded Lyrics"
+    tags.add(SYLT(encoding=Encoding.UTF16, lang="und", format=2, type=1,
+                  desc=descriptor, text=entries))
+    formatted = ["[re:VirtualDJ Embedded Lyrics - manual timing]"]
+    for text, milliseconds in entries:
+        minutes, remainder = divmod(milliseconds, 60000)
+        seconds, millis = divmod(remainder, 1000)
+        formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{text}")
+    tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS", text=["\n".join(formatted)]))
+    version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
+    tags.save(mp3_path, v2_version=version)
+    verify = ID3(mp3_path)
+    if not verify.getall("SYLT") or not any(frame.desc.upper() == "SYNCEDLYRICS" for frame in verify.getall("TXXX")):
+        return 5
+    timing_path.unlink(missing_ok=True)
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 4 and sys.argv[1] == "--write-recording":
+        return write_recording(Path(sys.argv[2]), Path(sys.argv[3]))
     parser = argparse.ArgumentParser(
         description="Find same-name MP3/LRC/TXT files; write LRC to SYLT and TXT to USLT.")
     parser.add_argument(

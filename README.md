@@ -30,8 +30,8 @@ or `Install-Basic.cmd`. VirtualDJ itself loads the DLL files copied into its
 1. Timestamped `TXXX:USLT`, `TXXX:LYRICS`, or `TXXX:SYNCEDLYRICS`, including
    the format written by TIDAL-GUI-NG.
 2. A synchronized ID3v2 `SYLT` frame.
-3. A UTF-8 `.lrc` file with the same basename in the same directory.
-4. Unsynchronized lyrics in the standard ID3v2 `USLT` frame.
+3. `TXXX:UNSYNCEDLYRICS`, then standard ID3v2 `USLT`.
+4. A UTF-8 `.lrc` file with the same basename in the same directory.
 5. A UTF-8 `.txt` file with the same basename in the same directory.
 
 Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
@@ -59,7 +59,12 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
   pauses stop on persistent timeline
   rows that enter from below, count down in yellow from five or ten to one
   depending on pause length, and leave above.
-- Timed-line count has a minimum of two so a scroll target is always available.
+- Timed and untimed line counts are independently adjustable from 5 to 12.
+- Full untimed lyrics use smooth Next/Previous line scrolling instead of pages.
+  Optional `Record timing` captures each newly highlighted line, waits until
+  the MP3 is unloaded from decks 1–4, then writes both ID3 `SYLT` and
+  `TXXX:SYNCEDLYRICS`. Provenance is stored in the SYLT descriptor and an
+  ignored `[re:...]` metadata line; no LRC is created.
 - Independent per-deck timing through `get_plugindeck` in the deck variant.
 - Stable selection of the audible left/right deck using `get_crossfader_result`
   in the master variant.

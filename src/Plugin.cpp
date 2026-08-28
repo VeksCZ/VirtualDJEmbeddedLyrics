@@ -16,60 +16,50 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <functional>
 #include <shellapi.h>
+
+namespace {
+int moduleAnchor;
+std::filesystem::path PluginDirectory() {
+    HMODULE module{};
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&moduleAnchor), &module);
+    std::wstring path(32768, L'\0');
+    path.resize(GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size())));
+    return std::filesystem::path(path).parent_path();
+}
+}
 
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
-        if (FAILED(DeclareParameterButton(&nextPageButton_, 1, "Next lyrics page", "Next")) ||
-            FAILED(DeclareParameterButton(&previousPageButton_, 2, "Previous lyrics page", "Prev")) ||
+        if (FAILED(DeclareParameterButton(&nextLineButton_, 1, "Next line / tap timestamp", "Next")) ||
+            FAILED(DeclareParameterButton(&previousLineButton_, 2, "Previous line", "Prev")) ||
             FAILED(DeclareParameterSlider(&fontSizeParameter_, 3, "Font size", "Size", 1.0f / 3.0f)) ||
-            FAILED(DeclareParameterButton(&nextLineButton_, 4, "Next highlighted line", "Line +")) ||
-            FAILED(DeclareParameterButton(&previousLineButton_, 5, "Previous highlighted line", "Line -")) ||
+            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 4, "Record timing to embedded tags", "Record timing", false)) ||
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 6, "Vertical position", "Position", 0.5f)) ||
             FAILED(DeclareParameterButton(&editTextButton_, 7, "Edit lyrics TXT", "Edit TXT")) ||
-            FAILED(DeclareParameterSlider(&pageLinesParameter_, 8, "Untimed lines", "Page lines", 7.0f / 12.0f)) ||
-            FAILED(DeclareParameterSlider(&timedLinesParameter_, 9, "Timed lines", "Timed lines", 0.6f))
+            FAILED(DeclareParameterSlider(&pageLinesParameter_, 8, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
+            FAILED(DeclareParameterSlider(&timedLinesParameter_, 9, "Timed lines", "Timed lines", 2.0f / 7.0f))
 #ifdef EMBEDDED_LYRICS_MASTER
-            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 10,
-                                             "Use volume faders", "Upfaders", true))
+            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 10, "Use volume faders", "Upfaders", true))
 #endif
-            ) {
-            Diagnostics::Error(L"VirtualDJ rejected one or more plugin parameters");
-            return E_FAIL;
-        }
+            ) return E_FAIL;
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
     }
     HRESULT VDJ_API OnParameter(int id) override {
-        if (id == 1 && nextPageButton_) {
-            const auto pageSize = PageSize();
-            const auto pageCount = std::max<std::size_t>(1, (lyrics_.lines.size() + pageSize - 1) / pageSize);
-            page_ = std::min(page_ + 1, pageCount - 1);
-            activeLine_ = std::min(page_ * pageSize, lyrics_.lines.empty() ? 0u : lyrics_.lines.size() - 1);
-            nextPageButton_ = 0;
-        } else if (id == 2 && previousPageButton_) {
-            if (page_ > 0) --page_;
-            activeLine_ = page_ * PageSize();
-            previousPageButton_ = 0;
-        } else if (id == 4 && nextLineButton_) {
-            if (!lyrics_.synchronized && !lyrics_.lines.empty()) {
-                activeLine_ = std::min(activeLine_ + 1, lyrics_.lines.size() - 1);
-                page_ = activeLine_ / PageSize();
-            }
-            nextLineButton_ = 0;
-        } else if (id == 5 && previousLineButton_) {
-            if (!lyrics_.synchronized && activeLine_ > 0) {
-                --activeLine_;
-                page_ = activeLine_ / PageSize();
-            }
+        if (id == 1 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
+        else if (id == 2 && previousLineButton_) {
+            if (!lyrics_.synchronized && activeLine_ > 0) BeginUntimedScroll(activeLine_ - 1);
             previousLineButton_ = 0;
-        } else if (id == 7 && editTextButton_) {
-            OpenTextEditor();
-            editTextButton_ = 0;
-        } else if (id == 8) {
-            page_ = activeLine_ / PageSize();
-        }
+        } else if (id == 4) {
+            recordedTimes_.assign(lyrics_.lines.size(), -1);
+            recordingNextLine_ = 0;
+            if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
+        } else if (id == 7 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
         return S_OK;
     }
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
@@ -129,6 +119,7 @@ public:
         renderer_.Reset(); texture_.Reset(); device_ = nullptr; return S_OK;
     }
     HRESULT VDJ_API OnDraw() override {
+        TryCommitPendingRecording();
 #ifndef EMBEDDED_LYRICS_MASTER
         if (!backgroundRenderer_.Draw()) Diagnostics::Error(L"Failed to render audio-only background");
 #endif
@@ -137,6 +128,7 @@ public:
 #else
         const auto deck = PluginDeck();
 #endif
+        currentDeck_ = deck;
         if (deck <= 0) {
 #ifndef EMBEDDED_LYRICS_MASTER
             if (!texture_.UpdateMessage(L"Zapni Deck verzi ve Video FX konkretniho decku",
@@ -168,8 +160,11 @@ public:
             texture_.Reset();
             lyrics_ = {};
             lyricsLoadFinished_ = false;
-            page_ = 0;
             activeLine_ = 0;
+            untimedScrollActive_ = false;
+            recordTimingParameter_ = 0;
+            recordedTimes_.clear();
+            recordingNextLine_ = 0;
             CaptureTextTimestamp();
             loader_.Request(path);
             Diagnostics::Info(L"Queued asynchronous lyrics load: " + path.wstring());
@@ -193,12 +188,8 @@ public:
             return S_OK;
         }
         if (!lyrics_.synchronized) {
-            std::vector<std::wstring> lines;
-            lines.reserve(lyrics_.lines.size());
-            for (const auto& line : lyrics_.lines) lines.push_back(line.text);
-            if (!texture_.UpdatePage(lines, page_, PageSize(), activeLine_, width, height,
-                                     FontScale(), VerticalPosition()) || !renderer_.Draw(texture_.View()))
-                Diagnostics::Error(L"Failed to render untimed lyrics page");
+            if (!UpdateUntimedRibbon() || !renderer_.Draw(texture_.View()))
+                Diagnostics::Error(L"Failed to render untimed lyrics ribbon");
             return S_OK;
         }
         double elapsedMs = 0.0;
@@ -302,11 +293,82 @@ private:
     }
 
     std::size_t PageSize() const noexcept {
-        return 3 + static_cast<std::size_t>(std::clamp(pageLinesParameter_, 0.0f, 1.0f) * 12.0f + 0.5f);
+        return 5 + static_cast<std::size_t>(std::clamp(pageLinesParameter_, 0.0f, 1.0f) * 7.0f + 0.5f);
+    }
+    std::size_t TimedLineCount() const noexcept {
+        return 5 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 7.0f + 0.5f);
     }
 
-    std::size_t TimedLineCount() const noexcept {
-        return 2 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 4.0f + 0.5f);
+    void BeginUntimedScroll(std::size_t target) {
+        if (lyrics_.lines.empty()) return;
+        target = std::min(target, lyrics_.lines.size() - 1);
+        if (target == activeLine_) return;
+        scrollFromLine_ = activeLine_; activeLine_ = target;
+        untimedScrollStarted_ = std::chrono::steady_clock::now();
+        untimedScrollActive_ = target > scrollFromLine_;
+    }
+    bool UpdateUntimedRibbon() {
+        if (lyrics_.lines.empty()) return false;
+        auto renderActive = activeLine_; float scroll = 0.0f;
+        if (untimedScrollActive_) {
+            scroll = std::clamp(std::chrono::duration<float>(std::chrono::steady_clock::now() - untimedScrollStarted_).count() / 0.45f, 0.0f, 1.0f);
+            if (scroll < 1.0f) renderActive = scrollFromLine_;
+            else { untimedScrollActive_ = false; scroll = 0.0f; }
+        }
+        const auto first = renderActive > 3 ? renderActive - 3 : 0u;
+        const auto end = std::min(lyrics_.lines.size(), renderActive + PageSize());
+        std::vector<std::wstring> visible; visible.reserve(end - first);
+        for (auto i = first; i < end; ++i) visible.push_back(lyrics_.lines[i].text);
+        return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
+                                    width, height, FontScale(), VerticalPosition());
+    }
+    void AdvanceUntimedLine() {
+        if (lyrics_.synchronized || lyrics_.lines.empty()) return;
+        if (!recordTimingParameter_) {
+            if (activeLine_ + 1 < lyrics_.lines.size()) BeginUntimedScroll(activeLine_ + 1);
+            return;
+        }
+        if (recordingNextLine_ >= lyrics_.lines.size() || currentDeck_ <= 0) return;
+        double elapsed = 0.0; char command[128]{};
+        std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", currentDeck_);
+        if (FAILED(GetInfo(command, &elapsed))) return;
+        const auto target = recordingNextLine_++;
+        if (target != activeLine_) BeginUntimedScroll(target);
+        recordedTimes_[target] = static_cast<std::int64_t>(elapsed);
+        if (recordingNextLine_ == lyrics_.lines.size()) QueueTimingRecording();
+    }
+    static std::string Utf8(const std::wstring& value) {
+        if (value.empty()) return {};
+        const auto size = WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),nullptr,0,nullptr,nullptr);
+        std::string result(static_cast<std::size_t>(size),'\0');
+        WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),result.data(),size,nullptr,nullptr);
+        return result;
+    }
+    void QueueTimingRecording() {
+        auto extension = loadedPath_.extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+        if (extension != L".mp3") return;
+        std::error_code error;
+        pendingTimingPath_ = std::filesystem::temp_directory_path(error) /
+            (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(loadedPath_.wstring())) + L".timing");
+        std::ofstream output(pendingTimingPath_, std::ios::binary | std::ios::trunc);
+        for (std::size_t i=0;i<lyrics_.lines.size();++i) output << recordedTimes_[i] << '\t' << Utf8(lyrics_.lines[i].text) << '\n';
+        output.close(); pendingAudioPath_ = loadedPath_; pendingTimingWrite_ = true; recordTimingParameter_ = 0;
+        Diagnostics::Info(L"Timing recorded; waiting for track unload");
+    }
+    bool TrackLoadedAnywhere(const std::filesystem::path& path) {
+        for (int deck=1; deck<=4; ++deck) { char command[64]{}, value[4096]{}; std::snprintf(command,sizeof(command),"deck %d get_filepath",deck);
+            if (SUCCEEDED(GetStringInfo(command,value,sizeof(value))) && std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(value))) == path) return true; }
+        return false;
+    }
+    void TryCommitPendingRecording() {
+        if (!pendingTimingWrite_ || TrackLoadedAnywhere(pendingAudioPath_)) return;
+        const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
+        std::wstring command = L"py.exe \""+script.wstring()+L"\" --write-recording \""+pendingAudioPath_.wstring()+L"\" \""+pendingTimingPath_.wstring()+L"\"";
+        STARTUPINFOW startup{}; startup.cb=sizeof(startup); PROCESS_INFORMATION process{};
+        if (!CreateProcessW(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)) return;
+        CloseHandle(process.hThread); CloseHandle(process.hProcess); pendingTimingWrite_=false;
+        Diagnostics::Info(L"Queued embedded SYLT and SYNCEDLYRICS write");
     }
 
     std::filesystem::path TextPath() const {
@@ -364,17 +426,14 @@ private:
     std::filesystem::path loadedPath_;
     LyricsDocument lyrics_;
     bool lyricsLoadFinished_{};
-    int nextPageButton_{};
-    int previousPageButton_{};
-    float fontSizeParameter_{1.0f / 3.0f};
-    int nextLineButton_{};
-    int previousLineButton_{};
-    float verticalPositionParameter_{0.5f};
-    int editTextButton_{};
-    float pageLinesParameter_{7.0f / 12.0f};
-    float timedLinesParameter_{0.6f};
-    std::size_t page_{};
-    std::size_t activeLine_{};
+    int nextLineButton_{}; int previousLineButton_{};
+    float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
+    float verticalPositionParameter_{0.5f}; int editTextButton_{};
+    float pageLinesParameter_{2.0f / 7.0f}; float timedLinesParameter_{2.0f / 7.0f};
+    std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
+    std::chrono::steady_clock::time_point untimedScrollStarted_{};
+    std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
+    bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     std::optional<std::filesystem::file_time_type> textWriteTime_;
     std::chrono::steady_clock::time_point nextTextCheck_{};
 #ifdef EMBEDDED_LYRICS_MASTER

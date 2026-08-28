@@ -4,13 +4,13 @@ LyricsLoadResult LoadLyricsForTrack(const std::filesystem::path& audioPath) {
     auto embedded = LoadEmbeddedTimedLyrics(audioPath);
     if (!embedded.document.empty()) return embedded;
 
+    auto untimed = LoadEmbeddedUntimedLyrics(audioPath);
+    if (!untimed.document.empty()) return untimed;
+
     auto lrcPath = audioPath;
     lrcPath.replace_extension(L".lrc");
     auto sidecar = LoadLrc(lrcPath);
     if (!sidecar.document.empty()) return sidecar;
-
-    auto untimed = LoadEmbeddedUntimedLyrics(audioPath);
-    if (!untimed.document.empty()) return untimed;
 
     auto textPath = audioPath;
     textPath.replace_extension(L".txt");

@@ -44,4 +44,10 @@ foreach ($DllPath in $DllPaths) {
     Copy-Item $DllPath $Target -Force
     Write-Host "Installed: $Target"
 }
+if ($Edition -eq "Full") {
+    $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
+    $WriterTarget = Join-Path $TargetDirectory "EmbeddedLyricsTagWriter.py"
+    Copy-Item -LiteralPath $Writer -Destination $WriterTarget -Force
+    Write-Host "Installed: $WriterTarget"
+}
 Write-Host "Restart VirtualDJ. Use Embedded Lyrics Deck on each deck, or Embedded Lyrics Master on master Video FX."

@@ -161,6 +161,32 @@ LyricsLoadResult ParseTimestampedText(const std::wstring& text, const std::wstri
     return result;
 }
 
+LyricsLoadResult ParseTxxxUntimedLyrics(std::span<const unsigned char> frame) {
+    LyricsLoadResult result;
+    if (frame.size() < 4) return result;
+    const auto encoding = frame[0];
+    const auto descriptionEnd = FindTerminator(frame, 1, encoding);
+    if (descriptionEnd >= frame.size()) return result;
+    const auto description = DecodeText(frame.subspan(1, descriptionEnd - 1), encoding);
+    if (description != L"UNSYNCEDLYRICS") return result;
+    const auto valueStart = descriptionEnd + ((encoding == 1 || encoding == 2) ? 2u : 1u);
+    if (valueStart >= frame.size()) return result;
+    auto value = DecodeText(frame.subspan(valueStart), encoding);
+    while (!value.empty() && value.back() == L'\0') value.pop_back();
+    std::size_t start = 0;
+    while (start <= value.size()) {
+        const auto end = value.find_first_of(L"\r\n", start);
+        auto line = value.substr(start, end == std::wstring::npos ? end : end - start);
+        if (!line.empty()) result.document.lines.push_back({0, std::move(line), {}});
+        if (end == std::wstring::npos) break;
+        start = value.find_first_not_of(L"\r\n", end);
+        if (start == std::wstring::npos) break;
+    }
+    result.document.source = L"embedded TXXX:UNSYNCEDLYRICS";
+    result.document.synchronized = false;
+    return result;
+}
+
 LyricsLoadResult ParseTxxxTimedLyrics(std::span<const unsigned char> frame) {
     LyricsLoadResult result;
     if (frame.size() < 4) { result.error = L"TXXX frame is truncated"; return result; }
@@ -233,16 +259,15 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
     unsigned char header[10]{};
     if (!input.read(reinterpret_cast<char*>(header), sizeof(header)) ||
         header[0] != 'I' || header[1] != 'D' || header[2] != '3') {
-        result.error = L"No ID3v2 tag";
-        return result;
+        result.error = L"No ID3v2 tag"; return result;
     }
     const auto version = header[3];
     if (version < 3 || version > 4) { result.error = L"Unsupported ID3v2 version"; return result; }
     std::vector<unsigned char> tag(ReadSynchsafe(header + 6));
     if (!input.read(reinterpret_cast<char*>(tag.data()), static_cast<std::streamsize>(tag.size()))) {
-        result.error = L"ID3v2 tag is truncated";
-        return result;
+        result.error = L"ID3v2 tag is truncated"; return result;
     }
+    LyricsLoadResult txxxLyrics, usltFallback;
     std::size_t pos = 0;
     while (pos + 10 <= tag.size()) {
         const auto* h = tag.data() + pos;
@@ -251,7 +276,10 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
         const auto size = version == 4 ? ReadSynchsafe(h + 4) : ReadBigEndian(h + 4);
         pos += 10;
         if (size > tag.size() - pos) break;
-        if (id == "USLT" && size >= 5) {
+        if (id == "TXXX") {
+            auto candidate = ParseTxxxUntimedLyrics(std::span(tag).subspan(pos, size));
+            if (!candidate.document.empty()) txxxLyrics = std::move(candidate);
+        } else if (id == "USLT" && size >= 5) {
             const auto frame = std::span(tag).subspan(pos, size);
             const auto encoding = frame[0];
             const auto descriptorEnd = FindTerminator(frame, 4, encoding);
@@ -259,24 +287,25 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
             if (valueStart < frame.size()) {
                 auto value = DecodeText(frame.subspan(valueStart), encoding);
                 while (!value.empty() && value.back() == L'\0') value.pop_back();
-                std::size_t lineStart = 0;
-                while (lineStart <= value.size()) {
-                    const auto lineEnd = value.find_first_of(L"\r\n", lineStart);
-                    auto line = value.substr(lineStart, lineEnd == std::wstring::npos ? lineEnd : lineEnd - lineStart);
-                    result.document.lines.push_back({0, std::move(line), {}});
-                    if (lineEnd == std::wstring::npos) break;
-                    lineStart = value.find_first_not_of(L"\r\n", lineEnd);
-                    if (lineStart == std::wstring::npos) break;
+                LyricsLoadResult candidate;
+                std::size_t start = 0;
+                while (start <= value.size()) {
+                    const auto end = value.find_first_of(L"\r\n", start);
+                    auto line = value.substr(start, end == std::wstring::npos ? end : end - start);
+                    if (!line.empty()) candidate.document.lines.push_back({0, std::move(line), {}});
+                    if (end == std::wstring::npos) break;
+                    start = value.find_first_not_of(L"\r\n", end);
+                    if (start == std::wstring::npos) break;
                 }
-                while (!result.document.lines.empty() && result.document.lines.back().text.empty())
-                    result.document.lines.pop_back();
-                result.document.source = L"embedded ID3 USLT";
-                result.document.synchronized = false;
-                if (!result.document.empty()) return result;
+                candidate.document.source = L"embedded ID3 USLT";
+                candidate.document.synchronized = false;
+                if (!candidate.document.empty()) usltFallback = std::move(candidate);
             }
         }
         pos += size;
     }
+    if (!txxxLyrics.document.empty()) return txxxLyrics;
+    if (!usltFallback.document.empty()) return usltFallback;
     result.error = L"No unsynchronized embedded lyrics";
     return result;
 }
