@@ -11,8 +11,9 @@ public:
         info->PluginName = "LRC BlackOut";
         info->Author = "Slava / OpenAI";
         info->Description = "Pure black video curtain";
-        info->Version = "1.0.0";
-        info->Flags = VDJFLAG_PROCESSFIRST | VDJFLAG_VIDEO_OVERLAY;
+        info->Version = "0.2.0";
+        info->Flags = VDJFLAG_PROCESSFIRST | VDJFLAG_VIDEO_MASTERONLY |
+                      VDJFLAG_VIDEO_OVERLAY;
         info->Bitmap = nullptr;
         return S_OK;
     }

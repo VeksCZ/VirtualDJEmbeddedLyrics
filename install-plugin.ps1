@@ -1,40 +1,24 @@
-param(
-    [string]$VirtualDJHome = "",
-    [ValidateSet("Full", "Basic")]
-    [string]$Edition = "Full"
-)
+param([string]$VirtualDJHome = "")
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$EditionDirectory = Join-Path (Join-Path $ProjectRoot "dist") $Edition.ToLowerInvariant()
-if ($Edition -eq "Basic") {
-    $DllPaths = @(
-        (Join-Path $EditionDirectory "LRC Deck Basic.dll"),
-        (Join-Path $EditionDirectory "LRC Master Basic.dll")
-    )
-} else {
-    $DllPaths = @(
-        (Join-Path $EditionDirectory "LRC Master.dll"),
-        (Join-Path $EditionDirectory "LRC BlackOut.dll")
-    )
-}
-$DeckVisualisationSource = if ($Edition -eq "Full") {
-    Join-Path $EditionDirectory "LRC Deck.dll"
-} else {
-    Join-Path $EditionDirectory "LRC Deck Basic.dll"
-}
-if (-not (Test-Path -LiteralPath $DeckVisualisationSource)) {
-    throw "Deck visualisation DLL was not found. Run build-release.ps1 first."
-}
-if ($DllPaths | Where-Object { -not (Test-Path $_) }) {
-    throw "Plugin DLL files were not found. Run build-release.ps1 first."
+$ReleaseDirectory = Join-Path $ProjectRoot "dist\full"
+$DeckDll = Join-Path $ReleaseDirectory "LRC Deck.dll"
+$MasterDll = Join-Path $ReleaseDirectory "LRC Master.dll"
+$BlackoutDll = Join-Path $ReleaseDirectory "LRC BlackOut.dll"
+$Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
+
+foreach ($required in @($DeckDll, $MasterDll, $BlackoutDll, $Writer)) {
+    if (-not (Test-Path -LiteralPath $required)) {
+        throw "Required release file was not found: $required. Run build-release.ps1 first."
+    }
 }
 
 if (-not $VirtualDJHome) {
     $Candidates = @(
         (Join-Path $env:LOCALAPPDATA "VirtualDJ"),
         (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "VirtualDJ")
-    ) | Where-Object { Test-Path $_ }
+    ) | Where-Object { Test-Path -LiteralPath $_ }
     if ($Candidates.Count -eq 1) {
         $VirtualDJHome = $Candidates[0]
     } elseif ($Candidates.Count -gt 1) {
@@ -44,36 +28,48 @@ if (-not $VirtualDJHome) {
     }
 }
 
-$TargetDirectory = Join-Path $VirtualDJHome "Plugins64\VideoEffect"
-$LegacyVideoDlls = @("EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll", "LRC Deck.dll")
-foreach ($LegacyName in $LegacyVideoDlls) {
-    $LegacyPath = Join-Path $TargetDirectory $LegacyName
-    if (Test-Path -LiteralPath $LegacyPath) {
-        Remove-Item -LiteralPath $LegacyPath
-        Write-Host "Removed legacy plugin: $LegacyPath"
+$PluginsRoot = Join-Path $VirtualDJHome "Plugins64"
+$OverlayDirectory = Join-Path $PluginsRoot "VideoOverlay"
+$VisualisationsDirectory = Join-Path $PluginsRoot "Visualisations"
+$LegacyDirectories = @(
+    (Join-Path $PluginsRoot "VideoEffect"),
+    $OverlayDirectory,
+    $VisualisationsDirectory,
+    (Join-Path $PluginsRoot "VideoSource")
+)
+$LegacyNames = @(
+    "EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll",
+    "LRC Deck Basic.dll", "LRC Master Basic.dll", "EmbeddedLyricsTagWriter.py"
+)
+foreach ($directory in $LegacyDirectories) {
+    foreach ($name in $LegacyNames) {
+        $path = Join-Path $directory $name
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path
+            Write-Host "Removed legacy file: $path"
+        }
     }
 }
-New-Item -ItemType Directory -Force -Path $TargetDirectory | Out-Null
-foreach ($DllPath in $DllPaths) {
-    $Target = Join-Path $TargetDirectory (Split-Path $DllPath -Leaf)
-    Copy-Item $DllPath $Target -Force
-    Write-Host "Installed: $Target"
-}
-if ($Edition -eq "Full") {
-    $VisualisationsDirectory = Join-Path $VirtualDJHome "Plugins64\Visualisations"
-    New-Item -ItemType Directory -Force -Path $VisualisationsDirectory | Out-Null
-    $LegacyDeckVisualisation = Join-Path $VisualisationsDirectory "EmbeddedLyricsDeck.dll"
-    if (Test-Path -LiteralPath $LegacyDeckVisualisation) {
-        Remove-Item -LiteralPath $LegacyDeckVisualisation
-        Write-Host "Removed legacy plugin: $LegacyDeckVisualisation"
+foreach ($misplacedName in @("LRC Deck.dll", "LRC Master.dll", "LRC BlackOut.dll")) {
+    $misplaced = Join-Path (Join-Path $PluginsRoot "VideoEffect") $misplacedName
+    if (Test-Path -LiteralPath $misplaced) {
+        Remove-Item -LiteralPath $misplaced
+        Write-Host "Removed misplaced plugin: $misplaced"
     }
-    $DeckVisualisation = Join-Path $VisualisationsDirectory "LRC Deck.dll"
-    Copy-Item -LiteralPath $DeckVisualisationSource -Destination $DeckVisualisation -Force
-    Write-Host "Installed audio-only visualisation: $DeckVisualisation"
+}
+$oldDeckSource = Join-Path (Join-Path $PluginsRoot "VideoSource") "LRC Deck.dll"
+if (Test-Path -LiteralPath $oldDeckSource) {
+    Remove-Item -LiteralPath $oldDeckSource
+    Write-Host "Removed experimental Deck source: $oldDeckSource"
+}
 
-    $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
-    $WriterTarget = Join-Path $TargetDirectory "EmbeddedLyricsTagWriter.py"
-    Copy-Item -LiteralPath $Writer -Destination $WriterTarget -Force
-    Write-Host "Installed: $WriterTarget"
-}
-Write-Host "Restart VirtualDJ. Use LRC Deck for audio-only tracks or LRC Master in master Video FX."
+New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory | Out-Null
+Copy-Item -LiteralPath $MasterDll -Destination (Join-Path $OverlayDirectory "LRC Master.dll") -Force
+Copy-Item -LiteralPath $BlackoutDll -Destination (Join-Path $OverlayDirectory "LRC BlackOut.dll") -Force
+Copy-Item -LiteralPath $DeckDll -Destination (Join-Path $VisualisationsDirectory "LRC Deck.dll") -Force
+Copy-Item -LiteralPath $Writer -Destination (Join-Path $OverlayDirectory "EmbeddedLyricsTagWriter.py") -Force
+Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
+
+Write-Host "Installed Master and BlackOut into: $OverlayDirectory"
+Write-Host "Installed Deck into: $VisualisationsDirectory"
+Write-Host "Restart VirtualDJ."

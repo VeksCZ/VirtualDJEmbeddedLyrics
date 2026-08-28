@@ -8,6 +8,12 @@
 #include <string>
 #include <vector>
 
+struct LyricColors {
+    COLORREF text{0x00ffffff};
+    COLORREF highlight{0x0000d2ff};
+    COLORREF read{0x00969696};
+};
+
 class TextTexture {
 public:
     bool Initialize(ID3D11Device* device);
@@ -17,10 +23,10 @@ public:
                 float verticalPosition = 0.5f);
     bool UpdateTimed(const std::vector<std::wstring>& lines, std::size_t activeLine,
                      float highlightProgress, float scrollProgress, int width, int height,
-                     float fontScale = 1.0f, float verticalPosition = 0.5f);
-    bool UpdatePage(const std::vector<std::wstring>& lines, std::size_t page,
-                    std::size_t pageSize, std::size_t activeLine, int width, int height,
-                    float fontScale = 1.0f, float verticalPosition = 0.5f);
+                     float fontScale = 1.0f, float verticalPosition = 0.5f,
+                     const LyricColors& colors = {},
+                     const std::vector<bool>& subduedLines = {});
+
     bool UpdateMessage(const std::wstring& message, int width, int height,
                        float fontScale = 1.0f, float verticalPosition = 0.5f);
     ID3D11ShaderResourceView* View() const noexcept { return view_.Get(); }

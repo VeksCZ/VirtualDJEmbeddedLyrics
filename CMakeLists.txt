@@ -64,37 +64,12 @@ if(WIN32)
                 target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
                 set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
             endif()
-            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
+            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comdlg32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 
         add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
         add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" TRUE)
-
-        function(add_vdj_basic_plugin target output_name is_master)
-            add_library(${target} SHARED
-                src/BasicPlugin.cpp
-                src/BlackoutRenderer.cpp
-                src/TextTexture.cpp
-                src/VideoRenderer.cpp
-                src/PluginExports.def
-            )
-            target_include_directories(${target} PRIVATE src)
-            target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
-            target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT)
-            if(${is_master})
-                target_compile_definitions(${target} PRIVATE EMBEDDED_LYRICS_MASTER=1)
-            endif()
-            if(MSVC)
-                target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
-                set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-            endif()
-            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
-            set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
-        endfunction()
-
-        add_vdj_basic_plugin(EmbeddedLyricsDeckBasic "LRC Deck Basic" FALSE)
-        add_vdj_basic_plugin(EmbeddedLyricsMasterBasic "LRC Master Basic" TRUE)
 
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp

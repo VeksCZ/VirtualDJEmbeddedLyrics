@@ -1,38 +1,27 @@
-param(
-    [string]$Generator = "Visual Studio 17 2022"
-)
+param([string]$Generator = "Visual Studio 17 2022")
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BuildDirectory = Join-Path $ProjectRoot "build-release"
-$DistDirectory = Join-Path $ProjectRoot "dist"
-$FullDirectory = Join-Path $DistDirectory "full"
-$BasicDirectory = Join-Path $DistDirectory "basic"
+$FullDirectory = Join-Path $ProjectRoot "dist\full"
 
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-    throw "CMake was not found. Install Visual Studio 2022 with Desktop development with C++ and CMake tools."
+    throw "CMake was not found. Install Visual Studio 2022 with Desktop development with C++."
 }
 
 cmake -S $ProjectRoot -B $BuildDirectory -G $Generator -A x64 -DBUILD_TESTING=ON
 cmake --build $BuildDirectory --config Release
 ctest --test-dir $BuildDirectory -C Release --output-on-failure
 
-New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    py -m unittest discover -s (Join-Path $ProjectRoot "tests") -p "test_*.py"
+    if ($LASTEXITCODE -ne 0) { throw "Python tests failed." }
+}
+
 New-Item -ItemType Directory -Force -Path $FullDirectory | Out-Null
-New-Item -ItemType Directory -Force -Path $BasicDirectory | Out-Null
-$LegacyArtifacts = @(
-    (Join-Path $FullDirectory "EmbeddedLyricsDeck.dll"),
-    (Join-Path $FullDirectory "EmbeddedLyricsMaster.dll"),
-    (Join-Path $FullDirectory "Blackout.dll"),
-    (Join-Path $BasicDirectory "EmbeddedLyricsDeckBasic.dll"),
-    (Join-Path $BasicDirectory "EmbeddedLyricsMasterBasic.dll")
-)
-$LegacyArtifacts | Where-Object { Test-Path -LiteralPath $_ } | Remove-Item
-Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck Basic.dll") $BasicDirectory -Force
-Copy-Item (Join-Path $BuildDirectory "Release\LRC Master Basic.dll") $BasicDirectory -Force
-Write-Host "Release created:"
-Write-Host "  Full:  $FullDirectory"
-Write-Host "  Basic: $BasicDirectory"
+Get-ChildItem -LiteralPath $FullDirectory -File -ErrorAction SilentlyContinue | Remove-Item
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory
+Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory
+Copy-Item (Join-Path $ProjectRoot "tools\lyrics_tag_converter.py") (Join-Path $FullDirectory "EmbeddedLyricsTagWriter.py")
+Write-Host "Release files created in: $FullDirectory"

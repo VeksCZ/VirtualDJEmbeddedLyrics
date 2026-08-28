@@ -17,6 +17,7 @@
 #include <fstream>
 #include <optional>
 #include <functional>
+#include <commdlg.h>
 #include <shellapi.h>
 
 namespace {
@@ -45,7 +46,11 @@ public:
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
-            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 9, "Record timing to embedded tags", "Record timing", false))
+            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 9, "Record timing to embedded tags", "Record timing", false)) ||
+            FAILED(DeclareParameterButton(&textColorButton_, 10, "Text color", "Text color")) ||
+            FAILED(DeclareParameterButton(&highlightColorButton_, 11, "Highlight color", "Highlight")) ||
+            FAILED(DeclareParameterButton(&readColorButton_, 12, "Read color", "Read color")) ||
+            FAILED(DeclareParameterCustom(&colorSettings_, 13, "Lyrics colors", "Colors", sizeof(colorSettings_)))
             ) return E_FAIL;
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
@@ -60,10 +65,24 @@ public:
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
+        else if (id == 10 && textColorButton_) {
+            PickColor(colorSettings_.text); textColorButton_ = 0;
+        } else if (id == 11 && highlightColorButton_) {
+            PickColor(colorSettings_.highlight); highlightColorButton_ = 0;
+        } else if (id == 12 && readColorButton_) {
+            PickColor(colorSettings_.read); readColorButton_ = 0;
+        }
         return S_OK;
     }
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
         if (!output || outputSize <= 0) return E_NOTIMPL;
+        if (id >= 10 && id <= 12) {
+            const auto color = id == 10 ? colorSettings_.text
+                : id == 11 ? colorSettings_.highlight : colorSettings_.read;
+            std::snprintf(output, static_cast<std::size_t>(outputSize), "#%02X%02X%02X",
+                          GetRValue(color), GetGValue(color), GetBValue(color));
+            return S_OK;
+        }
         int percent = 0;
         if (id == 1) percent = static_cast<int>(FontScale() * 100.0f + 0.5f);
         else if (id == 4) percent = static_cast<int>(VerticalPosition() * 100.0f + 0.5f);
@@ -85,9 +104,10 @@ public:
 #endif
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
-        info->Version = "0.2.0-rc4";
+        info->Version = "0.2.0";
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OVERLAY;
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
+                      VDJFLAG_VIDEO_OVERLAY;
 #else
         info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif
@@ -267,7 +287,9 @@ private:
         const auto visibleStart = active > previousLineCount ? active - previousLineCount : 0u;
         const auto visibleEnd = std::min(timeline.size(), active + TimedLineCount());
         std::vector<std::wstring> visibleLines;
+        std::vector<bool> subduedLines;
         visibleLines.reserve(visibleEnd - visibleStart);
+        subduedLines.reserve(visibleEnd - visibleStart);
         bool countdownVisible = false;
         for (auto i = visibleStart; i < visibleEnd; ++i) {
             if (timeline[i].pause && i == active) {
@@ -277,6 +299,7 @@ private:
             } else {
                 visibleLines.push_back(timeline[i].text);
             }
+            subduedLines.push_back(timeline[i].pause && i != active);
         }
 
         const auto activeOffset = active - visibleStart;
@@ -290,9 +313,24 @@ private:
             ? UnitProgress(now, next - scrollDuration, scrollDuration)
             : UnitProgress(now, start, interval);
         if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
-                                  width, height, FontScale(), VerticalPosition()))
+                                  width, height, FontScale(), VerticalPosition(), Colors(), subduedLines))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
+
+    void PickColor(COLORREF& color) {
+        CHOOSECOLORW chooser{};
+        chooser.lStructSize = sizeof(chooser);
+        chooser.hwndOwner = GetForegroundWindow();
+        chooser.rgbResult = color;
+        chooser.lpCustColors = customColors_;
+        chooser.Flags = CC_FULLOPEN | CC_RGBINIT;
+        if (ChooseColorW(&chooser)) {
+            color = chooser.rgbResult;
+            texture_.Reset();
+        }
+    }
+
+    LyricColors Colors() const noexcept { return colorSettings_; }
 
     float FontScale() const noexcept {
         return 0.5f + std::clamp(fontSizeParameter_, 0.0f, 1.0f) * 1.5f;
@@ -330,7 +368,7 @@ private:
         std::vector<std::wstring> visible; visible.reserve(end - first);
         for (auto i = first; i < end; ++i) visible.push_back(lyrics_.lines[i].text);
         return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
-                                    width, height, FontScale(), VerticalPosition());
+                                    width, height, FontScale(), VerticalPosition(), Colors());
     }
     void AdvanceUntimedLine() {
         if (lyrics_.synchronized || lyrics_.lines.empty()) return;
@@ -440,6 +478,9 @@ private:
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{};
     float pageLinesParameter_{2.0f / 7.0f}; float timedLinesParameter_{2.0f / 7.0f};
+    int textColorButton_{}; int highlightColorButton_{}; int readColorButton_{};
+    LyricColors colorSettings_{};
+    COLORREF customColors_[16]{};
     std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
