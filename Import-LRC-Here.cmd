@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-set "TARGET=%~dp0."
+set "TARGET=%~1"
+if not defined TARGET set "TARGET=%CD%"
 set "TOOL=C:\Tools\VirtualDJEmbeddedLyrics\tools\lyrics_tag_converter.py"
 
 if not exist "%TOOL%" (
@@ -36,15 +37,10 @@ if errorlevel 1 goto :failed
 echo.
 echo Done.
 pause
-set "RESULT=0"
-goto :cleanup
+exit /b 0
 
 :failed
 echo.
-echo Import finished with errors. No unverified LRC file was deleted.
+echo Import finished with errors. No unverified lyrics source file was deleted.
 pause
-set "RESULT=1"
-
-:cleanup
-if /I "%~f0"=="C:\Tools\VirtualDJEmbeddedLyrics\Import-LRC-Here.cmd" exit /b %RESULT%
-(goto) 2>nul & del "%~f0"
+exit /b 1
