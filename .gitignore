@@ -1,0 +1,38 @@
+# CMake and compiler output
+build*/
+out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+*.obj
+*.o
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.exe
+*.dll
+
+# Packaged release artifacts
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and OS files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Runtime diagnostics
+*.log

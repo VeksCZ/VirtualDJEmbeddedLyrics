@@ -1,0 +1,347 @@
+#ifdef _WIN32
+#include "Lyrics.hpp"
+#include "AsyncLyricsLoader.hpp"
+#include "BlackoutRenderer.hpp"
+#include "Diagnostics.hpp"
+#include "MasterDeckSelector.hpp"
+#include "TextTexture.hpp"
+#include "VideoRenderer.hpp"
+#include "vdjVideo8.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <shellapi.h>
+
+class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
+public:
+    HRESULT VDJ_API OnLoad() override {
+        if (FAILED(DeclareParameterButton(&nextPageButton_, 1, "Next lyrics page", "Next")) ||
+            FAILED(DeclareParameterButton(&previousPageButton_, 2, "Previous lyrics page", "Prev")) ||
+            FAILED(DeclareParameterSlider(&fontSizeParameter_, 3, "Font size", "Size", 1.0f / 3.0f)) ||
+            FAILED(DeclareParameterButton(&nextLineButton_, 4, "Next highlighted line", "Line +")) ||
+            FAILED(DeclareParameterButton(&previousLineButton_, 5, "Previous highlighted line", "Line -")) ||
+            FAILED(DeclareParameterSlider(&verticalPositionParameter_, 6, "Vertical position", "Position", 0.5f)) ||
+            FAILED(DeclareParameterButton(&editTextButton_, 7, "Edit lyrics TXT", "Edit TXT")) ||
+            FAILED(DeclareParameterSlider(&pageLinesParameter_, 8, "Untimed lines", "Page lines", 7.0f / 12.0f)) ||
+            FAILED(DeclareParameterSlider(&timedLinesParameter_, 9, "Timed lines", "Timed lines", 0.6f))
+#ifdef EMBEDDED_LYRICS_MASTER
+            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 10,
+                                             "Use volume faders", "Upfaders", true))
+#endif
+            ) {
+            Diagnostics::Error(L"VirtualDJ rejected one or more plugin parameters");
+            return E_FAIL;
+        }
+        Diagnostics::Info(L"Embedded Lyrics loaded");
+        return S_OK;
+    }
+    HRESULT VDJ_API OnParameter(int id) override {
+        if (id == 1 && nextPageButton_) {
+            const auto pageSize = PageSize();
+            const auto pageCount = std::max<std::size_t>(1, (lyrics_.lines.size() + pageSize - 1) / pageSize);
+            page_ = std::min(page_ + 1, pageCount - 1);
+            activeLine_ = std::min(page_ * pageSize, lyrics_.lines.empty() ? 0u : lyrics_.lines.size() - 1);
+            nextPageButton_ = 0;
+        } else if (id == 2 && previousPageButton_) {
+            if (page_ > 0) --page_;
+            activeLine_ = page_ * PageSize();
+            previousPageButton_ = 0;
+        } else if (id == 4 && nextLineButton_) {
+            if (!lyrics_.synchronized && !lyrics_.lines.empty()) {
+                activeLine_ = std::min(activeLine_ + 1, lyrics_.lines.size() - 1);
+                page_ = activeLine_ / PageSize();
+            }
+            nextLineButton_ = 0;
+        } else if (id == 5 && previousLineButton_) {
+            if (!lyrics_.synchronized && activeLine_ > 0) {
+                --activeLine_;
+                page_ = activeLine_ / PageSize();
+            }
+            previousLineButton_ = 0;
+        } else if (id == 7 && editTextButton_) {
+            OpenTextEditor();
+            editTextButton_ = 0;
+        } else if (id == 8) {
+            page_ = activeLine_ / PageSize();
+        }
+        return S_OK;
+    }
+    HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
+        if (!output || outputSize <= 0) return E_NOTIMPL;
+        int percent = 0;
+        if (id == 3) percent = static_cast<int>(FontScale() * 100.0f + 0.5f);
+        else if (id == 6) percent = static_cast<int>(VerticalPosition() * 100.0f + 0.5f);
+        else if (id == 8) {
+            std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", PageSize());
+            return S_OK;
+        } else if (id == 9) {
+            std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", TimedLineCount());
+            return S_OK;
+        } else return E_NOTIMPL;
+        std::snprintf(output, static_cast<std::size_t>(outputSize), "%d%%", percent);
+        return S_OK;
+    }
+    HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
+#ifdef EMBEDDED_LYRICS_MASTER
+        info->PluginName = "Embedded Lyrics Master";
+#else
+        info->PluginName = "Embedded Lyrics Deck";
+#endif
+        info->Author = "Slava / OpenAI";
+        info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
+        info->Version = "0.2.0-rc4";
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION;
+#ifdef EMBEDDED_LYRICS_MASTER
+        info->Flags |= VDJFLAG_VIDEO_MASTERONLY | VDJFLAG_VIDEO_OVERLAY;
+#else
+        info->Flags |= VDJFLAG_VIDEO_VISUALISATION;
+#endif
+        info->Bitmap = nullptr;
+        return S_OK;
+    }
+    ULONG VDJ_API Release() override { delete this; return 0; }
+    HRESULT VDJ_API OnDeviceInit() override {
+        if (FAILED(GetDevice(VdjVideoEngineDirectX11, reinterpret_cast<void**>(&device_))) || !device_) {
+            Diagnostics::Error(L"VirtualDJ did not provide a DirectX 11 device");
+            return E_FAIL;
+        }
+        if (!texture_.Initialize(device_) || !renderer_.Initialize(device_)
+#ifndef EMBEDDED_LYRICS_MASTER
+            || !backgroundRenderer_.Initialize(device_)
+#endif
+            ) {
+            Diagnostics::Error(L"DirectX 11 lyrics renderer initialization failed");
+            return E_FAIL;
+        }
+        Diagnostics::Info(L"DirectX 11 lyrics renderer initialized");
+        return S_OK;
+    }
+    HRESULT VDJ_API OnDeviceClose() override {
+#ifndef EMBEDDED_LYRICS_MASTER
+        backgroundRenderer_.Reset();
+#endif
+        renderer_.Reset(); texture_.Reset(); device_ = nullptr; return S_OK;
+    }
+    HRESULT VDJ_API OnDraw() override {
+#ifndef EMBEDDED_LYRICS_MASTER
+        if (!backgroundRenderer_.Draw()) Diagnostics::Error(L"Failed to render audio-only background");
+#endif
+#ifdef EMBEDDED_LYRICS_MASTER
+        const auto deck = VisibleVideoDeck();
+#else
+        const auto deck = PluginDeck();
+#endif
+        if (deck <= 0) {
+#ifndef EMBEDDED_LYRICS_MASTER
+            if (!texture_.UpdateMessage(L"Zapni Deck verzi ve Video FX konkretniho decku",
+                                        width, height, FontScale(), VerticalPosition()) ||
+                !renderer_.Draw(texture_.View())) {
+                Diagnostics::Error(L"Failed to render deck-placement hint");
+            }
+#endif
+            return S_OK;
+        }
+        char pathBuffer[4096]{};
+        char command[128]{};
+        std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
+        if (FAILED(GetStringInfo(command, pathBuffer, sizeof(pathBuffer)))) {
+            Diagnostics::Error(L"VirtualDJ get_filepath query failed");
+            return S_OK;
+        }
+        const auto* utf8Path = reinterpret_cast<const char8_t*>(pathBuffer);
+        const std::filesystem::path path{std::u8string{utf8Path}};
+        if (path.empty()) {
+            loadedPath_.clear();
+            lyrics_ = {};
+            lyricsLoadFinished_ = false;
+            texture_.Reset();
+            return S_OK;
+        }
+        if (!path.empty() && path != loadedPath_) {
+            loadedPath_ = path;
+            texture_.Reset();
+            lyrics_ = {};
+            lyricsLoadFinished_ = false;
+            page_ = 0;
+            activeLine_ = 0;
+            CaptureTextTimestamp();
+            loader_.Request(path);
+            Diagnostics::Info(L"Queued asynchronous lyrics load: " + path.wstring());
+        }
+        if (auto completed = loader_.Poll(); completed && completed->path == loadedPath_) {
+            lyrics_ = std::move(completed->result.document);
+            lyricsLoadFinished_ = true;
+            if (lyrics_.empty()) {
+                Diagnostics::Error(L"No lyrics found for: " + loadedPath_.wstring() + L"; " + completed->result.error);
+            } else {
+                Diagnostics::Info(L"Lyrics loaded: " + loadedPath_.wstring());
+            }
+        }
+        CheckTextChanges();
+        if (lyrics_.empty()) {
+            if (lyricsLoadFinished_ &&
+                (!texture_.UpdateMessage(L"Lyrics nenalezeny", width, height, FontScale(), VerticalPosition()) ||
+                 !renderer_.Draw(texture_.View()))) {
+                Diagnostics::Error(L"Failed to render missing-lyrics indication");
+            }
+            return S_OK;
+        }
+        if (!lyrics_.synchronized) {
+            std::vector<std::wstring> lines;
+            lines.reserve(lyrics_.lines.size());
+            for (const auto& line : lyrics_.lines) lines.push_back(line.text);
+            if (!texture_.UpdatePage(lines, page_, PageSize(), activeLine_, width, height,
+                                     FontScale(), VerticalPosition()) || !renderer_.Draw(texture_.View()))
+                Diagnostics::Error(L"Failed to render untimed lyrics page");
+            return S_OK;
+        }
+        double elapsedMs = 0.0;
+        std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", deck);
+        if (FAILED(GetInfo(command, &elapsedMs))) {
+            Diagnostics::Error(L"VirtualDJ elapsed-time query failed");
+            return S_OK;
+        }
+        UpdateVisible(static_cast<std::int64_t>(elapsedMs));
+        if (!renderer_.Draw(texture_.View())) Diagnostics::Error(L"Failed to render synchronized lyrics");
+        return S_OK;
+    }
+
+private:
+#ifndef EMBEDDED_LYRICS_MASTER
+    int PluginDeck() {
+        double deck = 0.0;
+        if (FAILED(GetInfo("get_plugindeck", &deck))) return 0;
+        return static_cast<int>(deck);
+    }
+#else
+    int VisibleVideoDeck() {
+        double balance = 0.0, leftDeck = 1.0, rightDeck = 2.0;
+        if (FAILED(GetInfo("get_leftdeck", &leftDeck))) leftDeck = 1.0;
+        if (FAILED(GetInfo("get_rightdeck", &rightDeck))) rightDeck = 2.0;
+        const char* balanceQuery = useVolumeFadersParameter_
+            ? "get_crossfader_result" : "video_crossfader";
+        if (FAILED(GetInfo(balanceQuery, &balance))) return masterDeckSelector_.Current();
+        return masterDeckSelector_.Select(balance, static_cast<int>(leftDeck), static_cast<int>(rightDeck));
+    }
+#endif
+
+    void UpdateVisible(std::int64_t now) {
+        if (lyrics_.lines.empty()) return;
+        const auto it = std::upper_bound(lyrics_.lines.begin(), lyrics_.lines.end(), now,
+            [](std::int64_t value, const LyricLine& line) { return value < line.timeMs; });
+        const auto index = it == lyrics_.lines.begin() ? 0u : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), it) - 1);
+        const auto end = index + 1 < lyrics_.lines.size() ? lyrics_.lines[index + 1].timeMs : lyrics_.lines[index].timeMs + 5000;
+        const auto duration = std::max<std::int64_t>(1, end - lyrics_.lines[index].timeMs);
+        const auto progress = static_cast<float>(now - lyrics_.lines[index].timeMs) / static_cast<float>(duration);
+        const auto visibleEnd = std::min(lyrics_.lines.size(), index + TimedLineCount());
+        std::vector<std::wstring> visibleLines;
+        visibleLines.reserve(visibleEnd - index);
+        for (auto i = index; i < visibleEnd; ++i) visibleLines.push_back(lyrics_.lines[i].text);
+        if (!texture_.UpdateTimed(visibleLines, progress, width, height, FontScale(), VerticalPosition()))
+            Diagnostics::Error(L"Failed to update lyrics texture");
+    }
+
+    float FontScale() const noexcept {
+        return 0.5f + std::clamp(fontSizeParameter_, 0.0f, 1.0f) * 1.5f;
+    }
+
+    float VerticalPosition() const noexcept {
+        return 0.1f + std::clamp(verticalPositionParameter_, 0.0f, 1.0f) * 0.8f;
+    }
+
+    std::size_t PageSize() const noexcept {
+        return 3 + static_cast<std::size_t>(std::clamp(pageLinesParameter_, 0.0f, 1.0f) * 12.0f + 0.5f);
+    }
+
+    std::size_t TimedLineCount() const noexcept {
+        return 1 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 5.0f + 0.5f);
+    }
+
+    std::filesystem::path TextPath() const {
+        auto path = loadedPath_;
+        path.replace_extension(L".txt");
+        return path;
+    }
+
+    void CaptureTextTimestamp() {
+        std::error_code error;
+        const auto timestamp = std::filesystem::last_write_time(TextPath(), error);
+        textWriteTime_ = error ? std::optional<std::filesystem::file_time_type>{} : timestamp;
+        nextTextCheck_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
+
+    void CheckTextChanges() {
+        if (loadedPath_.empty() || std::chrono::steady_clock::now() < nextTextCheck_) return;
+        nextTextCheck_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        std::error_code error;
+        const auto timestamp = std::filesystem::last_write_time(TextPath(), error);
+        const std::optional<std::filesystem::file_time_type> current = error
+            ? std::optional<std::filesystem::file_time_type>{} : timestamp;
+        if (current == textWriteTime_) return;
+        textWriteTime_ = current;
+        loader_.Request(loadedPath_);
+        Diagnostics::Info(L"TXT change detected; queued lyrics reload");
+    }
+
+    void OpenTextEditor() {
+        if (loadedPath_.empty()) {
+            Diagnostics::Error(L"Cannot edit TXT because no track is loaded");
+            return;
+        }
+        const auto path = TextPath();
+        if (!std::filesystem::exists(path)) {
+            std::ofstream create{path, std::ios::binary};
+            if (!create) {
+                Diagnostics::Error(L"Cannot create lyrics TXT: " + path.wstring());
+                return;
+            }
+        }
+        const std::wstring parameters = L"\"" + path.wstring() + L"\"";
+        const auto result = reinterpret_cast<std::intptr_t>(
+            ShellExecuteW(nullptr, L"open", L"notepad.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
+        if (result <= 32) Diagnostics::Error(L"Cannot open lyrics TXT editor: " + path.wstring());
+    }
+
+    ID3D11Device* device_{};
+#ifndef EMBEDDED_LYRICS_MASTER
+    BlackoutRenderer backgroundRenderer_;
+#endif
+    TextTexture texture_;
+    VideoRenderer renderer_;
+    AsyncLyricsLoader loader_;
+    std::filesystem::path loadedPath_;
+    LyricsDocument lyrics_;
+    bool lyricsLoadFinished_{};
+    int nextPageButton_{};
+    int previousPageButton_{};
+    float fontSizeParameter_{1.0f / 3.0f};
+    int nextLineButton_{};
+    int previousLineButton_{};
+    float verticalPositionParameter_{0.5f};
+    int editTextButton_{};
+    float pageLinesParameter_{7.0f / 12.0f};
+    float timedLinesParameter_{0.6f};
+    std::size_t page_{};
+    std::size_t activeLine_{};
+    std::optional<std::filesystem::file_time_type> textWriteTime_;
+    std::chrono::steady_clock::time_point nextTextCheck_{};
+#ifdef EMBEDDED_LYRICS_MASTER
+    MasterDeckSelector masterDeckSelector_;
+    int useVolumeFadersParameter_{1};
+#endif
+};
+
+STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {
+    if (!object) return E_POINTER;
+    *object = nullptr;
+    if (memcmp(&classId, &CLSID_VdjPlugin8, sizeof(GUID)) != 0 ||
+        memcmp(&interfaceId, &IID_IVdjPluginVideoFx8, sizeof(GUID)) != 0) return CLASS_E_CLASSNOTAVAILABLE;
+    *object = new EmbeddedLyricsPlugin();
+    return S_OK;
+}
+#endif
