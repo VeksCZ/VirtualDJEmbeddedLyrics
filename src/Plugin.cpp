@@ -237,7 +237,12 @@ private:
         };
         constexpr std::int64_t scrollDuration = 650;
         std::vector<DisplayLine> timeline;
-        timeline.reserve(lyrics_.lines.size() * 2);
+        timeline.reserve(lyrics_.lines.size() * 2 + 1);
+        constexpr std::int64_t minimumPauseMs = 2500;
+        const auto firstLyricTime = lyrics_.lines.front().timeMs;
+        if (firstLyricTime > minimumPauseMs) {
+            timeline.push_back({std::to_wstring(LyricCountdown(firstLyricTime)), 0, true});
+        }
         for (std::size_t i = 0; i < lyrics_.lines.size(); ++i) {
             const auto& lyric = lyrics_.lines[i];
             timeline.push_back({lyric.text, lyric.timeMs, false});
@@ -246,7 +251,9 @@ private:
             const auto highlight = std::min(EstimateLyricHighlightMs(lyric.text),
                 std::max<std::int64_t>(500, nextTime - lyric.timeMs - scrollDuration));
             const auto pauseStart = lyric.timeMs + highlight + 700;
-            if (nextTime - pauseStart > 2500) timeline.push_back({L"", pauseStart, true});
+            const auto pauseDuration = nextTime - pauseStart;
+            if (pauseDuration > minimumPauseMs)
+                timeline.push_back({std::to_wstring(LyricCountdown(pauseDuration)), pauseStart, true});
         }
 
         const auto it = std::upper_bound(timeline.begin(), timeline.end(), now,
@@ -265,10 +272,9 @@ private:
         bool countdownVisible = false;
         for (auto i = visibleStart; i < visibleEnd; ++i) {
             if (timeline[i].pause && i == active) {
-                const int maximumSeconds = interval >= 10000 ? 10 : 5;
-                const auto countdown = LyricCountdown(next - now, maximumSeconds);
+                const auto countdown = LyricCountdown(next - now);
                 countdownVisible = countdown >= 1;
-                visibleLines.push_back(countdownVisible ? std::to_wstring(countdown) : L"");
+                visibleLines.push_back(countdownVisible ? std::to_wstring(countdown) : timeline[i].text);
             } else {
                 visibleLines.push_back(timeline[i].text);
             }

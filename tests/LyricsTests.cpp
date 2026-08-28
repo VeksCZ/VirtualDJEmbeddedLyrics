@@ -12,11 +12,12 @@ int main(int argc, char** argv) {
     assert(EstimateLyricHighlightMs(std::wstring(200, L'a')) == 4500);
     assert(UnitProgress(2000, 1000, 2000) == 0.5f);
     assert(UnitProgress(10000, 1000, 2000) == 1.0f);
-    assert(LyricCountdown(5000, 5) == 5);
-    assert(LyricCountdown(1, 5) == 1);
-    assert(LyricCountdown(5001, 5) == -1);
-    assert(LyricCountdown(10000, 10) == 10);
-    assert(LyricCountdown(10001, 10) == -1);
+    assert(LyricCountdown(1) == 1);
+    assert(LyricCountdown(5000) == 5);
+    assert(LyricCountdown(5001) == 6);
+    assert(LyricCountdown(10000) == 10);
+    assert(LyricCountdown(63001) == 64);
+    assert(LyricCountdown(0) == -1);
 
     MasterDeckSelector selector;
     assert(selector.Select(0.2, 1, 2) == 1);
