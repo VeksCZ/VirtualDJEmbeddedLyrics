@@ -24,11 +24,11 @@ echo.
 choice /C YN /N /M "Write LRC to synced tags and TXT to unsynced tags? [Y/N] "
 if errorlevel 2 goto :done
 
-choice /C YN /N /M "Delete each LRC after both synced tags are verified? [Y/N] "
+choice /C YN /N /M "Delete successfully imported LRC and TXT source files? [Y/N] "
 if errorlevel 2 (
     py "%TOOL%" "%TARGET%" --write
 ) else (
-    py "%TOOL%" "%TARGET%" --write --delete-lrc
+    py "%TOOL%" "%TARGET%" --write --delete-sidecars
 )
 if errorlevel 1 goto :failed
 

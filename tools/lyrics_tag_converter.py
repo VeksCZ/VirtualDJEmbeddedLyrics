@@ -111,13 +111,16 @@ def load_mutagen():
 
 
 def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
-                 language: str, overwrite: bool, delete_lrc: bool = False) -> tuple[str, bool]:
+                 language: str, overwrite: bool, delete_lrc: bool = False,
+                 delete_sidecars: bool = False) -> tuple[str, bool]:
     Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT = load_mutagen()
     try:
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
         tags = ID3()
     changed = False
+    lrc_written = False
+    txt_written = False
     messages: list[str] = []
     if lrc_path:
         timed_lines = parse_lrc(lrc_path)
@@ -145,6 +148,7 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                 tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS",
                               text=["\n".join(formatted)]))
                 changed = True
+                lrc_written = True
                 messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
     if txt_path:
         plain_text = decode_text_file(txt_path).strip()
@@ -165,19 +169,20 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             tags.add(TXXX(encoding=Encoding.UTF16, desc="UNSYNCEDLYRICS",
                           text=[plain_text]))
             changed = True
+            txt_written = True
             messages.append("USLT + UNSYNCEDLYRICS from TXT")
     if changed:
         version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
         tags.save(mp3_path, v2_version=version)
     if changed:
         verify = ID3(mp3_path)
-        if lrc_path and timed_lines:
+        if lrc_written:
             has_sylt = bool(verify.getall("SYLT"))
             has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
                            for frame in verify.getall("TXXX"))
             if not has_sylt or not has_txxx:
                 raise RuntimeError("synchronized lyrics verification failed")
-        if txt_path and plain_text:
+        if txt_written:
             has_uslt = any(frame.lang == language and frame.text.strip()
                            for frame in verify.getall("USLT"))
             has_unsynced_txxx = any(frame.desc.upper() == "UNSYNCEDLYRICS" and frame.text
@@ -185,9 +190,12 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             if not has_uslt or not has_unsynced_txxx:
                 raise RuntimeError("unsynchronized lyrics verification failed")
         messages.append("verified")
-        if lrc_path and delete_lrc:
+        if lrc_written and (delete_lrc or delete_sidecars):
             lrc_path.unlink()
             messages.append("LRC deleted")
+        if txt_written and delete_sidecars:
+            txt_path.unlink()
+            messages.append("TXT deleted")
     return "; ".join(messages), changed
 
 
@@ -244,6 +252,8 @@ def main() -> int:
     parser.add_argument("--overwrite", action="store_true", help="Replace existing target lyrics frames")
     parser.add_argument("--delete-lrc", action="store_true",
                         help="Delete LRC only after both synchronized tags are verified")
+    parser.add_argument("--delete-sidecars", action="store_true",
+                        help="Delete each LRC/TXT only after its own tags are written and verified")
     parser.add_argument("--language", default="und", help="Three-letter ID3 language code (default: und)")
     args = parser.parse_args()
     if len(args.language) != 3 or not args.language.isascii():
@@ -264,7 +274,8 @@ def main() -> int:
             continue
         try:
             message, did_change = write_frames(mp3_path, lrc_path, txt_path,
-                                                args.language, args.overwrite, args.delete_lrc)
+                                                args.language, args.overwrite, args.delete_lrc,
+                                                args.delete_sidecars)
             changed += int(did_change)
             print(f"WRITE    {mp3_path}: {message}")
         except Exception as exc:
