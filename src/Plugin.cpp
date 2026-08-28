@@ -181,7 +181,7 @@ public:
         CheckTextChanges();
         if (lyrics_.empty()) {
             if (lyricsLoadFinished_ &&
-                (!texture_.UpdateMessage(L"Lyrics nenalezeny", width, height, FontScale(), VerticalPosition()) ||
+                (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition()) ||
                  !renderer_.Draw(texture_.View()))) {
                 Diagnostics::Error(L"Failed to render missing-lyrics indication");
             }
