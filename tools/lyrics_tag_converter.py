@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-LINE_TIMESTAMP = re.compile(r"\[(?P<minutes>\d{1,3}):(?P<seconds>\d{2})[.:](?P<fraction>\d{1,3})\]")
+LINE_TIMESTAMP = re.compile(r"\[(?P<minutes>\d{1,3}):(?P<seconds>\d{2})(?:[.:](?P<fraction>\d{1,3}))?\]")
 WORD_TIMESTAMP = re.compile(r"<\d{1,3}:\d{2}[.:]\d{1,3}>")
 UNTIMED_TIMESTAMP = re.compile(
     r"^\s*(?:[\[(]\d{1,3}:\d{2}(?:[.:]\d{1,3})?[\])]\s*)+"
@@ -48,7 +48,7 @@ def sanitize_untimed_text(text: str) -> str:
 
 def timestamp_ms(match: re.Match[str]) -> int:
     fraction = match.group("fraction")
-    milliseconds = int(fraction.ljust(3, "0")[:3])
+    milliseconds = int((fraction or "0").ljust(3, "0")[:3])
     return (int(match.group("minutes")) * 60 + int(match.group("seconds"))) * 1000 + milliseconds
 
 

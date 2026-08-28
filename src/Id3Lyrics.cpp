@@ -136,7 +136,7 @@ LyricsLoadResult ParseSylt(std::span<const unsigned char> frame) {
 
 LyricsLoadResult ParseTimestampedText(const std::wstring& text, const std::wstring& source) {
     LyricsLoadResult result;
-    const std::wregex timestamp(LR"(^\s*[\(\[]([0-9]{1,3}):([0-9]{2})[\.:]([0-9]{1,3})[\)\]]\s?(.*)$)");
+    const std::wregex timestamp(LR"(^\s*[\(\[]([0-9]{1,3}):([0-9]{2})(?:[\.:]([0-9]{1,3}))?[\)\]]\s?(.*)$)");
     std::size_t offset = 0;
     while (offset <= text.size()) {
         const auto end = text.find_first_of(L"\r\n", offset);
@@ -144,7 +144,8 @@ LyricsLoadResult ParseTimestampedText(const std::wstring& text, const std::wstri
         std::wsmatch match;
         if (std::regex_match(rawLine, match, timestamp)) {
             auto fraction = match[3].str();
-            if (fraction.size() == 1) fraction += L"00";
+            if (fraction.empty()) fraction = L"000";
+            else if (fraction.size() == 1) fraction += L"00";
             else if (fraction.size() == 2) fraction += L"0";
             const auto timeMs = (std::stoll(match[1].str()) * 60 + std::stoll(match[2].str())) * 1000 +
                                 std::stoll(fraction.substr(0, 3));
@@ -198,6 +199,17 @@ LyricsLoadResult ParseTxxxUntimedLyrics(std::span<const unsigned char> frame) {
     return result;
 }
 
+std::wstring DecodeUsltValue(std::span<const unsigned char> frame) {
+    if (frame.size() < 5) return {};
+    const auto encoding = frame[0];
+    const auto descriptorEnd = FindTerminator(frame, 4, encoding);
+    const auto valueStart = descriptorEnd + ((encoding == 1 || encoding == 2) ? 2u : 1u);
+    if (valueStart >= frame.size()) return {};
+    auto value = DecodeText(frame.subspan(valueStart), encoding);
+    while (!value.empty() && value.back() == L'\0') value.pop_back();
+    return value;
+}
+
 LyricsLoadResult ParseTxxxTimedLyrics(std::span<const unsigned char> frame) {
     LyricsLoadResult result;
     if (frame.size() < 4) { result.error = L"TXXX frame is truncated"; return result; }
@@ -209,7 +221,8 @@ LyricsLoadResult ParseTxxxTimedLyrics(std::span<const unsigned char> frame) {
     if (valueStart >= frame.size()) { result.error = L"TXXX value is empty"; return result; }
     auto value = DecodeText(frame.subspan(valueStart), encoding);
     while (!value.empty() && value.back() == L'\0') value.pop_back();
-    if (description != L"USLT" && description != L"LYRICS" && description != L"SYNCEDLYRICS") {
+    if (description != L"USLT" && description != L"LYRICS" && description != L"SYNCEDLYRICS" &&
+        description != L"UNSYNCEDLYRICS") {
         result.error = L"TXXX is not a timed lyrics field";
         return result;
     }
@@ -240,6 +253,7 @@ LyricsLoadResult LoadEmbeddedTimedLyrics(const std::filesystem::path& audioPath)
 
     LyricsLoadResult textLyrics;
     LyricsLoadResult syltFallback;
+    LyricsLoadResult timestampedUntimedFallback;
     std::size_t pos = 0;
     while (pos + 10 <= tag.size()) {
         const auto* h = tag.data() + pos;
@@ -253,12 +267,22 @@ LyricsLoadResult LoadEmbeddedTimedLyrics(const std::filesystem::path& audioPath)
             if (!sylt.document.empty()) syltFallback = std::move(sylt);
         } else if (id == "TXXX") {
             auto candidate = ParseTxxxTimedLyrics(std::span(tag).subspan(pos, size));
-            if (!candidate.document.empty()) textLyrics = std::move(candidate);
+            if (!candidate.document.empty()) {
+                if (candidate.document.source == L"embedded TXXX:UNSYNCEDLYRICS")
+                    timestampedUntimedFallback = std::move(candidate);
+                else
+                    textLyrics = std::move(candidate);
+            }
+        } else if (id == "USLT") {
+            auto candidate = ParseTimestampedText(
+                DecodeUsltValue(std::span(tag).subspan(pos, size)), L"embedded ID3 USLT with timestamps");
+            if (!candidate.document.empty()) timestampedUntimedFallback = std::move(candidate);
         }
         pos += size;
     }
     if (!textLyrics.document.empty()) return textLyrics;
     if (!syltFallback.document.empty()) return syltFallback;
+    if (!timestampedUntimedFallback.document.empty()) return timestampedUntimedFallback;
     result.error = L"No synchronized embedded lyrics";
     return result;
 }
@@ -291,13 +315,8 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
             auto candidate = ParseTxxxUntimedLyrics(std::span(tag).subspan(pos, size));
             if (!candidate.document.empty()) txxxLyrics = std::move(candidate);
         } else if (id == "USLT" && size >= 5) {
-            const auto frame = std::span(tag).subspan(pos, size);
-            const auto encoding = frame[0];
-            const auto descriptorEnd = FindTerminator(frame, 4, encoding);
-            const auto valueStart = descriptorEnd + ((encoding == 1 || encoding == 2) ? 2u : 1u);
-            if (valueStart < frame.size()) {
-                auto value = DecodeText(frame.subspan(valueStart), encoding);
-                while (!value.empty() && value.back() == L'\0') value.pop_back();
+            auto value = DecodeUsltValue(std::span(tag).subspan(pos, size));
+            if (!value.empty()) {
                 LyricsLoadResult candidate;
                 std::size_t start = 0;
                 while (start <= value.size()) {

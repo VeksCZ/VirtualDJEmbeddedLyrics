@@ -30,7 +30,8 @@ std::int64_t TimestampMs(const std::wsmatch& match) {
     const auto minutes = std::stoll(match[1].str());
     const auto seconds = std::stoll(match[2].str());
     auto fraction = match[3].str();
-    if (fraction.size() == 1) fraction += L"00";
+    if (fraction.empty()) fraction = L"000";
+    else if (fraction.size() == 1) fraction += L"00";
     else if (fraction.size() == 2) fraction += L"0";
     return (minutes * 60 + seconds) * 1000 + std::stoll(fraction.substr(0, 3));
 }
@@ -43,7 +44,7 @@ LyricsLoadResult LoadLrc(const std::filesystem::path& lrcPath) {
     if (!input) { result.error = L"Matching LRC file was not found"; return result; }
     const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     std::wstringstream stream(Utf8ToWide(bytes.substr(bytes.starts_with("\xef\xbb\xbf") ? 3 : 0)));
-    const std::wregex lineTime(LR"(\[(\d{1,3}):(\d{2})[\.:](\d{1,3})\])");
+    const std::wregex lineTime(LR"(\[(\d{1,3}):(\d{2})(?:[\.:](\d{1,3}))?\])");
     const std::wregex wordTime(LR"(<(\d{1,3}):(\d{2})[\.:](\d{1,3})>)");
     std::wstring raw;
     while (std::getline(stream, raw)) {
@@ -76,6 +77,11 @@ LyricsLoadResult LoadLrc(const std::filesystem::path& lrcPath) {
 }
 
 LyricsLoadResult LoadPlainTextLyrics(const std::filesystem::path& textPath) {
+    auto timed = LoadLrc(textPath);
+    if (!timed.document.empty()) {
+        timed.document.source = L"sidecar timed TXT";
+        return timed;
+    }
     LyricsLoadResult result;
     std::ifstream input(textPath, std::ios::binary);
     if (!input) { result.error = L"Matching TXT file was not found"; return result; }

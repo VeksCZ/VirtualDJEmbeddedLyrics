@@ -40,6 +40,21 @@ int main(int argc, char** argv) {
     assert(result.document.lines[1].tokens.size() == 2);
     assert(result.document.lines[3].timeMs == 5000);
     std::filesystem::remove(path);
+
+    const auto timedTxtPath = std::filesystem::temp_directory_path() / "vdj_embedded_lyrics_timed_test.txt";
+    {
+        std::ofstream out(timedTxtPath, std::ios::binary);
+        out << "[00:01]First from TXT\n[00:02.500]Second from TXT\n";
+    }
+    const auto timedTxt = LoadPlainTextLyrics(timedTxtPath);
+    assert(timedTxt.error.empty());
+    assert(timedTxt.document.synchronized);
+    assert(timedTxt.document.source == L"sidecar timed TXT");
+    assert(timedTxt.document.lines.size() == 2);
+    assert(timedTxt.document.lines[0].timeMs == 1000);
+    assert(timedTxt.document.lines[1].timeMs == 2500);
+    std::filesystem::remove(timedTxtPath);
+
     if (argc > 1) {
         const auto embedded = LoadEmbeddedTimedLyrics(std::filesystem::path(argv[1]));
         std::wcerr << L"Embedded source: " << embedded.document.source
