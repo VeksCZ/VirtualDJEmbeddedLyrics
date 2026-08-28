@@ -256,8 +256,7 @@ def main() -> int:
     pairs, unmatched = discover_pairs(root)
     changed = errors = 0
     for sidecar in unmatched:
-        errors += 1
-        print(f"NO MP3   {sidecar}", file=sys.stderr)
+        print(f"SKIP     {sidecar} (no same-name MP3)")
     for mp3_path, lrc_path, txt_path in pairs:
         sources = ", ".join(path.name for path in (lrc_path, txt_path) if path)
         if not args.write:
