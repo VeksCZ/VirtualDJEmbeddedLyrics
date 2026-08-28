@@ -142,8 +142,8 @@ For untimed lyrics on the deck variant, map next/previous independently, for
 example:
 
 ```text
-deck 1 effect 'LRC Deck' button 1
-deck 1 effect 'LRC Deck' button 2
+deck 1 effect 'LRC Deck' button 7
+deck 1 effect 'LRC Deck' button 8
 ```
 
 Use the corresponding deck number for other decks.

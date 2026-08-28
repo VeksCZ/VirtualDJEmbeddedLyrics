@@ -35,42 +35,42 @@ std::filesystem::path PluginDirectory() {
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
-        if (FAILED(DeclareParameterButton(&nextLineButton_, 1, "Next line / tap timestamp", "Next")) ||
-            FAILED(DeclareParameterButton(&previousLineButton_, 2, "Previous line", "Prev")) ||
-            FAILED(DeclareParameterSlider(&fontSizeParameter_, 3, "Font size", "Size", 1.0f / 3.0f)) ||
-            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 4, "Record timing to embedded tags", "Record timing", false)) ||
-            FAILED(DeclareParameterSlider(&verticalPositionParameter_, 6, "Vertical position", "Position", 0.5f)) ||
-            FAILED(DeclareParameterButton(&editTextButton_, 7, "Edit lyrics TXT", "Edit TXT")) ||
-            FAILED(DeclareParameterSlider(&pageLinesParameter_, 8, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
-            FAILED(DeclareParameterSlider(&timedLinesParameter_, 9, "Timed lines", "Timed lines", 2.0f / 7.0f))
+        if (FAILED(DeclareParameterSlider(&fontSizeParameter_, 1, "Font size", "Size", 1.0f / 3.0f)) ||
+            FAILED(DeclareParameterSlider(&timedLinesParameter_, 2, "Timed lines", "Timed lines", 2.0f / 7.0f)) ||
+            FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
+            FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
 #ifdef EMBEDDED_LYRICS_MASTER
-            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 10, "Use volume faders", "Upfaders", true))
+            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Use volume faders", "Upfaders", true))
 #endif
+            || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
+            FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
+            FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
+            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 9, "Record timing to embedded tags", "Record timing", false))
             ) return E_FAIL;
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
     }
     HRESULT VDJ_API OnParameter(int id) override {
-        if (id == 1 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
-        else if (id == 2 && previousLineButton_) {
+        if (id == 7 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
+        else if (id == 8 && previousLineButton_) {
             if (!lyrics_.synchronized && activeLine_ > 0) BeginUntimedScroll(activeLine_ - 1);
             previousLineButton_ = 0;
-        } else if (id == 4) {
+        } else if (id == 9) {
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 7 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
+        } else if (id == 6 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
         return S_OK;
     }
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
         if (!output || outputSize <= 0) return E_NOTIMPL;
         int percent = 0;
-        if (id == 3) percent = static_cast<int>(FontScale() * 100.0f + 0.5f);
-        else if (id == 6) percent = static_cast<int>(VerticalPosition() * 100.0f + 0.5f);
-        else if (id == 8) {
+        if (id == 1) percent = static_cast<int>(FontScale() * 100.0f + 0.5f);
+        else if (id == 4) percent = static_cast<int>(VerticalPosition() * 100.0f + 0.5f);
+        else if (id == 3) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", PageSize());
             return S_OK;
-        } else if (id == 9) {
+        } else if (id == 2) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", TimedLineCount());
             return S_OK;
         } else return E_NOTIMPL;

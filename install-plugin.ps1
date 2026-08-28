@@ -14,10 +14,17 @@ if ($Edition -eq "Basic") {
     )
 } else {
     $DllPaths = @(
-        (Join-Path $EditionDirectory "LRC Deck.dll"),
         (Join-Path $EditionDirectory "LRC Master.dll"),
         (Join-Path $EditionDirectory "LRC BlackOut.dll")
     )
+}
+$DeckVisualisationSource = if ($Edition -eq "Full") {
+    Join-Path $EditionDirectory "LRC Deck.dll"
+} else {
+    Join-Path $EditionDirectory "LRC Deck Basic.dll"
+}
+if (-not (Test-Path -LiteralPath $DeckVisualisationSource)) {
+    throw "Deck visualisation DLL was not found. Run build-release.ps1 first."
 }
 if ($DllPaths | Where-Object { -not (Test-Path $_) }) {
     throw "Plugin DLL files were not found. Run build-release.ps1 first."
@@ -38,7 +45,7 @@ if (-not $VirtualDJHome) {
 }
 
 $TargetDirectory = Join-Path $VirtualDJHome "Plugins64\VideoEffect"
-$LegacyVideoDlls = @("EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll")
+$LegacyVideoDlls = @("EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll", "LRC Deck.dll")
 foreach ($LegacyName in $LegacyVideoDlls) {
     $LegacyPath = Join-Path $TargetDirectory $LegacyName
     if (Test-Path -LiteralPath $LegacyPath) {
@@ -61,7 +68,7 @@ if ($Edition -eq "Full") {
         Write-Host "Removed legacy plugin: $LegacyDeckVisualisation"
     }
     $DeckVisualisation = Join-Path $VisualisationsDirectory "LRC Deck.dll"
-    Copy-Item -LiteralPath (Join-Path $EditionDirectory "LRC Deck.dll") -Destination $DeckVisualisation -Force
+    Copy-Item -LiteralPath $DeckVisualisationSource -Destination $DeckVisualisation -Force
     Write-Host "Installed audio-only visualisation: $DeckVisualisation"
 
     $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
