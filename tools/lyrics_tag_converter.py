@@ -103,16 +103,16 @@ def discover_pairs(root: Path) -> tuple[list[tuple[Path, Path | None, Path | Non
 
 def load_mutagen():
     try:
-        from mutagen.id3 import Encoding, ID3, ID3NoHeaderError, SYLT, USLT
+        from mutagen.id3 import Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT
     except ImportError:
         print("Missing dependency. Install it with: py -m pip install mutagen", file=sys.stderr)
         raise SystemExit(2)
-    return Encoding, ID3, ID3NoHeaderError, SYLT, USLT
+    return Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT
 
 
 def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
-                 language: str, overwrite: bool) -> tuple[str, bool]:
-    Encoding, ID3, ID3NoHeaderError, SYLT, USLT = load_mutagen()
+                 language: str, overwrite: bool, delete_lrc: bool = False) -> tuple[str, bool]:
+    Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT = load_mutagen()
     try:
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
@@ -123,16 +123,29 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
         timed_lines = parse_lrc(lrc_path)
         if not timed_lines:
             messages.append("LRC has no timed lines")
-        elif tags.getall("SYLT") and not overwrite:
-            messages.append("SYLT exists (skipped)")
         else:
-            if overwrite:
-                tags.delall("SYLT")
-            tags.add(SYLT(encoding=Encoding.UTF16, lang=language, format=2, type=1,
-                          desc="Imported from LRC",
-                          text=[(line.text, line.time_ms) for line in timed_lines]))
-            changed = True
-            messages.append(f"SYLT {len(timed_lines)} lines")
+            synced_txxx = [frame for frame in tags.getall("TXXX")
+                           if frame.desc.upper() == "SYNCEDLYRICS"
+                           and any(str(value).strip() for value in frame.text)]
+            if (tags.getall("SYLT") or synced_txxx) and not overwrite:
+                messages.append("synchronized lyrics exist (skipped)")
+            else:
+                if overwrite:
+                    tags.delall("SYLT")
+                    tags.delall("TXXX:SYNCEDLYRICS")
+                descriptor = "Imported from LRC by VirtualDJ Embedded Lyrics"
+                tags.add(SYLT(encoding=Encoding.UTF16, lang=language, format=2, type=1,
+                              desc=descriptor,
+                              text=[(line.text, line.time_ms) for line in timed_lines]))
+                formatted = ["[re:VirtualDJ Embedded Lyrics - imported from LRC]"]
+                for line in timed_lines:
+                    minutes, remainder = divmod(line.time_ms, 60000)
+                    seconds, millis = divmod(remainder, 1000)
+                    formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{line.text}")
+                tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS",
+                              text=["\n".join(formatted)]))
+                changed = True
+                messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
     if txt_path:
         plain_text = decode_text_file(txt_path).strip()
         matching = [frame for frame in tags.getall("USLT") if frame.lang == language]
@@ -150,6 +163,17 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
     if changed:
         version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
         tags.save(mp3_path, v2_version=version)
+    if lrc_path and changed:
+        verify = ID3(mp3_path)
+        has_sylt = bool(verify.getall("SYLT"))
+        has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
+                       for frame in verify.getall("TXXX"))
+        if not has_sylt or not has_txxx:
+            raise RuntimeError("synchronized lyrics verification failed")
+        messages.append("verified")
+        if delete_lrc:
+            lrc_path.unlink()
+            messages.append("LRC deleted")
     return "; ".join(messages), changed
 
 
@@ -203,6 +227,8 @@ def main() -> int:
     )
     parser.add_argument("--write", action="store_true", help="Modify MP3 files (default is dry-run)")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing target lyrics frames")
+    parser.add_argument("--delete-lrc", action="store_true",
+                        help="Delete LRC only after both synchronized tags are verified")
     parser.add_argument("--language", default="und", help="Three-letter ID3 language code (default: und)")
     args = parser.parse_args()
     if len(args.language) != 3 or not args.language.isascii():
@@ -224,7 +250,7 @@ def main() -> int:
             continue
         try:
             message, did_change = write_frames(mp3_path, lrc_path, txt_path,
-                                                args.language, args.overwrite)
+                                                args.language, args.overwrite, args.delete_lrc)
             changed += int(did_change)
             print(f"WRITE    {mp3_path}: {message}")
         except Exception as exc:

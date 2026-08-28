@@ -106,6 +106,9 @@ Write tags into the working copy of the music files:
 
 ```powershell
 py tools/lyrics_tag_converter.py "D:/Music" --write
+
+# Or drag a folder onto Import-LRC-Folder.cmd for dry-run, confirmation,
+# dual-tag writing, verification, and optional verified LRC deletion.
 ```
 
 LRC is written to standard `SYLT`; TXT is written to standard `USLT`. Existing
