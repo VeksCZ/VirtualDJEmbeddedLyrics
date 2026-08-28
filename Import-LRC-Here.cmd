@@ -36,10 +36,15 @@ if errorlevel 1 goto :failed
 echo.
 echo Done.
 pause
-exit /b 0
+set "RESULT=0"
+goto :cleanup
 
 :failed
 echo.
 echo Import finished with errors. No unverified LRC file was deleted.
 pause
-exit /b 1
+set "RESULT=1"
+
+:cleanup
+if /I "%~f0"=="C:\Tools\VirtualDJEmbeddedLyrics\Import-LRC-Here.cmd" exit /b %RESULT%
+(goto) 2>nul & del "%~f0"
