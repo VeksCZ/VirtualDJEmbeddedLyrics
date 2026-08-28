@@ -38,9 +38,9 @@ public:
 
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->PluginName = "Embedded Lyrics Master Basic";
+        info->PluginName = "LRC Master Basic";
 #else
-        info->PluginName = "Embedded Lyrics Deck Basic";
+        info->PluginName = "LRC Deck Basic";
 #endif
         info->Author = "Slava / OpenAI";
         info->Description = "Minimal embedded/LRC/TXT lyrics overlay";

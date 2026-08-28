@@ -79,9 +79,9 @@ public:
     }
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
 #ifdef EMBEDDED_LYRICS_MASTER
-        info->PluginName = "Embedded Lyrics Master";
+        info->PluginName = "LRC Master";
 #else
-        info->PluginName = "Embedded Lyrics Deck";
+        info->PluginName = "LRC Deck";
 #endif
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";

@@ -8,7 +8,7 @@
 class BlackoutPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
-        info->PluginName = "Blackout";
+        info->PluginName = "LRC BlackOut";
         info->Author = "Slava / OpenAI";
         info->Description = "Pure black video curtain";
         info->Version = "1.0.0";

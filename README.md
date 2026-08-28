@@ -16,10 +16,10 @@ For a portable release, unzip the package and double-click `Install-Full.cmd`
 or `Install-Basic.cmd`. VirtualDJ itself loads the DLL files copied into its
 `Plugins64/VideoEffect` directory; the ZIP is only a transport package.
 
-- **Embedded Lyrics Deck** is an audio-only visualisation source for each deck.
+- **LRC Deck** is an audio-only visualisation source for each deck.
   It renders lyrics over a black background before VirtualDJ performs its video
   transition.
-- **Embedded Lyrics Master** draws over the final master output and selects the
+- **LRC Master** draws over the final master output and selects the
   audible left/right source from `get_crossfader_result`. A small hysteresis
   keeps the selected deck stable around the midpoint during transitions.
   Its **Upfaders** switch selects between `get_crossfader_result` (enabled) and
@@ -70,7 +70,7 @@ Unsynchronized `USLT` and TXT are displayed as manually controlled pages with
   in the master variant.
 - Deck variants are advertised as visualisations for audio-only tracks and
   generate their own black background.
-- `Blackout` is a Master-only, process-first background effect included only in
+- `LRC BlackOut` is a Master-only, process-first background effect included only in
   the Full edition, allowing later Master effects to render above it.
 - Full HD responsive typography with automatic wrapping of long lines.
 
@@ -135,15 +135,15 @@ cmake --build build --config Release
 On Windows with Visual Studio 2022, `build-release.ps1` builds both x64 DLLs and
 runs tests. `install-plugin.ps1` installs it into the detected VirtualDJ
 `Plugins64/VideoEffect` directory. Restart VirtualDJ, open the master Video FX
-list, and activate **Embedded Lyrics Master**, or activate **Embedded Lyrics
+list, and activate **LRC Master**, or activate **Embedded Lyrics
 Deck** in the Video FX slot of each deck.
 
 For untimed lyrics on the deck variant, map next/previous independently, for
 example:
 
 ```text
-deck 1 effect 'Embedded Lyrics Deck' button 1
-deck 1 effect 'Embedded Lyrics Deck' button 2
+deck 1 effect 'LRC Deck' button 1
+deck 1 effect 'LRC Deck' button 2
 ```
 
 Use the corresponding deck number for other decks.
