@@ -123,17 +123,95 @@ def discover_pairs(root: Path) -> tuple[list[tuple[Path, Path | None, Path | Non
 
 def load_mutagen():
     try:
-        from mutagen.id3 import Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT
+        from mutagen.id3 import Encoding, ID3, ID3NoHeaderError, SYLT, TIT1, TXXX, USLT
     except ImportError:
         print("Missing dependency. Install it with: py -m pip install mutagen", file=sys.stderr)
         raise SystemExit(2)
-    return Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT
+    return Encoding, ID3, ID3NoHeaderError, SYLT, TIT1, TXXX, USLT
+
+
+def embedded_lyrics_kind(tags) -> str | None:
+    """Return the strongest embedded lyrics kind understood by the plugin."""
+    has_synced = any(getattr(frame, "text", None) for frame in tags.getall("SYLT"))
+    has_synced = has_synced or any(
+        frame.desc.upper() == "SYNCEDLYRICS"
+        and any(str(value).strip() for value in frame.text)
+        for frame in tags.getall("TXXX")
+    )
+    if has_synced:
+        return "Synced"
+    has_unsynced = any(str(getattr(frame, "text", "")).strip()
+                       for frame in tags.getall("USLT"))
+    has_unsynced = has_unsynced or any(
+        frame.desc.upper() == "UNSYNCEDLYRICS"
+        and any(str(value).strip() for value in frame.text)
+        for frame in tags.getall("TXXX")
+    )
+    return "Unsynced" if has_unsynced else None
+
+
+def set_grouping_lyrics_marker(tags, kind: str) -> bool:
+    """Put a VirtualDJ-visible marker in ID3 Grouping (TIT1), preserving user text."""
+    marker = f"Lyrics: {kind}"
+    existing_parts: list[str] = []
+    for frame in tags.getall("TIT1"):
+        for value in frame.text:
+            existing_parts.extend(part.strip() for part in str(value).split(";") if part.strip())
+    kept = [part for part in existing_parts if not part.casefold().startswith("lyrics:")]
+    new_value = "; ".join([*kept, marker])
+    old_value = "; ".join(existing_parts)
+    if old_value == new_value and len(tags.getall("TIT1")) == 1:
+        return False
+    _, _, _, _, TIT1, _, _ = load_mutagen()
+    tags.delall("TIT1")
+    tags.add(TIT1(encoding=3, text=[new_value]))
+    return True
+
+
+def mark_existing_mp3(root: Path, write: bool) -> tuple[int, int, int]:
+    _, ID3, ID3NoHeaderError, _, _, _, _ = load_mutagen()
+    paths = [root] if root.is_file() else sorted(
+        (path for path in root.rglob("*")
+         if path.is_file() and path.suffix.casefold() == ".mp3"),
+        key=lambda path: str(path).casefold(),
+    )
+    found = changed = errors = 0
+    for mp3_path in paths:
+        try:
+            try:
+                tags = ID3(mp3_path)
+            except ID3NoHeaderError:
+                continue
+            kind = embedded_lyrics_kind(tags)
+            if not kind:
+                continue
+            found += 1
+            current = "; ".join(str(value) for frame in tags.getall("TIT1") for value in frame.text)
+            marker = f"Lyrics: {kind}"
+            if not write:
+                print(f"DRY-RUN  {mp3_path}: {marker} (Grouping: {current or '<empty>'})")
+                continue
+            if set_grouping_lyrics_marker(tags, kind):
+                version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
+                tags.save(mp3_path, v2_version=version)
+                verify = ID3(mp3_path)
+                if not any(marker in str(value)
+                           for frame in verify.getall("TIT1") for value in frame.text):
+                    raise RuntimeError("Grouping marker verification failed")
+                changed += 1
+                print(f"WRITE    {mp3_path}: Grouping += {marker}")
+            else:
+                print(f"OK       {mp3_path}: {marker}")
+        except Exception as exc:
+            errors += 1
+            print(f"ERROR    {mp3_path}: {exc}", file=sys.stderr)
+    return found, changed, errors
 
 
 def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                  language: str, overwrite: bool, delete_lrc: bool = False,
                  delete_sidecars: bool = False) -> tuple[str, bool]:
-    Encoding, ID3, ID3NoHeaderError, SYLT, TXXX, USLT = load_mutagen()
+    Encoding, ID3, ID3NoHeaderError, SYLT, _, TXXX, USLT = load_mutagen()
     try:
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
@@ -222,6 +300,10 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                 changed = True
                 txt_written = True
                 messages.append("USLT + UNSYNCEDLYRICS from TXT")
+    kind = embedded_lyrics_kind(tags)
+    if kind and set_grouping_lyrics_marker(tags, kind):
+        changed = True
+        messages.append(f"Grouping: Lyrics: {kind}")
     if changed:
         version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
         tags.save(mp3_path, v2_version=version)
@@ -286,6 +368,7 @@ def write_recording(mp3_path: Path, timing_path: Path) -> int:
         seconds, millis = divmod(remainder, 1000)
         formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{text}")
     tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS", text=["\n".join(formatted)]))
+    set_grouping_lyrics_marker(tags, "Synced")
     version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
     tags.save(mp3_path, v2_version=version)
     verify = ID3(mp3_path)
@@ -312,6 +395,8 @@ def main() -> int:
     parser.add_argument("--delete-sidecars", action="store_true",
                         help="Delete each LRC/TXT only after its own tags are written and verified")
     parser.add_argument("--language", default="und", help="Three-letter ID3 language code (default: und)")
+    parser.add_argument("--mark-existing-lyrics", action="store_true",
+                        help="Inspect embedded MP3 lyrics and set VirtualDJ-visible Grouping")
     args = parser.parse_args()
     if len(args.language) != 3 or not args.language.isascii():
         parser.error("--language must be a three-letter ASCII code such as ces, eng, or und")
@@ -320,6 +405,12 @@ def main() -> int:
         parser.error(f"Path does not exist: {root}")
     if root.is_file() and root.suffix.casefold() not in (".mp3", ".lrc", ".txt"):
         parser.error("file must have an .mp3, .lrc, or .txt extension")
+    if args.mark_existing_lyrics:
+        if root.is_file() and root.suffix.casefold() != ".mp3":
+            parser.error("--mark-existing-lyrics accepts only an MP3 or directory")
+        found, changed, errors = mark_existing_mp3(root, args.write)
+        print(f"Summary: lyrics={found}, changed={changed}, errors={errors}")
+        return 1 if errors else 0
     pairs, unmatched = discover_pairs(root)
     changed = errors = 0
     for sidecar in unmatched:

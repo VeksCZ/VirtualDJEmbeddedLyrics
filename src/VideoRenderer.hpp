@@ -8,7 +8,7 @@ class VideoRenderer {
 public:
     bool Initialize(ID3D11Device* device);
     void Reset();
-    bool Draw(ID3D11ShaderResourceView* texture);
+    bool Draw(ID3D11ShaderResourceView* texture, bool setFullTargetViewport = true);
 
 private:
     Microsoft::WRL::ComPtr<ID3D11Device> device_;

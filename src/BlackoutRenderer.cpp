@@ -50,11 +50,18 @@ void BlackoutRenderer::Reset() {
     context_.Reset();
 }
 
-bool BlackoutRenderer::Draw() {
+bool BlackoutRenderer::Draw(bool setFullTargetViewport) {
     if (!context_ || !vertexShader_ || !pixelShader_) return false;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
     context_->OMGetRenderTargets(1, &target, nullptr);
     if (!target) return false;
+    Microsoft::WRL::ComPtr<ID3D11Resource> targetResource;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> targetTexture;
+    target->GetResource(&targetResource);
+    if (!targetResource || FAILED(targetResource.As(&targetTexture)) || !targetTexture) return false;
+    D3D11_TEXTURE2D_DESC targetDescription{};
+    targetTexture->GetDesc(&targetDescription);
+    if (!targetDescription.Width || !targetDescription.Height) return false;
 
     Microsoft::WRL::ComPtr<ID3D11InputLayout> oldLayout;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> oldVs;
@@ -65,6 +72,9 @@ bool BlackoutRenderer::Draw() {
     D3D11_PRIMITIVE_TOPOLOGY oldTopology{};
     FLOAT oldFactor[4]{};
     UINT oldMask = 0, oldStencil = 0;
+    UINT oldViewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT oldViewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+    context_->RSGetViewports(&oldViewportCount, oldViewports);
     context_->IAGetInputLayout(&oldLayout);
     context_->IAGetPrimitiveTopology(&oldTopology);
     context_->VSGetShader(&oldVs, nullptr, nullptr);
@@ -72,6 +82,10 @@ bool BlackoutRenderer::Draw() {
     context_->OMGetBlendState(&oldBlend, oldFactor, &oldMask);
     context_->OMGetDepthStencilState(&oldDepth, &oldStencil);
     context_->RSGetState(&oldRasterizer);
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f,
+        static_cast<float>(targetDescription.Width),
+        static_cast<float>(targetDescription.Height), 0.0f, 1.0f};
+    if (setFullTargetViewport) context_->RSSetViewports(1, &viewport);
 
     constexpr FLOAT factor[4]{};
     context_->IASetInputLayout(nullptr);
@@ -90,6 +104,8 @@ bool BlackoutRenderer::Draw() {
     context_->OMSetBlendState(oldBlend.Get(), oldFactor, oldMask);
     context_->OMSetDepthStencilState(oldDepth.Get(), oldStencil);
     context_->RSSetState(oldRasterizer.Get());
+    if (setFullTargetViewport && oldViewportCount)
+        context_->RSSetViewports(oldViewportCount, oldViewports);
     return true;
 }
 #endif

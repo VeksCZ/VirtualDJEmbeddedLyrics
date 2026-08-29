@@ -36,3 +36,6 @@ Thumbs.db
 
 # Runtime diagnostics
 *.log
+
+# Local research checkouts
+.research/

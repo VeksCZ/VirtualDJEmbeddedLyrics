@@ -36,6 +36,7 @@ class BatchLrcImportTests(unittest.TestCase):
             synced = [frame for frame in tags.getall("TXXX")
                       if frame.desc == "SYNCEDLYRICS"]
             self.assertEqual(len(synced), 1)
+            self.assertEqual(tags.getall("TIT1")[0].text, ["Lyrics: Synced"])
             self.assertTrue(synced[0].text[0].startswith(
                 "[re:VirtualDJ Embedded Lyrics - imported from LRC]"))
 

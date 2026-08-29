@@ -48,8 +48,9 @@ class SidecarDeletionTests(unittest.TestCase):
             message, changed = MODULE.write_frames(
                 mp3, None, txt, "und", False, delete_sidecars=True)
 
-            self.assertFalse(changed)
+            self.assertTrue(changed)
             self.assertIn("skipped", message)
+            self.assertIn("Grouping: Lyrics: Unsynced", message)
             self.assertTrue(txt.exists())
 
 

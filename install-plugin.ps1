@@ -71,5 +71,5 @@ Copy-Item -LiteralPath $Writer -Destination (Join-Path $OverlayDirectory "Embedd
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
 
 Write-Host "Installed Master and BlackOut into: $OverlayDirectory"
-Write-Host "Installed Deck into: $VisualisationsDirectory"
+Write-Host "Installed Deck audio-only source into: $VisualisationsDirectory"
 Write-Host "Restart VirtualDJ."

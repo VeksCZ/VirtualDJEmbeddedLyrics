@@ -6,8 +6,8 @@ Windows 64-bit plugins that display embedded or sidecar lyrics in VirtualDJ.
 
 - **LRC Master** — final master overlay. It follows `video_crossfader` by default;
   enable **Upfaders** to use `get_crossfader_result` instead.
-- **LRC Deck** — source for audio-only tracks. VirtualDJ also lists visualisation
-  sources among master overlays; this duplicate menu entry is normal VDJ behaviour.
+- **LRC Deck** — automatic audio-only video source. Select it in VirtualDJ's
+  **Source for audio-only tracks** section.
 - **LRC BlackOut** — black master background processed before later overlays,
   slideshows, shaders and other visualisations.
 
@@ -45,8 +45,11 @@ timed lyrics. Missing lyrics are shown as `...`.
 - Smooth word/line highlight timing and persistent pause rows.
 - Long intro and inter-verse pauses show their real duration in the queue;
   waiting countdown rows use the read color and active countdowns use highlight.
-- Adjustable font size, vertical position and strong adaptive black outline.
-- Clickable Windows color pickers for text, highlight and read colors.
+- Adjustable font size and vertical position.
+- The standard VirtualDJ parameter panel includes an `Advanced` button. It
+  opens the **LRC Presets** dialog with Default, Photos and Clean presets,
+  font selection, outline/shadow style and strength, plus visible color
+  swatches for text, highlight and read lines.
 - `Next` and `Prev` move untimed lyrics one line at a time.
 - `Record timing` timestamps the line that becomes active, waits until the MP3 is
   unloaded from decks 1–4, then writes both `SYLT` and `TXXX:SYNCEDLYRICS`.
@@ -58,6 +61,11 @@ Example mappings:
 deck 1 effect 'LRC Deck' button 7
 deck 1 effect 'LRC Deck' button 8
 ```
+
+Enable LRC Deck in **Source for audio-only tracks**. This is VirtualDJ's single
+automatic `videoAudioOnlyVisualisation` slot. VirtualDJ may run that instance
+on the master when both video sides contain audio-only tracks; the public SDK
+does not expose separate automatic audio-only source slots for each deck.
 
 ## Import LRC/TXT into MP3 tags
 
@@ -77,6 +85,16 @@ py tools/lyrics_tag_converter.py "D:/Music" --write
 music folder. It calls the central tool, passes that folder, and deletes only
 the launcher itself afterward. Verified source `.lrc`/`.txt` deletion remains an
 explicit prompt.
+
+Successfully imported MP3 files also receive a VirtualDJ-visible ID3
+`Grouping` marker: `Lyrics: Synced` or `Lyrics: Unsynced`. Existing Grouping
+text is preserved.
+
+`Mark-Lyrics-Here.bat` is the separate scanner for files that already contain
+embedded lyrics. Copy it into a music folder and run it there. It recursively
+reads only MP3 tags (it does not look for LRC/TXT files), previews the changes,
+and after confirmation writes the same Grouping marker. In VirtualDJ use
+**Reload Tags**, then enable the **Grouping** browser column.
 
 ## Build and test
 

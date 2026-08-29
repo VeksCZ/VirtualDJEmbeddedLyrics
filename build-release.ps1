@@ -24,4 +24,5 @@ Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory
 Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory
 Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory
 Copy-Item (Join-Path $ProjectRoot "tools\lyrics_tag_converter.py") (Join-Path $FullDirectory "EmbeddedLyricsTagWriter.py")
+Copy-Item (Join-Path $ProjectRoot "RELEASE-README.txt") (Join-Path $FullDirectory "README.txt")
 Write-Host "Release files created in: $FullDirectory"

@@ -8,7 +8,7 @@ class BlackoutRenderer {
 public:
     bool Initialize(ID3D11Device* device);
     void Reset();
-    bool Draw();
+    bool Draw(bool setFullTargetViewport = true);
 
 private:
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;

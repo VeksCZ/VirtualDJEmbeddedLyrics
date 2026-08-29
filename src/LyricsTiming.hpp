@@ -23,3 +23,11 @@ inline int LyricCountdown(std::int64_t remainingMs) noexcept {
     const auto seconds = (remainingMs + 999) / 1000;
     return static_cast<int>(std::min<std::int64_t>(seconds, INT_MAX));
 }
+
+inline std::wstring LyricPauseDisplayText(const std::wstring& queuedDuration,
+                                          int position, std::int64_t remainingMs) {
+    if (position < 0) return {};
+    if (position > 0) return L"> " + queuedDuration + L" <";
+    const int countdown = LyricCountdown(remainingMs);
+    return countdown >= 1 ? L"> " + std::to_wstring(countdown) + L" <" : std::wstring{};
+}

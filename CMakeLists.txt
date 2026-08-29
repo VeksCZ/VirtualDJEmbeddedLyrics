@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(VirtualDJEmbeddedLyrics VERSION 0.2.0 LANGUAGES CXX)
+project(VirtualDJEmbeddedLyrics VERSION 0.3.0 LANGUAGES CXX)
 
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -48,6 +48,7 @@ if(WIN32)
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
         function(add_vdj_lyrics_plugin target output_name is_master)
             add_library(${target} SHARED
+                src/AdvancedDialog.cpp
                 src/Plugin.cpp
                 src/BlackoutRenderer.cpp
                 src/TextTexture.cpp
@@ -64,7 +65,7 @@ if(WIN32)
                 target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
                 set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
             endif()
-            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comdlg32)
+            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 

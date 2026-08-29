@@ -35,6 +35,7 @@ class BatchTxtImportTests(unittest.TestCase):
                              "First\nSecond")
             unsynced = [frame for frame in tags.getall("TXXX")
                         if frame.desc == "UNSYNCEDLYRICS"]
+            self.assertEqual(tags.getall("TIT1")[0].text, ["Lyrics: Unsynced"])
             self.assertEqual(unsynced[0].text[0].replace("\r\n", "\n"),
                              "First\nSecond")
 

@@ -1,5 +1,6 @@
 #ifdef _WIN32
 #include "Lyrics.hpp"
+#include "AdvancedDialog.hpp"
 #include "LyricsTiming.hpp"
 #include "AsyncLyricsLoader.hpp"
 #include "BlackoutRenderer.hpp"
@@ -16,12 +17,24 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <functional>
-#include <commdlg.h>
 #include <shellapi.h>
 
 namespace {
 int moduleAnchor;
+struct PaletteEntry { const wchar_t* name; std::uint32_t color; };
+constexpr PaletteEntry kPalette[] = {
+    {L"White", 0x00ffffffu}, {L"Yellow", 0x0000d2ffu}, {L"Gray", 0x00969696u},
+    {L"Orange", 0x00248affu}, {L"Red", 0x004444f0u}, {L"Green", 0x006bd642u},
+    {L"Cyan", 0x00e8d945u}, {L"Blue", 0x00ff834bu}, {L"Magenta", 0x00e851d9u}
+};
+std::size_t DiscreteIndex(float value, std::size_t count) {
+    return static_cast<std::size_t>(std::clamp(value, 0.0f, 1.0f) *
+                                    static_cast<float>(count - 1) + 0.5f);
+}
+std::size_t PaletteIndex(float value) { return DiscreteIndex(value, std::size(kPalette)); }
+constexpr const wchar_t* kFontNames[] = {L"Arial", L"Segoe UI", L"Verdana", L"Tahoma", L"Trebuchet", L"Calibri"};
+constexpr const wchar_t* kBackdropNames[] = {L"Outline", L"Shadow", L"Outline + Shadow"};
+constexpr const wchar_t* kStrengthNames[] = {L"Thin", L"Normal", L"Strong"};
 std::filesystem::path PluginDirectory() {
     HMODULE module{};
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -31,11 +44,20 @@ std::filesystem::path PluginDirectory() {
     path.resize(GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size())));
     return std::filesystem::path(path).parent_path();
 }
+std::filesystem::path AdvancedSettingsPath() {
+    std::wstring localAppData(32768, L'\0');
+    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.data(),
+                                                  static_cast<DWORD>(localAppData.size()));
+    if (!length || length >= localAppData.size()) return PluginDirectory() / L"LRC Advanced.ini";
+    localAppData.resize(length);
+    return std::filesystem::path(localAppData) / L"VirtualDJ" / L"LRC Advanced.ini";
+}
 }
 
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
+        LoadAdvancedSettings();
         if (FAILED(DeclareParameterSlider(&fontSizeParameter_, 1, "Font size", "Size", 1.0f / 3.0f)) ||
             FAILED(DeclareParameterSlider(&timedLinesParameter_, 2, "Timed lines", "Timed lines", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
@@ -47,10 +69,7 @@ public:
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
             FAILED(DeclareParameterSwitch(&recordTimingParameter_, 9, "Record timing to embedded tags", "Record timing", false)) ||
-            FAILED(DeclareParameterButton(&textColorButton_, 10, "Text color", "Text color")) ||
-            FAILED(DeclareParameterButton(&highlightColorButton_, 11, "Highlight color", "Highlight")) ||
-            FAILED(DeclareParameterButton(&readColorButton_, 12, "Read color", "Read color")) ||
-            FAILED(DeclareParameterCustom(&colorSettings_, 13, "Lyrics colors", "Colors", sizeof(colorSettings_)))
+            FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced settings", "Advanced"))
             ) return E_FAIL;
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
@@ -65,24 +84,12 @@ public:
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
-        else if (id == 10 && textColorButton_) {
-            PickColor(colorSettings_.text); textColorButton_ = 0;
-        } else if (id == 11 && highlightColorButton_) {
-            PickColor(colorSettings_.highlight); highlightColorButton_ = 0;
-        } else if (id == 12 && readColorButton_) {
-            PickColor(colorSettings_.read); readColorButton_ = 0;
-        }
+        else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
         if (!output || outputSize <= 0) return E_NOTIMPL;
-        if (id >= 10 && id <= 12) {
-            const auto color = id == 10 ? colorSettings_.text
-                : id == 11 ? colorSettings_.highlight : colorSettings_.read;
-            std::snprintf(output, static_cast<std::size_t>(outputSize), "#%02X%02X%02X",
-                          GetRValue(color), GetGValue(color), GetBValue(color));
-            return S_OK;
-        }
+
         int percent = 0;
         if (id == 1) percent = static_cast<int>(FontScale() * 100.0f + 0.5f);
         else if (id == 4) percent = static_cast<int>(VerticalPosition() * 100.0f + 0.5f);
@@ -104,11 +111,13 @@ public:
 #endif
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
-        info->Version = "0.2.0";
+        info->Version = "0.3.0";
 #ifdef EMBEDDED_LYRICS_MASTER
         info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
 #else
+        // Visualisations is VirtualDJ's SDK category for the single automatic
+        // audio-only video source selected by videoAudioOnlyVisualisation.
         info->Flags = VDJFLAG_VIDEO_VISUALISATION;
 #endif
         info->Bitmap = nullptr;
@@ -135,29 +144,43 @@ public:
 #ifndef EMBEDDED_LYRICS_MASTER
         backgroundRenderer_.Reset();
 #endif
-        renderer_.Reset(); texture_.Reset(); device_ = nullptr; return S_OK;
+        renderer_.Reset(); texture_.Reset(); device_ = nullptr;
+        drawContextLogged_ = false;
+        return S_OK;
     }
     HRESULT VDJ_API OnDraw() override {
         TryCommitPendingRecording();
-#ifndef EMBEDDED_LYRICS_MASTER
-        if (!backgroundRenderer_.Draw()) Diagnostics::Error(L"Failed to render audio-only background");
-#endif
 #ifdef EMBEDDED_LYRICS_MASTER
         const auto deck = VisibleVideoDeck();
 #else
         const auto deck = PluginDeck();
 #endif
         currentDeck_ = deck;
+        if (!drawContextLogged_) {
+#ifdef EMBEDDED_LYRICS_MASTER
+            const std::wstring variant = L"Master";
+#else
+            const std::wstring variant = L"Deck";
+#endif
+            Diagnostics::Info(variant + L" draw context: deck=" + std::to_wstring(deck) +
+                              L", size=" + std::to_wstring(width) + L"x" +
+                              std::to_wstring(height));
+            drawContextLogged_ = true;
+        }
         if (deck <= 0) {
 #ifndef EMBEDDED_LYRICS_MASTER
             if (!texture_.UpdateMessage(L"Zapni Deck verzi ve Video FX konkretniho decku",
                                         width, height, FontScale(), VerticalPosition()) ||
-                !renderer_.Draw(texture_.View())) {
+                !DrawLyricsTexture()) {
                 Diagnostics::Error(L"Failed to render deck-placement hint");
             }
 #endif
             return S_OK;
         }
+#ifndef EMBEDDED_LYRICS_MASTER
+        if (!backgroundRenderer_.Draw(false))
+            Diagnostics::Error(L"Failed to render audio-only background");
+#endif
         char pathBuffer[4096]{};
         char command[128]{};
         std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
@@ -201,13 +224,13 @@ public:
         if (lyrics_.empty()) {
             if (lyricsLoadFinished_ &&
                 (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition()) ||
-                 !renderer_.Draw(texture_.View()))) {
+                 !DrawLyricsTexture())) {
                 Diagnostics::Error(L"Failed to render missing-lyrics indication");
             }
             return S_OK;
         }
         if (!lyrics_.synchronized) {
-            if (!UpdateUntimedRibbon() || !renderer_.Draw(texture_.View()))
+            if (!UpdateUntimedRibbon() || !DrawLyricsTexture())
                 Diagnostics::Error(L"Failed to render untimed lyrics ribbon");
             return S_OK;
         }
@@ -218,11 +241,21 @@ public:
             return S_OK;
         }
         UpdateVisible(static_cast<std::int64_t>(elapsedMs));
-        if (!renderer_.Draw(texture_.View())) Diagnostics::Error(L"Failed to render synchronized lyrics");
+        if (!DrawLyricsTexture()) Diagnostics::Error(L"Failed to render synchronized lyrics");
         return S_OK;
     }
 
 private:
+    bool DrawLyricsTexture() {
+#ifdef EMBEDDED_LYRICS_MASTER
+        return renderer_.Draw(texture_.View());
+#else
+        // VDJ supplies the viewport for the current audio deck. Replacing it
+        // with the full target dimensions makes this source cover the master.
+        return renderer_.Draw(texture_.View(), false);
+#endif
+    }
+
 #ifndef EMBEDDED_LYRICS_MASTER
     int PluginDeck() {
         double deck = 0.0;
@@ -292,10 +325,11 @@ private:
         subduedLines.reserve(visibleEnd - visibleStart);
         bool countdownVisible = false;
         for (auto i = visibleStart; i < visibleEnd; ++i) {
-            if (timeline[i].pause && i == active) {
-                const auto countdown = LyricCountdown(next - now);
-                countdownVisible = countdown >= 1;
-                visibleLines.push_back(countdownVisible ? std::to_wstring(countdown) : timeline[i].text);
+            if (timeline[i].pause) {
+                const int position = i < active ? -1 : i > active ? 1 : 0;
+                visibleLines.push_back(
+                    LyricPauseDisplayText(timeline[i].text, position, next - now));
+                if (i == active) countdownVisible = !visibleLines.back().empty();
             } else {
                 visibleLines.push_back(timeline[i].text);
             }
@@ -313,24 +347,12 @@ private:
             ? UnitProgress(now, next - scrollDuration, scrollDuration)
             : UnitProgress(now, start, interval);
         if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
-                                  width, height, FontScale(), VerticalPosition(), Colors(), subduedLines))
+                                  width, height, FontScale(), VerticalPosition(), subduedLines,
+                                  TextColor(), HighlightColor(), ReadColor(),
+                                  FontFamily(), BackdropStyle(), BackdropStrength()))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
 
-    void PickColor(COLORREF& color) {
-        CHOOSECOLORW chooser{};
-        chooser.lStructSize = sizeof(chooser);
-        chooser.hwndOwner = GetForegroundWindow();
-        chooser.rgbResult = color;
-        chooser.lpCustColors = customColors_;
-        chooser.Flags = CC_FULLOPEN | CC_RGBINIT;
-        if (ChooseColorW(&chooser)) {
-            color = chooser.rgbResult;
-            texture_.Reset();
-        }
-    }
-
-    LyricColors Colors() const noexcept { return colorSettings_; }
 
     float FontScale() const noexcept {
         return 0.5f + std::clamp(fontSizeParameter_, 0.0f, 1.0f) * 1.5f;
@@ -345,6 +367,18 @@ private:
     }
     std::size_t TimedLineCount() const noexcept {
         return 5 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 7.0f + 0.5f);
+    }
+    std::uint32_t TextColor() const noexcept { return kPalette[PaletteIndex(textColorParameter_)].color; }
+    std::uint32_t HighlightColor() const noexcept { return kPalette[PaletteIndex(highlightColorParameter_)].color; }
+    std::uint32_t ReadColor() const noexcept { return kPalette[PaletteIndex(readColorParameter_)].color; }
+    int FontFamily() const noexcept {
+        return static_cast<int>(DiscreteIndex(fontFamilyParameter_, std::size(kFontNames)));
+    }
+    int BackdropStyle() const noexcept {
+        return static_cast<int>(DiscreteIndex(backdropStyleParameter_, std::size(kBackdropNames)));
+    }
+    int BackdropStrength() const noexcept {
+        return static_cast<int>(DiscreteIndex(backdropStrengthParameter_, std::size(kStrengthNames)));
     }
 
     void BeginUntimedScroll(std::size_t target) {
@@ -368,7 +402,9 @@ private:
         std::vector<std::wstring> visible; visible.reserve(end - first);
         for (auto i = first; i < end; ++i) visible.push_back(lyrics_.lines[i].text);
         return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
-                                    width, height, FontScale(), VerticalPosition(), Colors());
+                                    width, height, FontScale(), VerticalPosition(), {},
+                                    TextColor(), HighlightColor(), ReadColor(),
+                                    FontFamily(), BackdropStyle(), BackdropStrength());
     }
     void AdvanceUntimedLine() {
         if (lyrics_.synchronized || lyrics_.lines.empty()) return;
@@ -445,6 +481,57 @@ private:
         Diagnostics::Info(L"TXT change detected; queued lyrics reload");
     }
 
+    void OpenAdvancedDialog() {
+        AdvancedAppearanceSettings settings{
+            FontFamily(), BackdropStyle(), BackdropStrength(),
+            static_cast<int>(PaletteIndex(textColorParameter_)),
+            static_cast<int>(PaletteIndex(highlightColorParameter_)),
+            static_cast<int>(PaletteIndex(readColorParameter_))};
+        if (!ShowAdvancedAppearanceDialog(GetForegroundWindow(), settings)) return;
+        fontFamilyParameter_ = static_cast<float>(settings.font) /
+                               static_cast<float>(std::size(kFontNames) - 1);
+        backdropStyleParameter_ = static_cast<float>(settings.backdrop) /
+                                  static_cast<float>(std::size(kBackdropNames) - 1);
+        backdropStrengthParameter_ = static_cast<float>(settings.strength) /
+                                     static_cast<float>(std::size(kStrengthNames) - 1);
+        textColorParameter_ = static_cast<float>(settings.textColor) /
+                              static_cast<float>(std::size(kPalette) - 1);
+        highlightColorParameter_ = static_cast<float>(settings.highlightColor) /
+                                   static_cast<float>(std::size(kPalette) - 1);
+        readColorParameter_ = static_cast<float>(settings.readColor) /
+                              static_cast<float>(std::size(kPalette) - 1);
+        texture_.Reset();
+        SaveAdvancedSettings();
+    }
+
+    void LoadAdvancedSettings() {
+        const auto path = AdvancedSettingsPath().wstring();
+        const auto value = [&path](const wchar_t* key, int fallback, int maximum) {
+            return std::clamp(static_cast<int>(GetPrivateProfileIntW(
+                L"Advanced", key, fallback, path.c_str())), 0, maximum);
+        };
+        fontFamilyParameter_ = static_cast<float>(value(L"Font", 0, 5)) / 5.0f;
+        backdropStyleParameter_ = static_cast<float>(value(L"Backdrop", 0, 2)) / 2.0f;
+        backdropStrengthParameter_ = static_cast<float>(value(L"Strength", 1, 2)) / 2.0f;
+        textColorParameter_ = static_cast<float>(value(L"TextColor", 0, 8)) / 8.0f;
+        highlightColorParameter_ = static_cast<float>(value(L"HighlightColor", 1, 8)) / 8.0f;
+        readColorParameter_ = static_cast<float>(value(L"ReadColor", 2, 8)) / 8.0f;
+    }
+
+    void SaveAdvancedSettings() const {
+        const auto path = AdvancedSettingsPath().wstring();
+        const auto write = [&path](const wchar_t* key, std::size_t value) {
+            const auto text = std::to_wstring(value);
+            WritePrivateProfileStringW(L"Advanced", key, text.c_str(), path.c_str());
+        };
+        write(L"Font", static_cast<std::size_t>(FontFamily()));
+        write(L"Backdrop", static_cast<std::size_t>(BackdropStyle()));
+        write(L"Strength", static_cast<std::size_t>(BackdropStrength()));
+        write(L"TextColor", PaletteIndex(textColorParameter_));
+        write(L"HighlightColor", PaletteIndex(highlightColorParameter_));
+        write(L"ReadColor", PaletteIndex(readColorParameter_));
+    }
+
     void OpenTextEditor() {
         if (loadedPath_.empty()) {
             Diagnostics::Error(L"Cannot edit TXT because no track is loaded");
@@ -474,13 +561,16 @@ private:
     std::filesystem::path loadedPath_;
     LyricsDocument lyrics_;
     bool lyricsLoadFinished_{};
-    int nextLineButton_{}; int previousLineButton_{};
+    bool drawContextLogged_{};
+    int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{};
     float pageLinesParameter_{2.0f / 7.0f}; float timedLinesParameter_{2.0f / 7.0f};
-    int textColorButton_{}; int highlightColorButton_{}; int readColorButton_{};
-    LyricColors colorSettings_{};
-    COLORREF customColors_[16]{};
+    float textColorParameter_{}; float highlightColorParameter_{1.0f / 8.0f};
+    float readColorParameter_{2.0f / 8.0f};
+    float fontFamilyParameter_{}; float backdropStyleParameter_{};
+    float backdropStrengthParameter_{0.5f};
+
     std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};

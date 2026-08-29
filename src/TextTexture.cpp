@@ -16,31 +16,36 @@ void DestroyCanvas(HDC dc, HBITMAP bitmap, HGDIOBJ oldBitmap) {
     if (dc) DeleteDC(dc);
 }
 
-void DrawOutlinedText(HDC dc, int x, int y, const std::wstring& text, COLORREF color) {
-    if ((color & 0x00ffffffu) == 0) color = RGB(1, 1, 1);
-    TEXTMETRICW metrics{};
-    GetTextMetricsW(dc, &metrics);
-    const int penWidth = std::clamp(static_cast<int>(metrics.tmHeight) / 8, 6, 14);
-    HPEN outline = CreatePen(PS_SOLID, penWidth, RGB(1, 1, 1));
-    HBRUSH fill = CreateSolidBrush(color);
-    if (outline && fill && BeginPath(dc) &&
-        TextOutW(dc, x, y, text.c_str(), static_cast<int>(text.size())) && EndPath(dc)) {
-        const auto oldPen = SelectObject(dc, outline);
-        const auto oldBrush = SelectObject(dc, fill);
-        StrokeAndFillPath(dc);
-        SelectObject(dc, oldBrush);
-        SelectObject(dc, oldPen);
-    } else {
-        AbortPath(dc);
-        SetTextColor(dc, RGB(1, 1, 1));
-        for (int ox = -4; ox <= 4; ox += 2)
-            for (int oy = -4; oy <= 4; oy += 2)
-                if (ox || oy) TextOutW(dc, x + ox, y + oy, text.c_str(), static_cast<int>(text.size()));
-        SetTextColor(dc, color);
-        TextOutW(dc, x, y, text.c_str(), static_cast<int>(text.size()));
+void DrawStyledText(HDC dc, int x, int y, const std::wstring& text, COLORREF color,
+                    int backdropStyle, int backdropStrength) {
+    const int radius = std::clamp(backdropStrength, 0, 2) + 2;
+    SetTextColor(dc, RGB(1, 1, 1));
+    if (backdropStyle == 1 || backdropStyle == 2) {
+        const int offset = radius + 2;
+        for (int ox = -1; ox <= 1; ++ox)
+            for (int oy = -1; oy <= 1; ++oy)
+                TextOutW(dc, x + offset + ox, y + offset + oy,
+                         text.c_str(), static_cast<int>(text.size()));
     }
-    if (fill) DeleteObject(fill);
-    if (outline) DeleteObject(outline);
+    if (backdropStyle == 0 || backdropStyle == 2) {
+        const int inner = (radius - 1) * (radius - 1);
+        const int outer = radius * radius + radius;
+        for (int ox = -radius; ox <= radius; ++ox)
+            for (int oy = -radius; oy <= radius; ++oy) {
+                const int distance = ox * ox + oy * oy;
+                if (distance >= inner && distance <= outer)
+                    TextOutW(dc, x + ox, y + oy, text.c_str(), static_cast<int>(text.size()));
+            }
+    }
+    SetTextColor(dc, color);
+    TextOutW(dc, x, y, text.c_str(), static_cast<int>(text.size()));
+}
+
+const wchar_t* FontName(int fontFamily) {
+    static constexpr const wchar_t* names[] = {
+        L"Arial", L"Segoe UI", L"Verdana", L"Tahoma", L"Trebuchet MS", L"Calibri"
+    };
+    return names[std::clamp(fontFamily, 0, 5)];
 }
 
 int TextWidth(HDC dc, const std::wstring& text) {
@@ -78,8 +83,7 @@ void FinalizeAlpha(void* pixels, std::size_t count) {
         const auto rgb = values[i] & 0x00ffffffu;
         if (!rgb) { values[i] = 0; continue; }
         const auto b = rgb & 0xffu, g = (rgb >> 8) & 0xffu, r = (rgb >> 16) & 0xffu;
-        const auto darkest = std::max(r, std::max(g, b));
-        const auto alpha = darkest <= 4 ? 255u : std::max<std::uint32_t>(150, darkest);
+        const auto alpha = std::max<std::uint32_t>(150, std::max(r, std::max(g, b)));
         values[i] = rgb | (alpha << 24);
     }
 }
@@ -105,8 +109,11 @@ bool TextTexture::Update(const std::wstring& current, const std::wstring& next,
 
 bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_t activeLine,
                               float highlightProgress, float scrollProgress, int width, int height,
-                              float fontScale, float verticalPosition, const LyricColors& colors,
-                              const std::vector<bool>& subduedLines) {
+                              float fontScale, float verticalPosition,
+                              const std::vector<bool>& subduedLines,
+                              std::uint32_t textColor, std::uint32_t highlightColor,
+                              std::uint32_t readColor, int fontFamily,
+                              int backdropStyle, int backdropStrength) {
     if (!device_ || width <= 0 || height <= 0 || lines.empty() || activeLine >= lines.size()) return false;
     highlightProgress = std::clamp(highlightProgress, 0.0f, 1.0f);
     scrollProgress = std::clamp(scrollProgress, 0.0f, 1.0f);
@@ -115,14 +122,16 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
 
     std::wstring key = L"timed:" + std::to_wstring(activeLine) + L':';
     for (const auto subdued : subduedLines) key += subdued ? L'1' : L'0';
-    key += L':' + std::to_wstring(colors.text) + L':' +
-           std::to_wstring(colors.highlight) + L':' + std::to_wstring(colors.read) + L':';
+    key += L':';
     for (const auto& line : lines) key += line + L'\n';
     key += std::to_wstring(width) + L"x" + std::to_wstring(height) + L":" +
            std::to_wstring(static_cast<int>(highlightProgress * 200)) + L":" +
            std::to_wstring(static_cast<int>(scrollProgress * 200)) + L":" +
            std::to_wstring(static_cast<int>(fontScale * 100)) + L":" +
-           std::to_wstring(static_cast<int>(verticalPosition * 100));
+           std::to_wstring(static_cast<int>(verticalPosition * 100)) + L":" +
+           std::to_wstring(textColor) + L":" + std::to_wstring(highlightColor) + L":" +
+           std::to_wstring(readColor) + L":" + std::to_wstring(fontFamily) + L":" +
+           std::to_wstring(backdropStyle) + L":" + std::to_wstring(backdropStrength);
     if (key == cacheKey_ && view_) return true;
 
     BITMAPINFO info{};
@@ -146,7 +155,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     const int fontSize = std::max(18, static_cast<int>(std::max(36, height / 13) * fontScale));
     HFONT font = CreateFontW(-fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-        DEFAULT_PITCH | FF_SWISS, L"Arial");
+        DEFAULT_PITCH | FF_SWISS, FontName(fontFamily));
     if (!font) { DestroyCanvas(dc, bitmap, oldBitmap); return false; }
     const auto oldFont = SelectObject(dc, font);
     if (!oldFont || oldFont == HGDI_ERROR) {
@@ -171,9 +180,9 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         if (logical == activeLine) activeFirstY = y;
         const bool subdued = logical < subduedLines.size() && subduedLines[logical] &&
                              logical != activeLine;
-        const COLORREF color = logical < activeLine || subdued ? colors.read : colors.text;
+        const COLORREF color = static_cast<COLORREF>(logical < activeLine || subdued ? readColor : textColor);
         for (const auto& visual : wrappedLines[logical]) {
-            DrawOutlinedText(dc, center, y, visual, color);
+            DrawStyledText(dc, center, y, visual, color, backdropStyle, backdropStrength);
             y += spacing;
         }
     }
@@ -194,7 +203,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
                 SelectObject(dc, oldFont); DeleteObject(font); DestroyCanvas(dc, bitmap, oldBitmap);
                 return false;
             }
-            DrawOutlinedText(dc, center, highlightY, visual, colors.highlight);
+            DrawStyledText(dc, center, highlightY, visual, static_cast<COLORREF>(highlightColor),
+                           backdropStyle, backdropStrength);
             SelectClipRgn(dc, nullptr);
             DeleteObject(clip);
         }

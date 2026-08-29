@@ -18,6 +18,10 @@ int main(int argc, char** argv) {
     assert(LyricCountdown(10000) == 10);
     assert(LyricCountdown(63001) == 64);
     assert(LyricCountdown(0) == -1);
+    assert(LyricPauseDisplayText(L"12", 1, 12000) == L"> 12 <");
+    assert(LyricPauseDisplayText(L"12", 0, 4500) == L"> 5 <");
+    assert(LyricPauseDisplayText(L"12", 0, 0).empty());
+    assert(LyricPauseDisplayText(L"12", -1, 0).empty());
 
     MasterDeckSelector selector;
     assert(selector.Select(0.2, 1, 2) == 1);

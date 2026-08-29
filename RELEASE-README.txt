@@ -1,4 +1,4 @@
-LRC Lyrics pro VirtualDJ 0.2.0 (Windows 64-bit)
+LRC Lyrics pro VirtualDJ 0.3.0 (Windows 64-bit)
 ================================================
 
 Instalace
@@ -20,11 +20,13 @@ Pouziti
 -------
 
 - LRC Master a LRC BlackOut jsou v horni sekci Overlays.
-- LRC Deck vyberte dole jako Source for audio-only tracks.
-- VDJ muze visualisation zdroj LRC Deck soucasne ukazat i mezi overlays; je to
-  bezne chovani nabidky VirtualDJ.
-- Tri tlacitka barev oteviraji systemovy Windows vyber barvy.
-- Text ma adaptivne silny cerny obrys pro citelnost pres fotografie a video.
+- LRC Deck vyberte jako Source for audio-only tracks. Jde o jediny automaticky
+  videoAudioOnlyVisualisation slot VirtualDJ. Pri dvou audio skladbach ho muze
+  VirtualDJ vykreslovat na Masteru; SDK nema samostatny automaticky slot pro
+  kazdy deck.
+- Text ma cerny obrys pro citelnost pres fotografie a video.
+- Tlacitko Advanced otevre dialog LRC Presets s volbou fontu, obrysu/stinu
+  a barev textu.
 
 Titulky se ctou z tagu SYLT, SYNCEDLYRICS, UNSYNCEDLYRICS a USLT i ze stejne
 pojmenovanych souboru .lrc a .txt. Timestampy nalezene v TXT nebo unsynced tagu

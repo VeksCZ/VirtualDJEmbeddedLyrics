@@ -82,8 +82,19 @@ void VideoRenderer::Reset() {
     pixelShader_.Reset(); vertexShader_.Reset(); context_.Reset(); device_.Reset();
 }
 
-bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture) {
+bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture, bool setFullTargetViewport) {
     if (!context_ || !texture) return false;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
+    context_->OMGetRenderTargets(1, &target, nullptr);
+    if (!target) return false;
+    Microsoft::WRL::ComPtr<ID3D11Resource> targetResource;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> targetTexture;
+    target->GetResource(&targetResource);
+    if (!targetResource || FAILED(targetResource.As(&targetTexture)) || !targetTexture) return false;
+    D3D11_TEXTURE2D_DESC targetDescription{};
+    targetTexture->GetDesc(&targetDescription);
+    if (!targetDescription.Width || !targetDescription.Height) return false;
+
     Microsoft::WRL::ComPtr<ID3D11InputLayout> oldLayout;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> oldVs;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> oldPs;
@@ -96,6 +107,9 @@ bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture) {
     UINT oldStride = 0, oldOffset = 0;
     D3D11_PRIMITIVE_TOPOLOGY oldTopology{};
     FLOAT oldFactor[4]{}; UINT oldMask = 0, oldStencilRef = 0;
+    UINT oldViewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT oldViewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
+    context_->RSGetViewports(&oldViewportCount, oldViewports);
     context_->IAGetInputLayout(&oldLayout);
     context_->IAGetVertexBuffers(0, 1, &oldBuffer, &oldStride, &oldOffset);
     context_->IAGetPrimitiveTopology(&oldTopology);
@@ -106,6 +120,10 @@ bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture) {
     context_->OMGetBlendState(&oldBlend, oldFactor, &oldMask);
     context_->OMGetDepthStencilState(&oldDepth, &oldStencilRef);
     context_->RSGetState(&oldRasterizer);
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f,
+        static_cast<float>(targetDescription.Width),
+        static_cast<float>(targetDescription.Height), 0.0f, 1.0f};
+    if (setFullTargetViewport) context_->RSSetViewports(1, &viewport);
     const UINT stride = sizeof(Vertex), offset = 0;
     ID3D11Buffer* buffer = vertexBuffer_.Get();
     ID3D11ShaderResourceView* srv = texture;
@@ -135,6 +153,8 @@ bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture) {
     context_->OMSetBlendState(oldBlend.Get(), oldFactor, oldMask);
     context_->OMSetDepthStencilState(oldDepth.Get(), oldStencilRef);
     context_->RSSetState(oldRasterizer.Get());
+    if (setFullTargetViewport && oldViewportCount)
+        context_->RSSetViewports(oldViewportCount, oldViewports);
     return true;
 }
 #endif
