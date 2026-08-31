@@ -8,11 +8,12 @@ $MasterDll = Join-Path $ReleaseDirectory "LRC Master.dll"
 $BlackoutDll = Join-Path $ReleaseDirectory "LRC BlackOut.dll"
 $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
 
-foreach ($required in @($DeckDll, $MasterDll, $BlackoutDll, $Writer)) {
+foreach ($required in @($MasterDll, $BlackoutDll, $Writer)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required release file was not found: $required. Run build-release.ps1 first."
     }
 }
+$InstallDeck = Test-Path -LiteralPath $DeckDll
 
 if (-not $VirtualDJHome) {
     $Candidates = @(
@@ -85,13 +86,43 @@ if (Test-Path -LiteralPath $obsoleteDeckFx) {
     Write-Host "Removed obsolete Deck FX plugin: $obsoleteDeckFx"
 }
 
-New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory | Out-Null
+if (-not $InstallDeck) {
+    foreach ($name in @("LRC Deck.dll", "LRC Deck.ini", "LRC Deck_2.ini")) {
+        $path = Join-Path $VisualisationsDirectory $name
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path
+            Write-Host "Removed disabled audio-only plugin state: $path"
+        }
+    }
+    $settingsPath = Join-Path $VirtualDJHome "settings.xml"
+    if (Test-Path -LiteralPath $settingsPath) {
+        $settingsText = [System.IO.File]::ReadAllText($settingsPath)
+        $selectedDeck = "<videoAudioOnlyVisualisation>LRC Deck</videoAudioOnlyVisualisation>"
+        $disabledDeck = "<videoAudioOnlyVisualisation>None</videoAudioOnlyVisualisation>"
+        if ($settingsText.Contains($selectedDeck)) {
+            $settingsText = $settingsText.Replace($selectedDeck, $disabledDeck)
+            [System.IO.File]::WriteAllText(
+                $settingsPath,
+                $settingsText,
+                [System.Text.UTF8Encoding]::new($false)
+            )
+            Write-Host "Reset the disabled audio-only source to None in: $settingsPath"
+        }
+    }
+}
+
+New-Item -ItemType Directory -Force -Path $OverlayDirectory | Out-Null
 Copy-Item -LiteralPath $MasterDll -Destination (Join-Path $OverlayDirectory "LRC Master.dll") -Force
 Copy-Item -LiteralPath $BlackoutDll -Destination (Join-Path $OverlayDirectory "LRC BlackOut.dll") -Force
-Copy-Item -LiteralPath $DeckDll -Destination (Join-Path $VisualisationsDirectory "LRC Deck.dll") -Force
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $OverlayDirectory "EmbeddedLyricsTagWriter.py") -Force
-Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
 
 Write-Host "Installed Master and BlackOut into: $OverlayDirectory"
-Write-Host "Installed Deck audio-only source into: $VisualisationsDirectory"
+if ($InstallDeck) {
+    New-Item -ItemType Directory -Force -Path $VisualisationsDirectory | Out-Null
+    Copy-Item -LiteralPath $DeckDll -Destination (Join-Path $VisualisationsDirectory "LRC Deck.dll") -Force
+    Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
+    Write-Host "Installed optional Deck audio-only source into: $VisualisationsDirectory"
+} else {
+    Write-Host "LRC Deck is disabled in this build."
+}
 Write-Host "Restart VirtualDJ."

@@ -6,8 +6,6 @@ Windows 64-bit plugins that display embedded or sidecar lyrics in VirtualDJ.
 
 - **LRC Master** — final master overlay. It follows `video_crossfader` by default;
   enable **Upfaders** to use `get_crossfader_result` instead.
-- **LRC Deck** — automatic audio-only video source. Select it in VirtualDJ's
-  **Source for audio-only tracks** section.
 - **LRC BlackOut** — black master background processed before later overlays,
   slideshows, shaders and other visualisations.
 
@@ -21,12 +19,11 @@ Windows 64-bit plugins that display embedded or sidecar lyrics in VirtualDJ.
 The installer uses these required VirtualDJ categories:
 
 - `Plugins64/VideoOverlay`: `LRC Master.dll`, `LRC BlackOut.dll`
-- `Plugins64/Visualisations`: `LRC Deck.dll`
 
-It also installs `EmbeddedLyricsTagWriter.py` beside Master and Deck for deferred
-manual-timing writes. Python 3 and Mutagen are required only for tag writing and
-the standalone importer (`py -m pip install mutagen`). Lyrics display itself
-does not require Python.
+It also installs `EmbeddedLyricsTagWriter.py` beside the overlay plugins for
+deferred manual-timing writes. Python 3 and Mutagen are required only for tag
+writing and the standalone importer (`py -m pip install mutagen`). Lyrics
+display itself does not require Python.
 
 ## Lyrics lookup order
 
@@ -55,25 +52,23 @@ timed lyrics. Missing lyrics are shown as `...`.
   unloaded from decks 1–4, then writes both `SYLT` and `TXXX:SYNCEDLYRICS`.
 - `Edit TXT` creates/opens the current track's same-name TXT and reloads saved edits.
 
-Example mappings:
+## Experimental audio-only build
 
-```text
-deck 1 effect 'LRC Deck' button 7
-deck 1 effect 'LRC Deck' button 8
+The `LRC Deck` implementation remains in the source tree but is disabled in
+normal builds and releases. VirtualDJ hosts `videoAudioOnlyVisualisation` in a
+single program-wide slot that may render on the master, so it cannot provide the
+independent deck preview and crossfade source expected from its name.
+When installing a normal build, the installer removes an older LRC Deck DLL and
+saved state, and resets `videoAudioOnlyVisualisation` from `LRC Deck` to
+`None`.
+
+Developers can still build it explicitly:
+
+```powershell
+./build-release.ps1 -BuildLrcDeck
 ```
 
-Enable LRC Deck in **Source for audio-only tracks**. This is VirtualDJ's single
-automatic `videoAudioOnlyVisualisation` slot. VirtualDJ may run that instance
-on the master when both video sides contain audio-only tracks; the public SDK
-does not expose separate automatic audio-only source slots for each deck.
-
-## Audio-only source limitation
-
-`videoAudioOnlyVisualisation` is one program-wide slot rather than one slot per
-deck. VirtualDJ may host the selected audio-only visualisation on the master,
-which means it does not provide an independent deck preview or a separate source
-that can be video-crossfaded per deck. The public SDK exposes no deck-only
-automatic audio-only source category.
+or configure CMake with `-DBUILD_LRC_DECK=ON`.
 
 ## Import LRC/TXT into MP3 tags
 
@@ -118,5 +113,5 @@ The public VirtualDJ SDK headers remain vendored under
 ./build-release.ps1
 ```
 
-This builds the three DLLs, runs both C++ tests and all Python `unittest` tests,
-then creates `dist/full`.
+This builds the two supported DLLs, runs both C++ tests and all Python
+`unittest` tests, then creates `dist/full`.

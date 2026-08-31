@@ -1,4 +1,7 @@
-param([string]$Generator = "Visual Studio 17 2022")
+param(
+    [string]$Generator = "Visual Studio 17 2022",
+    [switch]$BuildLrcDeck
+)
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -9,7 +12,8 @@ if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw "CMake was not found. Install Visual Studio 2022 with Desktop development with C++."
 }
 
-cmake -S $ProjectRoot -B $BuildDirectory -G $Generator -A x64 -DBUILD_TESTING=ON
+$DeckBuildSetting = if ($BuildLrcDeck) { "ON" } else { "OFF" }
+cmake -S $ProjectRoot -B $BuildDirectory -G $Generator -A x64 -DBUILD_TESTING=ON "-DBUILD_LRC_DECK=$DeckBuildSetting"
 cmake --build $BuildDirectory --config Release
 ctest --test-dir $BuildDirectory -C Release --output-on-failure
 
@@ -20,7 +24,9 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 
 New-Item -ItemType Directory -Force -Path $FullDirectory | Out-Null
 Get-ChildItem -LiteralPath $FullDirectory -File -ErrorAction SilentlyContinue | Remove-Item
-Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory
+if ($BuildLrcDeck) {
+    Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory
+}
 Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory
 Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory
 Copy-Item (Join-Path $ProjectRoot "tools\lyrics_tag_converter.py") (Join-Path $FullDirectory "EmbeddedLyricsTagWriter.py")

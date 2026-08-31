@@ -22,6 +22,7 @@ if(WIN32)
 endif()
 
 option(BUILD_TESTING "Build parser tests" ON)
+option(BUILD_LRC_DECK "Build the experimental LRC Deck audio-only visualisation" OFF)
 if(BUILD_TESTING)
     enable_testing()
     add_executable(lyrics_tests tests/LyricsTests.cpp)
@@ -69,7 +70,9 @@ if(WIN32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 
-        add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
+        if(BUILD_LRC_DECK)
+            add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
+        endif()
         add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" TRUE)
 
         add_library(Blackout SHARED

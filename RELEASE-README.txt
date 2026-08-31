@@ -6,24 +6,21 @@ Installation
 
 1. Close VirtualDJ.
 2. Open %LOCALAPPDATA%\VirtualDJ\Plugins64.
-3. Create the VideoOverlay and Visualisations folders if needed.
+3. Create the VideoOverlay folder if needed.
 4. Copy into VideoOverlay:
    - LRC Master.dll
    - LRC BlackOut.dll
    - EmbeddedLyricsTagWriter.py
-5. Copy into Visualisations:
-   - LRC Deck.dll
-   - EmbeddedLyricsTagWriter.py
-6. Start VirtualDJ.
+5. Start VirtualDJ.
 
 Usage
 -----
 
 - LRC Master and LRC BlackOut are in the Overlays section.
-- Select LRC Deck as the Source for audio-only tracks. VirtualDJ provides one
-  shared automatic videoAudioOnlyVisualisation slot, not a separate slot for
-  every deck. VirtualDJ may host this source on the master, so the public SDK
-  cannot provide an independent preview and crossfade source for every deck.
+- The experimental LRC Deck audio-only visualisation is disabled in this
+  release because VirtualDJ hosts that source in a shared master slot rather
+  than as an independent crossfade source for every deck. The installer removes
+  older LRC Deck files and resets that Audio Only source selection to None.
 - Text has a black outline for readability over photos and video.
 - The Advanced button opens the LRC Presets dialog with font, outline/shadow
   and text color options.
