@@ -21,6 +21,7 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 New-Item -ItemType Directory -Force -Path $FullDirectory | Out-Null
 Get-ChildItem -LiteralPath $FullDirectory -File -ErrorAction SilentlyContinue | Remove-Item
 Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck.dll") $FullDirectory
+Copy-Item (Join-Path $BuildDirectory "Release\LRC Deck FX.dll") $FullDirectory
 Copy-Item (Join-Path $BuildDirectory "Release\LRC Master.dll") $FullDirectory
 Copy-Item (Join-Path $BuildDirectory "Release\LRC BlackOut.dll") $FullDirectory
 Copy-Item (Join-Path $ProjectRoot "tools\lyrics_tag_converter.py") (Join-Path $FullDirectory "EmbeddedLyricsTagWriter.py")

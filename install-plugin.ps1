@@ -4,11 +4,12 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ReleaseDirectory = Join-Path $ProjectRoot "dist\full"
 $DeckDll = Join-Path $ReleaseDirectory "LRC Deck.dll"
+$DeckFxDll = Join-Path $ReleaseDirectory "LRC Deck FX.dll"
 $MasterDll = Join-Path $ReleaseDirectory "LRC Master.dll"
 $BlackoutDll = Join-Path $ReleaseDirectory "LRC BlackOut.dll"
 $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
 
-foreach ($required in @($DeckDll, $MasterDll, $BlackoutDll, $Writer)) {
+foreach ($required in @($DeckDll, $DeckFxDll, $MasterDll, $BlackoutDll, $Writer)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required release file was not found: $required. Run build-release.ps1 first."
     }
@@ -31,6 +32,7 @@ if (-not $VirtualDJHome) {
 $PluginsRoot = Join-Path $VirtualDJHome "Plugins64"
 $OverlayDirectory = Join-Path $PluginsRoot "VideoOverlay"
 $VisualisationsDirectory = Join-Path $PluginsRoot "Visualisations"
+$VideoFxDirectory = Join-Path $PluginsRoot "VideoEffect"
 $LegacyDirectories = @(
     (Join-Path $PluginsRoot "VideoEffect"),
     $OverlayDirectory,
@@ -63,13 +65,16 @@ if (Test-Path -LiteralPath $oldDeckSource) {
     Write-Host "Removed experimental Deck source: $oldDeckSource"
 }
 
-New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory, $VideoFxDirectory | Out-Null
 Copy-Item -LiteralPath $MasterDll -Destination (Join-Path $OverlayDirectory "LRC Master.dll") -Force
 Copy-Item -LiteralPath $BlackoutDll -Destination (Join-Path $OverlayDirectory "LRC BlackOut.dll") -Force
 Copy-Item -LiteralPath $DeckDll -Destination (Join-Path $VisualisationsDirectory "LRC Deck.dll") -Force
+Copy-Item -LiteralPath $DeckFxDll -Destination (Join-Path $VideoFxDirectory "LRC Deck FX.dll") -Force
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $OverlayDirectory "EmbeddedLyricsTagWriter.py") -Force
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
+Copy-Item -LiteralPath $Writer -Destination (Join-Path $VideoFxDirectory "EmbeddedLyricsTagWriter.py") -Force
 
 Write-Host "Installed Master and BlackOut into: $OverlayDirectory"
 Write-Host "Installed Deck audio-only source into: $VisualisationsDirectory"
+Write-Host "Installed per-deck Deck FX into: $VideoFxDirectory"
 Write-Host "Restart VirtualDJ."

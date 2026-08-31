@@ -39,3 +39,6 @@ Thumbs.db
 
 # Local research checkouts
 .research/
+
+# AI-provided staging copy used for comparison during development
+VirtualDJEmbeddedLyricsUpdate/
