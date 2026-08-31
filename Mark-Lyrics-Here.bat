@@ -1,3 +1,3 @@
 @echo off
-call "C:\Tools\VirtualDJEmbeddedLyrics\Mark-Lyrics-Here.cmd" "%~dp0."
+call "%~dp0Mark-Lyrics-Here.cmd" %*
 exit /b %ERRORLEVEL%

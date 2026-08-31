@@ -19,6 +19,10 @@
 #include <optional>
 #include <shellapi.h>
 
+#ifndef LRC_PLUGIN_VERSION
+#define LRC_PLUGIN_VERSION "0.0.0-dev"
+#endif
+
 namespace {
 int moduleAnchor;
 struct PaletteEntry { const wchar_t* name; std::uint32_t color; };
@@ -64,6 +68,7 @@ public:
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
 #ifdef EMBEDDED_LYRICS_MASTER
             || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
+            || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true))
 #endif
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
@@ -111,7 +116,7 @@ public:
 #endif
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
-        info->Version = "0.4.0";
+        info->Version = LRC_PLUGIN_VERSION;
 #ifdef EMBEDDED_LYRICS_MASTER
         info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
@@ -193,7 +198,6 @@ public:
         if (path.empty()) {
             loadedPath_.clear();
             lyrics_ = {};
-            lyricsLoadFinished_ = false;
             texture_.Reset();
             return S_OK;
         }
@@ -201,7 +205,6 @@ public:
             loadedPath_ = path;
             texture_.Reset();
             lyrics_ = {};
-            lyricsLoadFinished_ = false;
             activeLine_ = 0;
             untimedScrollActive_ = false;
             recordTimingParameter_ = 0;
@@ -213,18 +216,19 @@ public:
         }
         if (auto completed = loader_.Poll(); completed && completed->path == loadedPath_) {
             lyrics_ = std::move(completed->result.document);
-            lyricsLoadFinished_ = true;
             if (lyrics_.empty()) {
                 Diagnostics::Error(L"No lyrics found for: " + loadedPath_.wstring() + L"; " + completed->result.error);
             } else {
                 Diagnostics::Info(L"Lyrics loaded: " + loadedPath_.wstring());
+#ifdef EMBEDDED_LYRICS_MASTER
+                if (autoTagLrcParameter_) EnsureLrcHashtag(deck);
+#endif
             }
         }
         CheckTextChanges();
         if (lyrics_.empty()) {
-            if (lyricsLoadFinished_ &&
-                (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition()) ||
-                 !DrawLyricsTexture())) {
+            if (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition()) ||
+                !DrawLyricsTexture()) {
                 Diagnostics::Error(L"Failed to render missing-lyrics indication");
             }
             return S_OK;
@@ -268,6 +272,30 @@ private:
         return 0;
     }
 #else
+    void EnsureLrcHashtag(int deck) {
+        char command[256]{};
+        char user1[4096]{};
+        std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'user 1'", deck);
+        if (FAILED(GetStringInfo(command, user1, sizeof(user1)))) {
+            Diagnostics::Error(L"VirtualDJ User 1 query failed");
+            return;
+        }
+        std::string current{user1};
+        std::transform(current.begin(), current.end(), current.begin(), [](unsigned char value) {
+            return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A'))
+                                               : static_cast<char>(value);
+        });
+        if (current.find("#lrc") != std::string::npos) return;
+
+        std::snprintf(command, sizeof(command),
+                      "deck %d loaded_song_hashtag 'user 1' '#lrc'", deck);
+        if (FAILED(SendCommand(command))) {
+            Diagnostics::Error(L"VirtualDJ failed to add #lrc to User 1");
+        } else {
+            Diagnostics::Info(L"Added #lrc to VirtualDJ User 1");
+        }
+    }
+
     int VisibleVideoDeck() {
         double balance = 0.0, leftDeck = 1.0, rightDeck = 2.0;
         if (FAILED(GetInfo("get_leftdeck", &leftDeck))) leftDeck = 1.0;
@@ -565,7 +593,6 @@ private:
     AsyncLyricsLoader loader_;
     std::filesystem::path loadedPath_;
     LyricsDocument lyrics_;
-    bool lyricsLoadFinished_{};
     bool drawContextLogged_{};
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
@@ -585,6 +612,7 @@ private:
 #ifdef EMBEDDED_LYRICS_MASTER
     MasterDeckSelector masterDeckSelector_;
     int useVolumeFadersParameter_{};
+    int autoTagLrcParameter_{1};
 #endif
 };
 

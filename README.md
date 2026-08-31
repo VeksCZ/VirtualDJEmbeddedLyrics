@@ -1,117 +1,142 @@
 # LRC Lyrics for VirtualDJ
 
-Windows 64-bit plugins that display embedded or sidecar lyrics in VirtualDJ.
+Display synchronized or plain lyrics from your own music files in the VirtualDJ
+master video output. The project provides two Windows 64-bit video overlays:
 
-## Plugins
+- **LRC Master** displays the lyrics.
+- **LRC BlackOut** adds an optional black background behind overlays.
 
-- **LRC Master** — final master overlay. It follows `video_crossfader` by default;
-  enable **Upfaders** to use `get_crossfader_result` instead.
-- **LRC BlackOut** — black master background processed before later overlays,
-  slideshows, shaders and other visualisations.
+## Download and install
 
-## Install
+1. Download the `LRC-Lyrics-VirtualDJ-vX.Y.Z.zip` asset from the
+   [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
+2. Extract the complete ZIP. Do not run the installer from inside the ZIP preview.
+3. Close VirtualDJ completely.
+4. Double-click **Install.cmd**.
+5. Start VirtualDJ again.
 
-1. Close VirtualDJ.
-2. Run `build-release.ps1` when building from source.
-3. Run `Install.cmd`.
-4. Restart VirtualDJ.
+The installer detects the active VirtualDJ home folder from the VirtualDJ
+registry setting, the current `%LOCALAPPDATA%\VirtualDJ` location, or the legacy
+`Documents\VirtualDJ` location. If it cannot choose safely, it asks for the
+folder. In VirtualDJ, **Settings > Options > cog button** opens the active home
+folder so you can copy its path.
 
-The installer uses these required VirtualDJ categories:
+No administrator access, CMake, Visual Studio, Python or source checkout is
+required to display lyrics. Existing plugin files and known legacy versions are
+backed up under `LRC Lyrics Backups` in the selected VirtualDJ home folder.
 
-- `Plugins64/VideoOverlay`: `LRC Master.dll`, `LRC BlackOut.dll`
+## First use
 
-It also installs `EmbeddedLyricsTagWriter.py` beside the overlay plugins for
-deferred manual-timing writes. Python 3 and Mutagen are required only for tag
-writing and the standalone importer (`py -m pip install mutagen`). Lyrics
-display itself does not require Python.
+1. Open the Video effects/overlays list in VirtualDJ.
+2. Enable **LRC Master**.
+3. Optionally enable **LRC BlackOut** when you want a solid black background.
+4. Load and play a track containing supported lyrics.
 
-## Lyrics lookup order
+LRC Master follows the video crossfader by default. Enable its **Upfaders**
+option if you prefer the effective audio-fader result. A track with no lyrics
+displays `...`.
+
+These are master overlays. VirtualDJ's public plugin interface does not provide
+this project with an independent audio-only lyric source for every deck preview.
+
+## Supported lyrics
+
+LRC Master reads, in priority order:
 
 1. Timestamped `TXXX:USLT`, `TXXX:LYRICS` or `TXXX:SYNCEDLYRICS`.
-2. ID3v2 `SYLT`.
-3. `TXXX:UNSYNCEDLYRICS`, then standard `USLT`.
-4. Same-name `.lrc`.
-5. Same-name `.txt`.
+2. Standard ID3v2 `SYLT`.
+3. `TXXX:UNSYNCEDLYRICS` or standard `USLT`.
+4. A same-name `.lrc` file.
+5. A same-name `.txt` file.
 
-Timestamped text found in nominally unsynchronised tags or TXT is treated as
-timed lyrics. Missing lyrics are shown as `...`.
+Timestamped content found in TXT or nominally unsynchronized fields is displayed
+as synchronized lyrics.
 
-## Display and controls
+## LRC Master controls
 
-- Continuous timed and untimed scrolling with independent line counts (5–12).
-- Smooth word/line highlight timing and persistent pause rows.
-- Long intro and inter-verse pauses show their real duration in the queue;
-  waiting countdown rows use the read color and active countdowns use highlight.
-- Adjustable font size and vertical position.
-- The standard VirtualDJ parameter panel includes an `Advanced` button. It
-  opens the **LRC Presets** dialog with Default, Photos and Clean presets,
-  font selection, outline/shadow style and strength, plus visible color
-  swatches for text, highlight and read lines.
-- `Next` and `Prev` move untimed lyrics one line at a time.
-- `Record timing` timestamps the line that becomes active, waits until the MP3 is
-  unloaded from decks 1–4, then writes both `SYLT` and `TXXX:SYNCEDLYRICS`.
-- `Edit TXT` creates/opens the current track's same-name TXT and reloads saved edits.
+- **Font size**, **Timed lines**, **Untimed lines** and **Vertical position**
+  control the layout.
+- **Advanced** opens presets, font selection, outline/shadow options and colors.
+- **Next** and **Prev** move through plain untimed lyrics.
+- **Edit TXT** creates or opens the current track's same-name TXT file.
+- **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
+  after the track has been unloaded from all decks.
+- **Auto-tag #lrc** adds `#lrc` to VirtualDJ **User 1** after lyrics have been
+  verified. Existing User 1 content is preserved.
 
-## Experimental audio-only build
+`User 1` is stored in the VirtualDJ database, not in the MP3. The optional tools
+use the standard ID3 `Grouping` field for the portable markers
+`Lyrics: Synced` and `Lyrics: Unsynced`.
 
-The `LRC Deck` implementation remains in the source tree but is disabled in
-normal builds and releases. VirtualDJ hosts `videoAudioOnlyVisualisation` in a
-single program-wide slot that may render on the master, so it cannot provide the
-independent deck preview and crossfade source expected from its name.
-When installing a normal build, the installer removes an older LRC Deck DLL and
-saved state, and resets `videoAudioOnlyVisualisation` from `LRC Deck` to
-`None`.
+## Optional MP3 tools
 
-Developers can still build it explicitly:
+The extracted `Tools` folder contains:
 
-```powershell
-./build-release.ps1 -BuildLrcDeck
+- **Import Lyrics.cmd** — imports same-name LRC/TXT files into MP3 lyrics tags.
+- **Mark Existing Lyrics.cmd** — scans existing embedded lyrics and writes the
+  portable Grouping marker.
+
+Drag a music folder onto either CMD file, or start the tool and enter a folder.
+The tools perform a preview before writing. Source LRC/TXT files are deleted only
+after successful verification and only when you explicitly approve deletion.
+
+These optional tools require Python 3 and Mutagen. If Python is installed but
+Mutagen is missing, the launcher offers to install Mutagen for the current user.
+Python is also required by **Record timing**, but not for normal lyrics display.
+
+## VirtualDJScript helpers
+
+Add `#lrc` for the track loaded on the current deck when VirtualDJ detects lyrics:
+
+```text
+has_lyrics ? get_loaded_song 'User 1' & param_contains '#lrc' ? nothing : loaded_song_hashtag 'user 1' '#lrc' : nothing
 ```
 
-or configure CMake with `-DBUILD_LRC_DECK=ON`.
+After **Reload Tags**, copy the portable Grouping marker for the browsed track:
 
-## Import LRC/TXT into MP3 tags
-
-Preview recursively:
-
-```powershell
-py tools/lyrics_tag_converter.py "D:/Music"
+```text
+get_browsed_song 'Grouping' & param_contains 'Lyrics:' ? get_browsed_song 'User 1' & param_contains '#lrc' ? nothing : browsed_song_hashtag 'user 1' '#lrc' : nothing
 ```
 
-Write tags:
+VDJScript handles one loaded or browsed track here; it does not iterate through
+every private lyrics frame in a library. Use **Mark Existing Lyrics.cmd** for a
+recursive MP3 scan.
+
+## Update or uninstall
+
+To update, close VirtualDJ, extract the new release and run its **Install.cmd**.
+The operation is repeatable and keeps a backup of replaced files.
+
+To remove the plugin, close VirtualDJ and run **Uninstall.cmd** from the extracted
+release. Only files installed by this project are removed, and they are backed up
+first. **Restore Backup.cmd** can restore one of the snapshots created before an
+installation or uninstall operation.
+
+## Troubleshooting
+
+### The overlays are not listed
+
+- Restart VirtualDJ after installation.
+- Run `Install.cmd` again and confirm the displayed VirtualDJ home path.
+- If asked for a path, open it using **Settings > Options > cog button** in
+  VirtualDJ.
+
+### A track displays `...`
+
+The selected track has no lyrics supported by this plugin. Verify its embedded
+tags, or place a same-name LRC/TXT file beside the audio file. The diagnostic log
+is `%LOCALAPPDATA%\VirtualDJ\EmbeddedLyrics.log`.
+
+### Record timing or the MP3 tools do not work
+
+Install current Python 3 from [python.org](https://www.python.org/downloads/windows/)
+and enable **Add Python to PATH** during setup. Then run:
 
 ```powershell
-py tools/lyrics_tag_converter.py "D:/Music" --write
+py -m pip install --user mutagen
 ```
 
-`Import-Lyrics-Here.bat` is a disposable launcher intended to be copied into a
-music folder. It calls the central tool, passes that folder, and deletes only
-the launcher itself afterward. Verified source `.lrc`/`.txt` deletion remains an
-explicit prompt.
+## Development
 
-`Import-Lyrics-Here.bat` and `Mark-Lyrics-Here.bat` call back into
-`Import-LRC-Here.cmd` and `Mark-Lyrics-Here.cmd` at
-`C:\Tools\VirtualDJEmbeddedLyrics`. Keep the project at that path or update the
-fixed path in both command files before using the disposable launchers elsewhere.
-
-Successfully imported MP3 files also receive a VirtualDJ-visible ID3
-`Grouping` marker: `Lyrics: Synced` or `Lyrics: Unsynced`. Existing Grouping
-text is preserved.
-
-`Mark-Lyrics-Here.bat` is the separate scanner for files that already contain
-embedded lyrics. Copy it into a music folder and run it there. It recursively
-reads only MP3 tags (it does not look for LRC/TXT files), previews the changes,
-and after confirmation writes the same Grouping marker. In VirtualDJ use
-**Reload Tags**, then enable the **Grouping** browser column.
-
-## Build and test
-
-The public VirtualDJ SDK headers remain vendored under
-`third_party/VirtualDJ8_SDK_20211003`.
-
-```powershell
-./build-release.ps1
-```
-
-This builds the two supported DLLs, runs both C++ tests and all Python
-`unittest` tests, then creates `dist/full`.
+Source builds, tests, SDK information and the unsupported experimental deck build
+are documented in [DEVELOPMENT.md](DEVELOPMENT.md).

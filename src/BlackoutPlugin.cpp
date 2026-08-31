@@ -5,13 +5,17 @@
 
 #include <cstring>
 
+#ifndef LRC_PLUGIN_VERSION
+#define LRC_PLUGIN_VERSION "0.0.0-dev"
+#endif
+
 class BlackoutPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
         info->PluginName = "LRC BlackOut";
         info->Author = "Slava / OpenAI";
         info->Description = "Pure black video curtain";
-        info->Version = "0.4.0";
+        info->Version = LRC_PLUGIN_VERSION;
         info->Flags = VDJFLAG_PROCESSFIRST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
         info->Bitmap = nullptr;
