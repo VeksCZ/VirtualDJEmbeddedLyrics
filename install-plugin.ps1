@@ -65,6 +65,21 @@ if (Test-Path -LiteralPath $oldDeckSource) {
     Write-Host "Removed experimental Deck source: $oldDeckSource"
 }
 
+# Remove saved state left by older builds that were incorrectly installed as
+# ordinary Video Effects. Keeping these files can leave duplicate legacy names
+# visible after the DLL itself has been removed.
+$LegacyVideoFxStateNames = @(
+    "EmbeddedLyricsDeck.ini", "EmbeddedLyricsMaster.ini",
+    "LRC Deck.ini", "LRC Deck_2.ini", "LRC Master.ini"
+)
+foreach ($name in $LegacyVideoFxStateNames) {
+    $path = Join-Path $VideoFxDirectory $name
+    if (Test-Path -LiteralPath $path) {
+        Remove-Item -LiteralPath $path
+        Write-Host "Removed legacy Video FX state: $path"
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory, $VideoFxDirectory | Out-Null
 Copy-Item -LiteralPath $MasterDll -Destination (Join-Path $OverlayDirectory "LRC Master.dll") -Force
 Copy-Item -LiteralPath $BlackoutDll -Destination (Join-Path $OverlayDirectory "LRC BlackOut.dll") -Force

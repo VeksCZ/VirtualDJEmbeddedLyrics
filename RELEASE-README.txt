@@ -1,42 +1,41 @@
-LRC Lyrics pro VirtualDJ 0.4.0 (Windows 64-bit)
+LRC Lyrics for VirtualDJ 0.4.0 (Windows 64-bit)
 ================================================
 
-Instalace
----------
+Installation
+------------
 
-1. Ukoncete VirtualDJ.
-2. Otevrete %LOCALAPPDATA%\VirtualDJ\Plugins64.
-3. Vytvorte slozky VideoOverlay, Visualisations a VideoEffect, pokud neexistuji.
-4. Do VideoOverlay zkopirujte:
+1. Close VirtualDJ.
+2. Open %LOCALAPPDATA%\VirtualDJ\Plugins64.
+3. Create the VideoOverlay, Visualisations and VideoEffect folders if needed.
+4. Copy into VideoOverlay:
    - LRC Master.dll
    - LRC BlackOut.dll
    - EmbeddedLyricsTagWriter.py
-5. Do Visualisations zkopirujte:
+5. Copy into Visualisations:
    - LRC Deck.dll
    - EmbeddedLyricsTagWriter.py
-6. Do VideoEffect zkopirujte:
+6. Copy into VideoEffect:
    - LRC Deck FX.dll
    - EmbeddedLyricsTagWriter.py
-7. Spustte VirtualDJ.
+7. Start VirtualDJ.
 
-Pouziti
--------
+Usage
+-----
 
-- LRC Master a LRC BlackOut jsou v horni sekci Overlays.
-- LRC Deck vyberte jako Source for audio-only tracks. Jde o jediny automaticky
-  videoAudioOnlyVisualisation slot VirtualDJ. Pri dvou audio skladbach ho muze
-  VirtualDJ vykreslovat na Masteru; SDK nema samostatny automaticky slot pro
-  kazdy deck.
-- Pro nezavisle titulky na dvou audio deckach pridejte LRC Deck FX do Video FX
-  retezce kazdeho decku. Deck FX prekryva obraz decku cernym titulkovym platnem,
-  proto ho pred prehranim skutecneho videa vypnete.
-- Text ma cerny obrys pro citelnost pres fotografie a video.
-- Tlacitko Advanced otevre dialog LRC Presets s volbou fontu, obrysu/stinu
-  a barev textu.
+- LRC Master and LRC BlackOut are in the Overlays section.
+- Select LRC Deck as the Source for audio-only tracks. VirtualDJ provides one
+  shared automatic videoAudioOnlyVisualisation slot, not a separate slot for
+  every deck.
+- For independent lyrics on two audio-only decks, add LRC Deck FX to each
+  deck's own Video FX chain. Deck FX replaces that deck's picture with its
+  black lyrics canvas, so disable it before playing a real video.
+- Text has a black outline for readability over photos and video.
+- The Advanced button opens the LRC Presets dialog with font, outline/shadow
+  and text color options.
 
-Titulky se ctou z tagu SYLT, SYNCEDLYRICS, UNSYNCEDLYRICS a USLT i ze stejne
-pojmenovanych souboru .lrc a .txt. Timestampy nalezene v TXT nebo unsynced tagu
-se pouziji jako casovane titulky.
+Lyrics are read from SYLT, SYNCEDLYRICS, UNSYNCEDLYRICS and USLT tags, as well
+as same-name .lrc and .txt files. Timestamps found in TXT or unsynchronized
+tags are used as timed lyrics.
 
-Pro zapis rucne natukaneho casovani je potreba Python 3 a Mutagen:
+Writing manually tapped timing requires Python 3 and Mutagen:
   py -m pip install mutagen
