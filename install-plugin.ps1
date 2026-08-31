@@ -4,12 +4,11 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ReleaseDirectory = Join-Path $ProjectRoot "dist\full"
 $DeckDll = Join-Path $ReleaseDirectory "LRC Deck.dll"
-$DeckFxDll = Join-Path $ReleaseDirectory "LRC Deck FX.dll"
 $MasterDll = Join-Path $ReleaseDirectory "LRC Master.dll"
 $BlackoutDll = Join-Path $ReleaseDirectory "LRC BlackOut.dll"
 $Writer = Join-Path $ProjectRoot "tools\lyrics_tag_converter.py"
 
-foreach ($required in @($DeckDll, $DeckFxDll, $MasterDll, $BlackoutDll, $Writer)) {
+foreach ($required in @($DeckDll, $MasterDll, $BlackoutDll, $Writer)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required release file was not found: $required. Run build-release.ps1 first."
     }
@@ -70,7 +69,7 @@ if (Test-Path -LiteralPath $oldDeckSource) {
 # visible after the DLL itself has been removed.
 $LegacyVideoFxStateNames = @(
     "EmbeddedLyricsDeck.ini", "EmbeddedLyricsMaster.ini",
-    "LRC Deck.ini", "LRC Deck_2.ini", "LRC Master.ini"
+    "LRC Deck.ini", "LRC Deck_2.ini", "LRC Deck FX.ini", "LRC Master.ini"
 )
 foreach ($name in $LegacyVideoFxStateNames) {
     $path = Join-Path $VideoFxDirectory $name
@@ -80,16 +79,19 @@ foreach ($name in $LegacyVideoFxStateNames) {
     }
 }
 
-New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory, $VideoFxDirectory | Out-Null
+$obsoleteDeckFx = Join-Path $VideoFxDirectory "LRC Deck FX.dll"
+if (Test-Path -LiteralPath $obsoleteDeckFx) {
+    Remove-Item -LiteralPath $obsoleteDeckFx
+    Write-Host "Removed obsolete Deck FX plugin: $obsoleteDeckFx"
+}
+
+New-Item -ItemType Directory -Force -Path $OverlayDirectory, $VisualisationsDirectory | Out-Null
 Copy-Item -LiteralPath $MasterDll -Destination (Join-Path $OverlayDirectory "LRC Master.dll") -Force
 Copy-Item -LiteralPath $BlackoutDll -Destination (Join-Path $OverlayDirectory "LRC BlackOut.dll") -Force
 Copy-Item -LiteralPath $DeckDll -Destination (Join-Path $VisualisationsDirectory "LRC Deck.dll") -Force
-Copy-Item -LiteralPath $DeckFxDll -Destination (Join-Path $VideoFxDirectory "LRC Deck FX.dll") -Force
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $OverlayDirectory "EmbeddedLyricsTagWriter.py") -Force
 Copy-Item -LiteralPath $Writer -Destination (Join-Path $VisualisationsDirectory "EmbeddedLyricsTagWriter.py") -Force
-Copy-Item -LiteralPath $Writer -Destination (Join-Path $VideoFxDirectory "EmbeddedLyricsTagWriter.py") -Force
 
 Write-Host "Installed Master and BlackOut into: $OverlayDirectory"
 Write-Host "Installed Deck audio-only source into: $VisualisationsDirectory"
-Write-Host "Installed per-deck Deck FX into: $VideoFxDirectory"
 Write-Host "Restart VirtualDJ."

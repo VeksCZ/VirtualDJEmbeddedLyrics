@@ -8,8 +8,6 @@ Windows 64-bit plugins that display embedded or sidecar lyrics in VirtualDJ.
   enable **Upfaders** to use `get_crossfader_result` instead.
 - **LRC Deck** — automatic audio-only video source. Select it in VirtualDJ's
   **Source for audio-only tracks** section.
-- **LRC Deck FX** — per-deck lyrics renderer for a deck's own Video FX chain.
-  Use it when two audio-only decks need independent lyrics at the same time.
 - **LRC BlackOut** — black master background processed before later overlays,
   slideshows, shaders and other visualisations.
 
@@ -24,12 +22,11 @@ The installer uses these required VirtualDJ categories:
 
 - `Plugins64/VideoOverlay`: `LRC Master.dll`, `LRC BlackOut.dll`
 - `Plugins64/Visualisations`: `LRC Deck.dll`
-- `Plugins64/VideoEffect`: `LRC Deck FX.dll`
 
-It also installs `EmbeddedLyricsTagWriter.py` beside Master, Deck and Deck FX for
-deferred manual-timing writes. Python 3 and Mutagen are required only for tag
-writing and the standalone importer (`py -m pip install mutagen`). Lyrics display
-itself does not require Python.
+It also installs `EmbeddedLyricsTagWriter.py` beside Master and Deck for deferred
+manual-timing writes. Python 3 and Mutagen are required only for tag writing and
+the standalone importer (`py -m pip install mutagen`). Lyrics display itself
+does not require Python.
 
 ## Lyrics lookup order
 
@@ -70,16 +67,13 @@ automatic `videoAudioOnlyVisualisation` slot. VirtualDJ may run that instance
 on the master when both video sides contain audio-only tracks; the public SDK
 does not expose separate automatic audio-only source slots for each deck.
 
-## Per-deck lyrics on two audio-only decks
+## Audio-only source limitation
 
 `videoAudioOnlyVisualisation` is one program-wide slot rather than one slot per
-deck. To keep the lyrics independent, add **LRC Deck FX** directly to each audio
-deck's Video FX chain. VirtualDJ then creates a separate plugin instance for each
-deck, and each instance reads the track loaded on that deck.
-
-LRC Deck FX replaces that deck's picture with its black lyrics canvas. Use it on
-audio-only tracks; disable it before playing a track with real video if that video
-should remain visible.
+deck. VirtualDJ may host the selected audio-only visualisation on the master,
+which means it does not provide an independent deck preview or a separate source
+that can be video-crossfaded per deck. The public SDK exposes no deck-only
+automatic audio-only source category.
 
 ## Import LRC/TXT into MP3 tags
 
@@ -124,5 +118,5 @@ The public VirtualDJ SDK headers remain vendored under
 ./build-release.ps1
 ```
 
-This builds the four DLLs, runs both C++ tests and all Python `unittest` tests,
+This builds the three DLLs, runs both C++ tests and all Python `unittest` tests,
 then creates `dist/full`.

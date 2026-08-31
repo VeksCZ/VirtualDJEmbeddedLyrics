@@ -106,25 +106,15 @@ public:
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
 #ifdef EMBEDDED_LYRICS_MASTER
         info->PluginName = "LRC Master";
-#elif defined(EMBEDDED_LYRICS_DECK_FX)
-        info->PluginName = "LRC Deck FX";
 #else
         info->PluginName = "LRC Deck";
 #endif
         info->Author = "Slava / OpenAI";
-#ifdef EMBEDDED_LYRICS_DECK_FX
-        info->Description = "Timed embedded/LRC lyrics for a deck's Video FX chain";
-#else
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
-#endif
         info->Version = "0.4.0";
 #ifdef EMBEDDED_LYRICS_MASTER
         info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
-#elif defined(EMBEDDED_LYRICS_DECK_FX)
-        // A regular Video FX has no VISUALISATION or MASTERONLY flag. VirtualDJ
-        // therefore creates an independent instance in the selected deck's chain.
-        info->Flags = 0;
 #else
         // Visualisations is VirtualDJ's SDK category for the single automatic
         // audio-only video source selected by videoAudioOnlyVisualisation.
@@ -169,8 +159,6 @@ public:
         if (!drawContextLogged_) {
 #ifdef EMBEDDED_LYRICS_MASTER
             const std::wstring variant = L"Master";
-#elif defined(EMBEDDED_LYRICS_DECK_FX)
-            const std::wstring variant = L"Deck FX";
 #else
             const std::wstring variant = L"Deck";
 #endif
@@ -181,7 +169,7 @@ public:
         }
         if (deck <= 0) {
 #ifndef EMBEDDED_LYRICS_MASTER
-            if (!texture_.UpdateMessage(L"Add LRC Deck FX to this deck's Video FX chain",
+            if (!texture_.UpdateMessage(L"Select LRC Deck under Source for audio-only tracks",
                                         width, height, FontScale(), VerticalPosition()) ||
                 !DrawLyricsTexture()) {
                 Diagnostics::Error(L"Failed to render deck-placement hint");

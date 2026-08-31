@@ -46,7 +46,7 @@ endif()
 if(WIN32)
     set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
-        function(add_vdj_lyrics_plugin target output_name variant)
+        function(add_vdj_lyrics_plugin target output_name is_master)
             add_library(${target} SHARED
                 src/AdvancedDialog.cpp
                 src/Plugin.cpp
@@ -58,10 +58,8 @@ if(WIN32)
             target_include_directories(${target} PRIVATE src)
             target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
             target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT)
-            if("${variant}" STREQUAL "master")
+            if(${is_master})
                 target_compile_definitions(${target} PRIVATE EMBEDDED_LYRICS_MASTER=1)
-            elseif("${variant}" STREQUAL "deckfx")
-                target_compile_definitions(${target} PRIVATE EMBEDDED_LYRICS_DECK_FX=1)
             endif()
             if(MSVC)
                 target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
@@ -71,9 +69,8 @@ if(WIN32)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
 
-        add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" "deck")
-        add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" "master")
-        add_vdj_lyrics_plugin(EmbeddedLyricsDeckFx "LRC Deck FX" "deckfx")
+        add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
+        add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" TRUE)
 
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp
