@@ -16,6 +16,22 @@ SPEC.loader.exec_module(MODULE)
 
 
 class BatchLrcImportTests(unittest.TestCase):
+    def test_gui_api_preview_uses_callback_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mp3 = root / "song.mp3"
+            lrc = root / "song.lrc"
+            ID3().save(mp3, v2_version=3)
+            lrc.write_text("[00:01.20]First\n", encoding="utf-8")
+            messages = []
+
+            summary = MODULE.import_sidecars(root, write=False, log=messages.append)
+
+            self.assertEqual(summary, (1, 0, 0, 0))
+            self.assertTrue(any("DRY-RUN" in message for message in messages))
+            self.assertTrue(lrc.exists())
+            self.assertFalse(ID3(mp3).getall("SYLT"))
+
     def test_dual_tag_write_verifies_before_deleting_lrc(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

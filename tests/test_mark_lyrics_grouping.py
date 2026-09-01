@@ -38,6 +38,21 @@ class MarkLyricsGroupingTests(unittest.TestCase):
             ID3().save(mp3)
             self.assertEqual(mark_existing_mp3(Path(directory), True), (0, 0, 0))
 
+    def test_gui_api_preview_uses_callback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mp3 = Path(directory) / "lyrics.mp3"
+            tags = ID3()
+            tags.add(USLT(encoding=3, lang="und", desc="", text="Plain"))
+            tags.save(mp3)
+            messages = []
+
+            self.assertEqual(
+                mark_existing_mp3(Path(directory), False, log=messages.append),
+                (1, 0, 0),
+            )
+            self.assertTrue(any("DRY-RUN" in message for message in messages))
+            self.assertFalse(ID3(mp3).getall("TIT1"))
+
 
 if __name__ == "__main__":
     unittest.main()

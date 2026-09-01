@@ -2,15 +2,18 @@
 
 ## Highlights
 
-- Added a self-contained installer for current, legacy and custom VirtualDJ home
-  folder locations.
-- Added safe update cleanup, backups, rollback, copy verification, install
-  logging and an uninstaller.
-- Added immediate `...` output for tracks without supported lyrics.
-- Added optional automatic `#lrc` tagging in VirtualDJ User 1 while preserving
-  existing values.
-- Replaced hard-coded development paths in the MP3 tools with portable launchers.
-- Reorganized the release ZIP and rewrote the user documentation.
+- Added one unified **MP3 & Lyrics Tools** GUI with separate tabs for importing
+  LRC/TXT, marking existing lyrics, TIDAL retrieval/normalization and restoring
+  sidecars.
+- Added structure-preserving LRC backups, atomic writes and safe compatibility
+  handling for older flat backups.
+- Added correct TIDAL ISRC lookup and stricter artist/title/duration matching.
+- Added a real no-write preview mode, stale-SYLT cleanup and support for multiple
+  LRC timestamps on one line.
+- Added persistent GUI settings, browser-assisted OAuth login, runtime data
+  outside the release folder and automatic dependency setup in the main launcher.
+- Kept the previous Import Lyrics and Mark Existing Lyrics launcher names as
+  shortcuts to the appropriate GUI tabs.
 
 ## Installation
 

@@ -28,6 +28,15 @@ try {
         $source = Join-Path $PayloadDirectory $name
         Assert-True ((Get-FileHash -LiteralPath $installed).Hash -eq (Get-FileHash -LiteralPath $source).Hash) "$name hash differs"
     }
+    $toolsDirectory = Join-Path $PackageDirectory 'Tools'
+    foreach ($name in @(
+        'MP3 & Lyrics Tools.cmd', 'MP3 & Lyrics Tools Silent.vbs',
+        'Import Lyrics.cmd', 'Mark Existing Lyrics.cmd', 'lyrics_tools_gui.py',
+        'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py',
+        'embed_and_backup.py', 'requirements.txt', 'README.md'
+    )) {
+        Assert-True (Test-Path -LiteralPath (Join-Path $toolsDirectory $name) -PathType Leaf) "Tools/$name is missing"
+    }
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $VirtualDJTestHome 'Plugins64\VideoEffect\LRC Deck FX.dll'))) 'legacy Deck FX remains'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $VirtualDJTestHome 'Plugins64\Visualisations\LRC Deck.dll'))) 'legacy visualisation remains'
     Assert-True ((Get-Content -LiteralPath (Join-Path $VirtualDJTestHome 'settings.xml') -Raw).Contains('<videoAudioOnlyVisualisation>None</videoAudioOnlyVisualisation>')) 'obsolete audio-only selection was not reset'

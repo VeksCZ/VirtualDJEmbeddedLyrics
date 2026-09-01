@@ -70,19 +70,27 @@ use the standard ID3 `Grouping` field for the portable markers
 
 ## Optional MP3 tools
 
-The extracted `Tools` folder contains:
+The extracted `Tools` folder contains one **MP3 & Lyrics Tools** GUI with tabs
+for:
 
-- **Import Lyrics.cmd** — imports same-name LRC/TXT files into MP3 lyrics tags.
-- **Mark Existing Lyrics.cmd** — scans existing embedded lyrics and writes the
-  portable Grouping marker.
+- importing same-name LRC/TXT files into MP3 lyrics tags;
+- scanning existing embedded lyrics and writing the portable Grouping marker;
+- downloading or normalizing lyrics with structure-preserving LRC backups;
+- restoring LRC sidecars from those backups.
 
-Drag a music folder onto either CMD file, or start the tool and enter a folder.
-The tools perform a preview before writing. Source LRC/TXT files are deleted only
-after successful verification and only when you explicitly approve deletion.
+Drag a music folder onto **MP3 & Lyrics Tools.cmd**, or start it and choose a
+folder. The legacy **Import Lyrics.cmd** and **Mark Existing Lyrics.cmd** names
+remain as shortcuts to the matching GUI tabs. Preview mode is enabled on first
+use. Source LRC/TXT files are deleted only after successful verification and only
+when you explicitly enable deletion.
 
-These optional tools require Python 3 and Mutagen. If Python is installed but
-Mutagen is missing, the launcher offers to install Mutagen for the current user.
+These optional tools require Python 3, Mutagen and tidalapi. If Python is
+installed but packages are missing, the launcher offers to install the required
+versions for the current user.
 Python is also required by **Record timing**, but not for normal lyrics display.
+
+Full tool documentation is in [tools/README.md](tools/README.md). The tools are
+not required to run the VirtualDJ plugins.
 
 ## VirtualDJScript helpers
 
@@ -133,7 +141,7 @@ Install current Python 3 from [python.org](https://www.python.org/downloads/wind
 and enable **Add Python to PATH** during setup. Then run:
 
 ```powershell
-py -m pip install --user mutagen
+python -m pip install --user -r requirements.txt
 ```
 
 ## Development

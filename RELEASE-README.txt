@@ -32,9 +32,14 @@ BEHAVIOR
 OPTIONAL TOOLS
 --------------
 
-The Tools folder can import LRC/TXT into MP3 tags or mark MP3 files that already
-contain lyrics. Drag a music folder onto the relevant CMD file. These optional
-tools require Python 3 and Mutagen; the launcher can install Mutagen when needed.
+The Tools folder contains one MP3 & Lyrics Tools GUI with tabs to import LRC/TXT,
+mark existing lyrics in ID3 Grouping, retrieve or normalize lyrics with safe
+structured backups, and restore LRC sidecars. Drag a music folder onto
+MP3 & Lyrics Tools.cmd or start it normally and choose a folder.
+
+Preview mode is enabled on first use. The optional tools require Python 3; their
+launcher can install the required Mutagen and tidalapi packages after asking for
+permission. Python is not required for normal plugin playback.
 
 UPDATE / REMOVE
 ---------------

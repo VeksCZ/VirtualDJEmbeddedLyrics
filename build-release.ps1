@@ -65,9 +65,17 @@ foreach ($name in @(
 )) {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot $name) -Destination $PackageDirectory
 }
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination $ToolsDirectory
+$toolFiles = @(
+    'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py',
+    'embed_and_backup.py', 'lyrics_tools_gui.py',
+    'MP3 & Lyrics Tools.cmd', 'MP3 & Lyrics Tools Silent.vbs'
+)
+foreach ($name in $toolFiles) {
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot "tools\$name") -Destination $ToolsDirectory
+}
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'Import-LRC-Here.cmd') -Destination (Join-Path $ToolsDirectory 'Import Lyrics.cmd')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'Mark-Lyrics-Here.cmd') -Destination (Join-Path $ToolsDirectory 'Mark Existing Lyrics.cmd')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\README.md') -Destination (Join-Path $ToolsDirectory 'README.md')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'requirements.txt') -Destination $ToolsDirectory
 
 $offlineReadme = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'RELEASE-README.txt') -Raw).Replace('{{VERSION}}', $Version)

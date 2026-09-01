@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -168,7 +169,7 @@ def set_grouping_lyrics_marker(tags, kind: str) -> bool:
     return True
 
 
-def mark_existing_mp3(root: Path, write: bool) -> tuple[int, int, int]:
+def mark_existing_mp3(root: Path, write: bool, log: Callable[[object], None] = print) -> tuple[int, int, int]:
     _, ID3, ID3NoHeaderError, _, _, _, _ = load_mutagen()
     paths = [root] if root.is_file() else sorted(
         (path for path in root.rglob("*")
@@ -189,7 +190,7 @@ def mark_existing_mp3(root: Path, write: bool) -> tuple[int, int, int]:
             current = "; ".join(str(value) for frame in tags.getall("TIT1") for value in frame.text)
             marker = f"Lyrics: {kind}"
             if not write:
-                print(f"DRY-RUN  {mp3_path}: {marker} (Grouping: {current or '<empty>'})")
+                log(f"DRY-RUN  {mp3_path}: {marker} (Grouping: {current or '<empty>'})")
                 continue
             if set_grouping_lyrics_marker(tags, kind):
                 version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
@@ -199,13 +200,49 @@ def mark_existing_mp3(root: Path, write: bool) -> tuple[int, int, int]:
                            for frame in verify.getall("TIT1") for value in frame.text):
                     raise RuntimeError("Grouping marker verification failed")
                 changed += 1
-                print(f"WRITE    {mp3_path}: Grouping += {marker}")
+                log(f"WRITE    {mp3_path}: Grouping += {marker}")
             else:
-                print(f"OK       {mp3_path}: {marker}")
+                log(f"OK       {mp3_path}: {marker}")
         except Exception as exc:
             errors += 1
-            print(f"ERROR    {mp3_path}: {exc}", file=sys.stderr)
+            log(f"ERROR    {mp3_path}: {exc}")
     return found, changed, errors
+
+
+def import_sidecars(root: Path, *, write: bool = False, overwrite: bool = False,
+                    delete_lrc: bool = False, delete_sidecars: bool = False,
+                    language: str = "und", log: Callable[[object], None] = print
+                    ) -> tuple[int, int, int, int]:
+    """Preview or import same-name LRC/TXT files and return summary counts."""
+    if len(language) != 3 or not language.isascii():
+        raise ValueError("language must be a three-letter ASCII code such as ces, eng, or und")
+    root = root.expanduser().resolve()
+    if not root.exists():
+        raise ValueError(f"Path does not exist: {root}")
+    if root.is_file() and root.suffix.casefold() not in (".mp3", ".lrc", ".txt"):
+        raise ValueError("file must have an .mp3, .lrc, or .txt extension")
+
+    pairs, unmatched = discover_pairs(root)
+    changed = errors = 0
+    for sidecar in unmatched:
+        log(f"SKIP     {sidecar} (no same-name MP3)")
+    for mp3_path, lrc_path, txt_path in pairs:
+        sources = ", ".join(path.name for path in (lrc_path, txt_path) if path)
+        if not write:
+            log(f"DRY-RUN  {mp3_path} <- {sources}")
+            continue
+        try:
+            message, did_change = write_frames(
+                mp3_path, lrc_path, txt_path, language, overwrite, delete_lrc, delete_sidecars
+            )
+            changed += int(did_change)
+            log(f"WRITE    {mp3_path}: {message}")
+        except Exception as exc:
+            errors += 1
+            log(f"ERROR    {mp3_path}: {exc}")
+    log(f"Summary: matched={len(pairs)}, unmatched={len(unmatched)}, "
+        f"changed={changed}, errors={errors}")
+    return len(pairs), len(unmatched), changed, errors
 
 
 def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
@@ -411,25 +448,10 @@ def main() -> int:
         found, changed, errors = mark_existing_mp3(root, args.write)
         print(f"Summary: lyrics={found}, changed={changed}, errors={errors}")
         return 1 if errors else 0
-    pairs, unmatched = discover_pairs(root)
-    changed = errors = 0
-    for sidecar in unmatched:
-        print(f"SKIP     {sidecar} (no same-name MP3)")
-    for mp3_path, lrc_path, txt_path in pairs:
-        sources = ", ".join(path.name for path in (lrc_path, txt_path) if path)
-        if not args.write:
-            print(f"DRY-RUN  {mp3_path} <- {sources}")
-            continue
-        try:
-            message, did_change = write_frames(mp3_path, lrc_path, txt_path,
-                                                args.language, args.overwrite, args.delete_lrc,
-                                                args.delete_sidecars)
-            changed += int(did_change)
-            print(f"WRITE    {mp3_path}: {message}")
-        except Exception as exc:
-            errors += 1
-            print(f"ERROR    {mp3_path}: {exc}", file=sys.stderr)
-    print(f"Summary: matched={len(pairs)}, unmatched={len(unmatched)}, changed={changed}, errors={errors}")
+    _, _, _, errors = import_sidecars(
+        root, write=args.write, overwrite=args.overwrite, delete_lrc=args.delete_lrc,
+        delete_sidecars=args.delete_sidecars, language=args.language,
+    )
     return 1 if errors else 0
 
 

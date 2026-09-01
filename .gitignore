@@ -37,6 +37,11 @@ Thumbs.db
 # Runtime diagnostics
 *.log
 
+# MP3 & Lyrics Tools local state and OAuth credentials
+tools/gui_settings.json
+tools/lyrics_report.csv
+tools/tidal_session.json
+
 # Local research checkouts
 .research/
 
