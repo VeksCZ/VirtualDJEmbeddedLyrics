@@ -73,14 +73,14 @@ use the standard ID3 `Grouping` field for the portable markers
 The extracted release has one **LyricsTools.cmd** launcher in its root.
 It opens a single GUI with tabs for:
 
+- finding or selecting the active VirtualDJ home folder and installing, updating,
+  uninstalling or restoring the bundled plugin DLLs;
+- fully mirroring a music directory tree and its tracks into an isolated
+  VirtualDJ MyLists root, with optional add-only Search DB registration;
 - importing same-name LRC/TXT files into MP3 lyrics tags;
 - scanning existing embedded lyrics and writing the portable Grouping marker;
 - downloading or normalizing lyrics with structure-preserving LRC backups;
-- restoring LRC sidecars from those backups;
-- mirroring a music directory tree directly into an isolated VirtualDJ MyLists
-  root without creating Serato crates first;
-- finding or selecting the active VirtualDJ home folder and installing, updating,
-  uninstalling or restoring the bundled plugin DLLs.
+- restoring LRC sidecars from those backups.
 
 Drag a music folder onto **LyricsTools.cmd**, or start it and choose a
 folder. Preview mode is enabled on first use. Source LRC/TXT files are deleted
@@ -95,10 +95,15 @@ The **VirtualDJ setup** tab uses the same verified installer as `Install.cmd`.
 It validates the selected folder, keeps replaced files in `LRC Lyrics Backups`,
 and never bypasses the check that VirtualDJ is closed.
 
-The **Folders to VDJ lists** tab is a one-way mirror. It rebuilds only the named
-managed root: new files appear, removed files disappear, and unrelated manual
-lists remain untouched. Preview mode performs no writes. Real synchronization
-requires VirtualDJ to be closed and creates a timestamped backup first.
+The **Sync folders to VDJ** tab is a one-way, full mirror. It rebuilds only the
+named managed root: new files appear, and playlist references to files or folders
+that are no longer in the selected source tree disappear. Unrelated manual lists
+remain untouched. It can also add current source tracks to Search DB without
+deleting any other database entry or existing analysis. Tracks are routed to
+VirtualDJ's correct per-drive database (for example `D:\VirtualDJ\database.xml`).
+Both the music folder and VirtualDJ home can be selected manually. Preview mode
+performs no writes. Real synchronization requires VirtualDJ to be closed and
+creates a timestamped backup first.
 
 Full tool documentation is in [tools/README.md](tools/README.md). The tools are
 not required to run the VirtualDJ plugins.

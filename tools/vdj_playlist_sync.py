@@ -6,13 +6,18 @@ import hashlib
 import html
 import json
 import os
+import re
 import shutil
 import tempfile
+import time
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePath
 from typing import Callable
+
+from mutagen import File as MutagenFile
 
 
 AUDIO_EXTENSIONS = frozenset({
@@ -51,6 +56,10 @@ class SyncSummary:
     removed: int
     dry_run: bool
     backup: Path | None = None
+    added_tracks: int = 0
+    removed_tracks: int = 0
+    database_added: int = 0
+    database_reactivated: int = 0
 
 
 def validate_target_name(value: str) -> str:
@@ -168,6 +177,232 @@ def _existing_files(root: Path) -> dict[PurePath, bytes]:
     return result
 
 
+def _path_key(value: str | Path) -> str:
+    return os.path.normpath(str(value)).replace("/", "\\").casefold()
+
+
+def _playlist_track_paths(files: dict[PurePath, bytes]) -> dict[str, Path]:
+    tracks: dict[str, Path] = {}
+    for relative, content in files.items():
+        if relative.suffix.casefold() != ".vdjfolder":
+            continue
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            continue
+        for song in root.findall(".//song"):
+            value = song.attrib.get("path")
+            if value:
+                tracks[_path_key(value)] = Path(value)
+    return tracks
+
+
+def _first_tag(metadata, name: str) -> str:
+    if metadata is None or metadata.tags is None:
+        return ""
+    try:
+        value = metadata.tags.get(name, [""])[0]
+    except (AttributeError, IndexError, KeyError, TypeError):
+        return ""
+    return str(value).strip()
+
+
+def _database_song_xml(track: Path, first_seen: int) -> str:
+    try:
+        stat = track.stat()
+    except OSError:
+        stat = None
+    try:
+        metadata = MutagenFile(track, easy=True)
+    except Exception:
+        metadata = None
+
+    tag_values = {
+        "Author": _first_tag(metadata, "artist"),
+        "Title": _first_tag(metadata, "title") or track.stem,
+        "Album": _first_tag(metadata, "album"),
+        "Genre": _first_tag(metadata, "genre"),
+    }
+    year = _first_tag(metadata, "date") or _first_tag(metadata, "year")
+    match = re.search(r"\d{4}", year)
+    if match:
+        tag_values["Year"] = match.group(0)
+    tag_attributes = " ".join(
+        f'{name}="{_xml_attribute(value)}"'
+        for name, value in tag_values.items()
+        if value
+    )
+    song_attributes = [f'FilePath="{_xml_attribute(str(track))}"']
+    if stat is not None:
+        song_attributes.append(f'FileSize="{stat.st_size}"')
+    lines = [f" <Song {' '.join(song_attributes)}>"]
+    if tag_attributes:
+        lines.append(f"  <Tags {tag_attributes} />")
+    info_values = {"FirstSeen": str(first_seen)}
+    if stat is not None:
+        info_values["LastModified"] = str(int(stat.st_mtime))
+    info = getattr(metadata, "info", None)
+    length = getattr(info, "length", 0.0) or 0.0
+    bitrate = getattr(info, "bitrate", 0) or 0
+    if length > 0:
+        info_values["SongLength"] = f"{length:.6f}".rstrip("0").rstrip(".")
+    if bitrate > 0:
+        info_values["Bitrate"] = str(int(round(bitrate / 1000)))
+    info_attributes = " ".join(
+        f'{name}="{_xml_attribute(value)}"'
+        for name, value in info_values.items()
+    )
+    lines.append(f"  <Infos {info_attributes} />")
+    lines.append(" </Song>")
+    return "\r\n".join(lines)
+
+
+_SONG_OPEN_RE = re.compile(r"<Song\b[^>]*>", re.IGNORECASE)
+_ATTRIBUTE_RE = re.compile(
+    r'\s+(?P<name>[A-Za-z_:][\w:.-]*)="(?P<value>[^"]*)"',
+    re.IGNORECASE,
+)
+_DATABASE_CLOSE_RE = re.compile(r"</VirtualDJ_Database\s*>", re.IGNORECASE)
+
+
+def plan_search_database(
+    database_path: Path,
+    tracks: tuple[Path, ...],
+    *,
+    materialize_additions: bool = True,
+    log: Callable[[str], None] | None = None,
+) -> tuple[bytes, int, int]:
+    """Return an add-only VirtualDJ database update.
+
+    Existing Song elements and all analysis children are preserved byte-for-byte.
+    Current library tracks are appended when absent. For matching existing tracks,
+    only the hidden/missing bits are cleared from the Song Flag attribute.
+    """
+
+    track_by_key = {_path_key(track): track for track in tracks}
+    if database_path.is_file():
+        original = database_path.read_bytes()
+        had_bom = original.startswith(b"\xef\xbb\xbf")
+        text = original.decode("utf-8-sig")
+        try:
+            ET.fromstring(text)
+        except ET.ParseError as exc:
+            raise ValueError(f"VirtualDJ database.xml is not valid XML: {exc}") from exc
+    else:
+        original = b""
+        had_bom = False
+        text = (
+            '<?xml version="1.0" encoding="UTF-8"?>\r\n'
+            '<VirtualDJ_Database Version="8.5">\r\n'
+            '</VirtualDJ_Database>\r\n'
+        )
+
+    existing: set[str] = set()
+    reactivated: set[str] = set()
+
+    def update_song_open(match: re.Match[str]) -> str:
+        opening = match.group(0)
+        attributes = {
+            item.group("name").casefold(): html.unescape(item.group("value"))
+            for item in _ATTRIBUTE_RE.finditer(opening)
+        }
+        path_value = attributes.get("filepath")
+        if not path_value:
+            return opening
+        key = _path_key(path_value)
+        if key not in track_by_key:
+            return opening
+        existing.add(key)
+
+        flag_match = re.search(r'\s+Flag="(?P<value>\d+)"', opening, re.IGNORECASE)
+        if flag_match is None:
+            return opening
+        flag = int(flag_match.group("value"))
+        updated_flag = flag & ~17
+        if updated_flag == flag:
+            return opening
+        reactivated.add(key)
+        if updated_flag:
+            return (
+                opening[:flag_match.start("value")]
+                + str(updated_flag)
+                + opening[flag_match.end("value"):]
+            )
+        return opening[:flag_match.start()] + opening[flag_match.end():]
+
+    updated_text = _SONG_OPEN_RE.sub(update_song_open, text)
+    missing_keys = sorted(set(track_by_key) - existing)
+    if missing_keys and materialize_additions:
+        closing_matches = list(_DATABASE_CLOSE_RE.finditer(updated_text))
+        if len(closing_matches) != 1:
+            raise ValueError("VirtualDJ database.xml has an unexpected root structure.")
+        closing = closing_matches[0]
+        first_seen = int(time.time())
+        entries_list = []
+        total = len(missing_keys)
+        for index, key in enumerate(missing_keys, start=1):
+            entries_list.append(_database_song_xml(track_by_key[key], first_seen))
+            if log is not None and (index == 1 or index % 500 == 0 or index == total):
+                log(f"[SEARCH DB] Reading track metadata: {index}/{total}")
+        entries = "\r\n".join(entries_list)
+        prefix = updated_text[:closing.start()].rstrip("\r\n")
+        suffix = updated_text[closing.start():]
+        updated_text = f"{prefix}\r\n{entries}\r\n{suffix}"
+
+    try:
+        ET.fromstring(updated_text)
+    except ET.ParseError as exc:
+        raise ValueError(f"Generated VirtualDJ database update is invalid: {exc}") from exc
+
+    encoded = updated_text.encode("utf-8")
+    if had_bom:
+        encoded = b"\xef\xbb\xbf" + encoded
+    if (not missing_keys or not materialize_additions) and not reactivated:
+        encoded = original
+    return encoded, len(missing_keys), len(reactivated)
+
+
+def _all_tracks(root: MusicNode) -> tuple[Path, ...]:
+    tracks = list(root.tracks)
+    for child in root.children:
+        tracks.extend(_all_tracks(child))
+    return tuple(tracks)
+
+
+def _database_path_for_track(track: Path, virtualdj_home: Path) -> Path:
+    track_drive = track.drive.casefold()
+    home_drive = virtualdj_home.drive.casefold()
+    if not track_drive or track_drive == home_drive:
+        return virtualdj_home / "database.xml"
+    if not track.anchor:
+        raise ValueError(f"Cannot determine the VirtualDJ database drive for: {track}")
+    return Path(track.anchor) / "VirtualDJ" / "database.xml"
+
+
+def _tracks_by_database(
+    tracks: tuple[Path, ...],
+    virtualdj_home: Path,
+) -> dict[Path, tuple[Path, ...]]:
+    grouped: dict[Path, list[Path]] = {}
+    for track in tracks:
+        database_path = _database_path_for_track(track, virtualdj_home)
+        grouped.setdefault(database_path, []).append(track)
+    return {
+        path: tuple(grouped[path])
+        for path in sorted(grouped, key=lambda item: str(item).casefold())
+    }
+
+
+def _database_backup_name(database_path: Path, virtualdj_home: Path) -> str:
+    if _path_key(database_path) == _path_key(virtualdj_home / "database.xml"):
+        return "database.before.xml"
+    drive = database_path.drive.rstrip(":\\/")
+    if len(drive) == 1 and drive.isalpha():
+        return f"database-{drive.upper()}.before.xml"
+    digest = hashlib.sha256(_path_key(database_path).encode("utf-8")).hexdigest()[:8]
+    return f"database-{digest}.before.xml"
+
+
 def _ownership_file(virtualdj_home: Path, target_name: str) -> Path:
     digest = hashlib.sha256(target_name.casefold().encode("utf-8")).hexdigest()[:16]
     return virtualdj_home / "Folder Sync State" / f"{digest}.json"
@@ -219,6 +454,7 @@ def sync_library(
     *,
     dry_run: bool = True,
     adopt_existing: bool = False,
+    add_search_db: bool = True,
     log: Callable[[str], None] = print,
 ) -> SyncSummary:
     source = source.expanduser().resolve()
@@ -246,10 +482,34 @@ def sync_library(
     current = _existing_files(target)
     created_or_updated = sum(current.get(path) != content for path, content in expected.items())
     removed = len(set(current) - set(expected))
+    current_track_paths = _playlist_track_paths(current)
+    expected_track_paths = _playlist_track_paths(expected)
+    added_track_keys = sorted(set(expected_track_paths) - set(current_track_paths))
+    removed_track_keys = sorted(set(current_track_paths) - set(expected_track_paths))
     order_path = mylists / "order"
     old_order = order_path.read_bytes() if order_path.is_file() else None
     new_order = _root_order(old_order, target_name)
     order_changed = old_order != new_order
+    database_plans: dict[Path, tuple[bytes | None, bytes, int, int, bool]] = {}
+    database_added = 0
+    database_reactivated = 0
+    database_changed = False
+    if add_search_db:
+        for database_path, database_tracks in _tracks_by_database(
+                _all_tracks(tree), virtualdj_home).items():
+            original = database_path.read_bytes() if database_path.is_file() else None
+            updated, added, reactivated = plan_search_database(
+                database_path,
+                database_tracks,
+                materialize_additions=not dry_run,
+                log=log if not dry_run else None,
+            )
+            changed = original != updated or (dry_run and added > 0)
+            database_plans[database_path] = (
+                original, updated, added, reactivated, changed)
+            database_added += added
+            database_reactivated += reactivated
+            database_changed = database_changed or changed
 
     mode = "PREVIEW" if dry_run else "SYNC"
     log(f"[{mode}] Music folder: {source}")
@@ -258,15 +518,47 @@ def sync_library(
     log(
         f"[{mode}] {created_or_updated} playlist/order files to create or update; "
         f"{removed} obsolete files to remove")
+    log(
+        f"[{mode}] Playlist track changes: +{len(added_track_keys)} added, "
+        f"-{len(removed_track_keys)} removed")
+    for key in removed_track_keys:
+        log(f"[{mode}] REMOVE missing playlist track: {current_track_paths[key]}")
+    if len(added_track_keys) <= 50:
+        for key in added_track_keys:
+            log(f"[{mode}] ADD playlist track: {expected_track_paths[key]}")
+    elif added_track_keys:
+        log(f"[{mode}] Added-track details omitted for {len(added_track_keys)} entries.")
+    if add_search_db:
+        log(
+            f"[{mode}] Search DB additions: {database_added}; "
+            f"existing tracks reactivated: {database_reactivated}")
+        log(f"[{mode}] Search DB removals: 0 (existing entries and analyses are preserved)")
+        for database_path, plan in database_plans.items():
+            log(
+                f"[{mode}] Search DB {database_path}: "
+                f"+{plan[2]} added, {plan[3]} reactivated")
+    else:
+        log(f"[{mode}] Search DB update is disabled")
 
     if dry_run:
         return SyncSummary(
             source, target, directories, playlists, tracks,
             created_or_updated, removed, True,
+            added_tracks=len(added_track_keys),
+            removed_tracks=len(removed_track_keys),
+            database_added=database_added,
+            database_reactivated=database_reactivated,
         )
-    if not created_or_updated and not removed and not order_changed and owned:
+    if (not created_or_updated and not removed and not order_changed
+            and not database_changed and owned):
         log("[SYNC] VirtualDJ lists are already up to date.")
-        return SyncSummary(source, target, directories, playlists, tracks, 0, 0, False)
+        return SyncSummary(
+            source, target, directories, playlists, tracks, 0, 0, False,
+            added_tracks=0,
+            removed_tracks=0,
+            database_added=0,
+            database_reactivated=0,
+        )
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
     backup = virtualdj_home / "Folder Sync Backups" / f"{timestamp}-{target_name}"
@@ -277,10 +569,16 @@ def sync_library(
         (backup / "order.before").write_bytes(old_order)
     if target.exists():
         shutil.copytree(target, backup / target.name)
+    for database_path, plan in database_plans.items():
+        original, _updated, _added, _reactivated, changed = plan
+        if changed and original is not None:
+            (backup / _database_backup_name(database_path, virtualdj_home)).write_bytes(
+                original)
     _write_staging(staging, expected)
 
     target_was_moved = False
     replacement_installed = False
+    databases_written: list[tuple[Path, bytes | None]] = []
     try:
         if target.exists():
             os.replace(target, retired)
@@ -288,17 +586,29 @@ def sync_library(
         os.replace(staging, target)
         replacement_installed = True
         _atomic_write(order_path, new_order)
+        for database_path, plan in database_plans.items():
+            original, updated, _added, _reactivated, changed = plan
+            if changed:
+                _atomic_write(database_path, updated)
+                databases_written.append((database_path, original))
         state = {
             "Format": 1,
             "Source": str(source),
             "TargetName": target_name,
             "LastSync": datetime.now().isoformat(),
+            "AddSearchDB": add_search_db,
+            "SearchDatabases": [str(path) for path in database_plans],
         }
         _atomic_write(
             state_path,
             (json.dumps(state, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
         )
     except Exception:
+        for database_path, original in reversed(databases_written):
+            if original is None:
+                database_path.unlink(missing_ok=True)
+            else:
+                _atomic_write(database_path, original)
         if replacement_installed and target.exists():
             shutil.rmtree(target)
         if target_was_moved and retired.exists():
@@ -320,4 +630,8 @@ def sync_library(
     return SyncSummary(
         source, target, directories, playlists, tracks,
         created_or_updated, removed, False, backup,
+        added_tracks=len(added_track_keys),
+        removed_tracks=len(removed_track_keys),
+        database_added=database_added,
+        database_reactivated=database_reactivated,
     )

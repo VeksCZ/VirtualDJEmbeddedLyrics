@@ -24,7 +24,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("import", "mark", "tidal", "restore", "playlist_sync", "setup")
+TAB_NAMES = ("setup", "playlist_sync", "import", "mark", "tidal", "restore")
 
 
 def parse_launch_arguments():
@@ -67,7 +67,7 @@ class App(tk.Tk):
         self.geometry("860x760")
         self.minsize(760, 660)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(1, weight=1)
 
         settings = load_settings()
         if ARGV_LIBRARY is not None:
@@ -91,6 +91,8 @@ class App(tk.Tk):
             ))
         self.opt_adopt_playlist_root = tk.BooleanVar(
             value=bool(settings.get("opt_adopt_playlist_root", False)))
+        self.opt_add_search_db = tk.BooleanVar(
+            value=bool(settings.get("opt_add_search_db", True)))
         self.opt_dryrun = tk.BooleanVar(value=bool(settings.get("opt_dryrun", True)))
         self.opt_import_overwrite = tk.BooleanVar(
             value=bool(settings.get("opt_import_overwrite", False)))
@@ -116,10 +118,12 @@ class App(tk.Tk):
 
         self.worker_running = False
         self.events = EventQueue()
+        self.vdj_home_combos = []
         self._build_ui()
-        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "import"))
+        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "setup"))
         if requested_tab in self.tabs:
             self.notebook.select(self.tabs[requested_tab])
+        self._tab_changed()
         self.after(100, self._poll_events)
         self.after(250, self._initial_vdj_detection)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -132,6 +136,7 @@ class App(tk.Tk):
             "setup_action": self.setup_action.get(),
             "playlist_root_name": self.playlist_root_name.get(),
             "opt_adopt_playlist_root": self.opt_adopt_playlist_root.get(),
+            "opt_add_search_db": self.opt_add_search_db.get(),
             "active_tab": self._active_tab_name(),
             "opt_dryrun": self.opt_dryrun.get(),
             "opt_import_overwrite": self.opt_import_overwrite.get(),
@@ -174,24 +179,19 @@ class App(tk.Tk):
             anchor="w", pady=3)
 
     def _build_ui(self) -> None:
-        self.folders_frame = ttk.LabelFrame(self, text="MP3 processing folders")
-        self.folders_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        self.folders_frame.columnconfigure(1, weight=1)
-        self._path_row(self.folders_frame, 0, "Music library:", self.library_dir, True)
-        self._path_row(self.folders_frame, 1, "Structured LRC backup:", self.backup_dir, False)
-
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=4)
+        self.notebook.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         self.tabs = {name: ttk.Frame(self.notebook, padding=10) for name in TAB_NAMES}
+        self.notebook.add(self.tabs["setup"], text="VirtualDJ setup")
+        self.notebook.add(self.tabs["playlist_sync"], text="Sync folders to VDJ")
         self.notebook.add(self.tabs["import"], text="Import LRC / TXT")
         self.notebook.add(self.tabs["mark"], text="Mark existing lyrics")
         self.notebook.add(self.tabs["tidal"], text="TIDAL / normalize")
         self.notebook.add(self.tabs["restore"], text="Restore sidecars")
-        self.notebook.add(self.tabs["playlist_sync"], text="Folders to VDJ lists")
-        self.notebook.add(self.tabs["setup"], text="VirtualDJ setup")
         self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
 
         import_tab = self.tabs["import"]
+        self._folder_panel(import_tab)
         self._description(
             import_tab,
             "Import same-name .lrc and .txt files into MP3 ID3 tags. LRC has priority "
@@ -213,6 +213,7 @@ class App(tk.Tk):
             import_tab, "Preview only (do not modify MP3 files or delete sidecars)")
 
         mark_tab = self.tabs["mark"]
+        self._folder_panel(mark_tab)
         self._description(
             mark_tab,
             "Scan embedded lyrics and set the portable ID3 Grouping marker to "
@@ -221,6 +222,7 @@ class App(tk.Tk):
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
 
         tidal_tab = self.tabs["tidal"]
+        self._folder_panel(tidal_tab, include_backup=True)
         self._description(
             tidal_tab,
             "Prefer local LRC sidecars, optionally retrieve missing lyrics from TIDAL, "
@@ -244,6 +246,7 @@ class App(tk.Tk):
                     textvariable=self.opt_english_threshold).pack(side="left", padx=6)
 
         restore_tab = self.tabs["restore"]
+        self._folder_panel(restore_tab, include_backup=True)
         self._description(
             restore_tab,
             "Restore LRC sidecars from the structured backup. Ambiguous backups from "
@@ -254,20 +257,17 @@ class App(tk.Tk):
         self._dry_run_checkbox(restore_tab, "Preview only (do not write sidecar files)")
 
         playlist_tab = self.tabs["playlist_sync"]
+        self._folder_panel(playlist_tab)
         self._description(
             playlist_tab,
             "Mirror the selected music folder directly into one isolated VirtualDJ "
             "MyLists root. New tracks are added and tracks or folders no longer on disk "
             "are removed from that managed root only.",
         )
-        playlist_vdj_row = ttk.Frame(playlist_tab)
-        playlist_vdj_row.pack(fill="x", pady=3)
-        ttk.Label(playlist_vdj_row, text="VirtualDJ home:").pack(side="left")
-        ttk.Label(playlist_vdj_row, textvariable=self.vdj_home).pack(
-            side="left", padx=6, fill="x", expand=True)
-        ttk.Button(
-            playlist_vdj_row, text="Find automatically", command=self._detect_vdj_home
-        ).pack(side="right")
+        self._vdj_path_row(playlist_tab)
+        ttk.Label(
+            playlist_tab, textvariable=self.vdj_status, wraplength=790, justify="left"
+        ).pack(anchor="w", pady=(0, 4))
         root_row = ttk.Frame(playlist_tab)
         root_row.pack(fill="x", pady=3)
         ttk.Label(root_row, text="Managed MyLists root:").pack(side="left")
@@ -281,6 +281,11 @@ class App(tk.Tk):
             text="Adopt and replace an existing MyLists root with this exact name",
             variable=self.opt_adopt_playlist_root,
         ).pack(anchor="w", pady=3)
+        ttk.Checkbutton(
+            playlist_tab,
+            text="Add synchronized tracks to Search DB (preserve all existing data)",
+            variable=self.opt_add_search_db,
+        ).pack(anchor="w", pady=3)
         self._dry_run_checkbox(
             playlist_tab, "Preview only (scan and compare, but do not change MyLists)")
         ttk.Label(
@@ -288,6 +293,7 @@ class App(tk.Tk):
             text=(
                 "Only the named managed root is replaced. Other VirtualDJ lists remain "
                 "untouched. A timestamped backup is created before every real change. "
+                "Search DB is add-only: existing tracks and analyses are never removed. "
                 "Folders containing both tracks and subfolders receive a separate "
                 "'_ Tracks in this folder' list."
             ),
@@ -302,17 +308,7 @@ class App(tk.Tk):
             "verified installer used by Install.cmd creates backups, removes obsolete "
             "plugin variants, and requires VirtualDJ to be closed.",
         )
-        vdj_path_row = ttk.Frame(setup_tab)
-        vdj_path_row.pack(fill="x", pady=(2, 4))
-        vdj_path_row.columnconfigure(1, weight=1)
-        ttk.Label(vdj_path_row, text="VirtualDJ home:").grid(row=0, column=0, sticky="w")
-        self.vdj_home_combo = ttk.Combobox(
-            vdj_path_row, textvariable=self.vdj_home, state="normal")
-        self.vdj_home_combo.grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(vdj_path_row, text="Find automatically", command=self._detect_vdj_home).grid(
-            row=0, column=2, padx=(0, 4))
-        ttk.Button(vdj_path_row, text="Browse...", command=self._browse_vdj_home).grid(
-            row=0, column=3)
+        self._vdj_path_row(setup_tab)
         ttk.Label(
             setup_tab, textvariable=self.vdj_status, wraplength=790, justify="left"
         ).pack(anchor="w", pady=(0, 8))
@@ -352,7 +348,7 @@ class App(tk.Tk):
         ).pack(anchor="w", pady=3)
 
         log_frame = ttk.LabelFrame(self, text="Activity")
-        log_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=4)
+        log_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, wrap="word", state="disabled")
@@ -362,12 +358,36 @@ class App(tk.Tk):
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
         actions = ttk.Frame(self)
-        actions.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 8))
+        actions.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 8))
         ttk.Label(actions, text=f"Runtime data: {APP_DATA_DIR}").pack(side="left")
         self.run_button = ttk.Button(
             actions, text="Run selected tool", command=self._run_current_tab)
         self.run_button.pack(side="right")
         self._update_run_button()
+
+    def _folder_panel(self, parent, *, include_backup: bool = False) -> None:
+        folders = ttk.LabelFrame(parent, text="Music folders")
+        folders.pack(fill="x", pady=(0, 8))
+        folders.columnconfigure(1, weight=1)
+        self._path_row(folders, 0, "Music library:", self.library_dir, True)
+        if include_backup:
+            self._path_row(
+                folders, 1, "Structured LRC backup:", self.backup_dir, False)
+
+    def _vdj_path_row(self, parent) -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(2, 4))
+        row.columnconfigure(1, weight=1)
+        ttk.Label(row, text="VirtualDJ home:").grid(row=0, column=0, sticky="w")
+        combo = ttk.Combobox(row, textvariable=self.vdj_home, state="normal")
+        combo.grid(row=0, column=1, sticky="ew", padx=6)
+        self.vdj_home_combos.append(combo)
+        ttk.Button(
+            row, text="Find automatically", command=self._detect_vdj_home
+        ).grid(row=0, column=2, padx=(0, 4))
+        ttk.Button(
+            row, text="Browse...", command=self._browse_vdj_home
+        ).grid(row=0, column=3)
 
     def _path_row(self, parent, row: int, label: str, variable, update_backup: bool) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=4)
@@ -417,7 +437,8 @@ class App(tk.Tk):
 
         candidates = result.get("Candidates") or []
         candidate_paths = [str(item.get("Path")) for item in candidates if item.get("Path")]
-        self.vdj_home_combo.configure(values=candidate_paths)
+        for combo in self.vdj_home_combos:
+            combo.configure(values=candidate_paths)
         selected = result.get("Selected")
         if selected:
             self.vdj_home.set(str(selected))
@@ -470,10 +491,6 @@ class App(tk.Tk):
         )
 
     def _tab_changed(self, _event=None) -> None:
-        if self._active_tab_name() == "setup":
-            self.folders_frame.grid_remove()
-        else:
-            self.folders_frame.grid()
         self._update_run_button()
 
     def _update_run_button(self) -> None:
@@ -565,6 +582,7 @@ class App(tk.Tk):
                 messagebox.showerror("Invalid MyLists root", str(exc))
                 return
             adopt_existing = self.opt_adopt_playlist_root.get()
+            add_search_db = self.opt_add_search_db.get()
             if not dry_run:
                 warning = (
                     f"This will mirror:\n\n{library}\n\ninto the managed VirtualDJ "
@@ -574,6 +592,11 @@ class App(tk.Tk):
                 if adopt_existing:
                     warning += (
                         "\n\nAdoption is enabled: an existing root with this name may be replaced."
+                    )
+                if add_search_db:
+                    warning += (
+                        "\n\nCurrent tracks will also be added to Search DB. Existing "
+                        "database entries and analyses will be preserved."
                     )
                 if not messagebox.askyesno("Confirm VirtualDJ folder sync", warning):
                     return
@@ -587,6 +610,7 @@ class App(tk.Tk):
                     target_name,
                     dry_run=dry_run,
                     adopt_existing=adopt_existing,
+                    add_search_db=add_search_db,
                     log=self.events.log,
                 )
 

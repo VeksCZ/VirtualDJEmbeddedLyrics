@@ -2,19 +2,18 @@
 
 ## Highlights
 
-- Added direct, preview-first mirroring of a music directory into one protected
-  VirtualDJ MyLists root. New files are added, removed files disappear, and
-  unrelated lists remain untouched.
-- Added a VirtualDJ setup tab that detects custom and standard home folders and
-  runs the verified install, update, uninstall and backup-restore operations.
-- Reduced the optional tools to one obvious `LyricsTools.cmd` launcher and one
-  tabbed GUI. Duplicate launchers and wrappers were removed.
-- Renamed the plugin files to `LRCMaster.dll` and `LRCBlackOut.dll`. The
-  installer backs up and removes the previous spaced filenames during update.
-- Moved the VirtualDJ SDK under `tools/sdk`, consolidated the regression tests,
-  and removed the unused experimental LRC Deck build path.
-- Release builds now remove compiler and staging output automatically and leave
-  only the ZIP and its SHA-256 checksum.
+- Reordered the GUI so VirtualDJ setup is the first tab and folder-to-playlist
+  synchronization is the second tab.
+- Kept the tab bar at a stable vertical position and added matching manual
+  VirtualDJ folder selection to both setup and synchronization.
+- Upgraded folder synchronization to a full managed-root mirror that adds new
+  tracks and removes playlist references that disappeared from the source tree.
+- Added optional, add-only Search DB registration while preserving unrelated
+  entries, existing metadata and VirtualDJ analysis.
+- Correctly routes Search DB updates to VirtualDJ's database for each track's
+  drive, including databases such as `D:\VirtualDJ\database.xml`.
+- Added XML validation, atomic writes, per-database backups and transactional
+  rollback. Preview scans avoid unnecessary metadata reads on large libraries.
 
 ## Installation
 
