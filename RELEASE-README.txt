@@ -27,15 +27,22 @@ BEHAVIOR
 - Tracks without supported lyrics display ... in the master output.
 - Auto-tag #lrc adds #lrc to VirtualDJ User 1 without replacing existing data.
 - LRC BlackOut is an optional black background processed before later overlays.
-- The unsupported experimental LRC Deck is not included.
 
 OPTIONAL TOOLS
 --------------
 
-The Tools folder contains one MP3 & Lyrics Tools GUI with tabs to import LRC/TXT,
+Run LyricsTools.cmd from the extracted release root to open one GUI with
+tabs to import LRC/TXT,
 mark existing lyrics in ID3 Grouping, retrieve or normalize lyrics with safe
-structured backups, and restore LRC sidecars. Drag a music folder onto
-MP3 & Lyrics Tools.cmd or start it normally and choose a folder.
+structured backups, restore LRC sidecars, and manage the VirtualDJ plugin files.
+It can also mirror a music directory hierarchy directly into one isolated
+VirtualDJ MyLists root, so Serato crates are not required. The folder sync starts
+in preview mode, protects unrelated lists, and creates a backup before changes.
+The VirtualDJ setup tab can detect or select the active home folder and run the
+same verified install, uninstall and backup-restore operations as the root
+launchers. Drag a music folder onto LyricsTools.cmd or start it normally
+and choose a folder. The Tools directory contains implementation files and does
+not contain additional launchers.
 
 Preview mode is enabled on first use. The optional tools require Python 3; their
 launcher can install the required Mutagen and tidalapi packages after asking for
@@ -46,7 +53,7 @@ UPDATE / REMOVE
 
 Run Install.cmd again to update. Close VirtualDJ first.
 Run Uninstall.cmd to remove the installed files safely.
-Run Restore Backup.cmd to select and restore a previous installer snapshot.
+Run Restore-Backup.cmd to select and restore a previous installer snapshot.
 
 Full documentation:
 https://github.com/VeksCZ/VirtualDJEmbeddedLyrics

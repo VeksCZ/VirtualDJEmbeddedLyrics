@@ -15,6 +15,8 @@ from tkinter import filedialog, messagebox, ttk
 import lrc_tool
 import lyrics_tag_converter
 import restore_lrc
+import vdj_playlist_sync
+import vdj_setup
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -22,7 +24,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("import", "mark", "tidal", "restore")
+TAB_NAMES = ("import", "mark", "tidal", "restore", "playlist_sync", "setup")
 
 
 def parse_launch_arguments():
@@ -62,8 +64,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("MP3 & Lyrics Tools")
-        self.geometry("820x720")
-        self.minsize(720, 620)
+        self.geometry("860x760")
+        self.minsize(760, 660)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
@@ -77,6 +79,18 @@ class App(tk.Tk):
 
         self.library_dir = tk.StringVar(value=str(initial_library))
         self.backup_dir = tk.StringVar(value=str(initial_backup))
+        self.vdj_home = tk.StringVar(value=str(settings.get("vdj_home") or ""))
+        self.vdj_status = tk.StringVar(value="VirtualDJ folder has not been checked yet.")
+        self.vdj_installation_status = tk.StringVar(value="Installation status is unknown.")
+        self.setup_action = tk.StringVar(value=str(settings.get("setup_action") or "install"))
+        default_list_root = f"Folder Sync - {initial_library.name or 'Music'}"
+        self.playlist_root_name = tk.StringVar(
+            value=str(
+                default_list_root if ARGV_LIBRARY is not None
+                else settings.get("playlist_root_name") or default_list_root
+            ))
+        self.opt_adopt_playlist_root = tk.BooleanVar(
+            value=bool(settings.get("opt_adopt_playlist_root", False)))
         self.opt_dryrun = tk.BooleanVar(value=bool(settings.get("opt_dryrun", True)))
         self.opt_import_overwrite = tk.BooleanVar(
             value=bool(settings.get("opt_import_overwrite", False)))
@@ -93,6 +107,13 @@ class App(tk.Tk):
             saved_threshold = 5
         self.opt_english_threshold = tk.IntVar(value=min(50, max(1, saved_threshold)))
 
+        try:
+            self.package_layout = vdj_setup.locate_package_layout(SCRIPT_DIR)
+            self.package_error = ""
+        except Exception as exc:
+            self.package_layout = None
+            self.package_error = str(exc)
+
         self.worker_running = False
         self.events = EventQueue()
         self._build_ui()
@@ -100,12 +121,17 @@ class App(tk.Tk):
         if requested_tab in self.tabs:
             self.notebook.select(self.tabs[requested_tab])
         self.after(100, self._poll_events)
+        self.after(250, self._initial_vdj_detection)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _settings_payload(self) -> dict:
         return {
             "library_dir": self.library_dir.get(),
             "backup_dir": self.backup_dir.get(),
+            "vdj_home": self.vdj_home.get(),
+            "setup_action": self.setup_action.get(),
+            "playlist_root_name": self.playlist_root_name.get(),
+            "opt_adopt_playlist_root": self.opt_adopt_playlist_root.get(),
             "active_tab": self._active_tab_name(),
             "opt_dryrun": self.opt_dryrun.get(),
             "opt_import_overwrite": self.opt_import_overwrite.get(),
@@ -132,7 +158,7 @@ class App(tk.Tk):
             messagebox.showwarning(
                 "Operation in progress",
                 "Wait for the current operation to finish before closing the window. "
-                "Closing Python while an MP3 tag is being written could damage that file.",
+                "Closing Python during a file operation could leave that operation incomplete.",
             )
             return
         self._save_settings()
@@ -148,11 +174,11 @@ class App(tk.Tk):
             anchor="w", pady=3)
 
     def _build_ui(self) -> None:
-        folders = ttk.LabelFrame(self, text="Folders")
-        folders.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        folders.columnconfigure(1, weight=1)
-        self._path_row(folders, 0, "Music library:", self.library_dir, True)
-        self._path_row(folders, 1, "Structured LRC backup:", self.backup_dir, False)
+        self.folders_frame = ttk.LabelFrame(self, text="MP3 processing folders")
+        self.folders_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        self.folders_frame.columnconfigure(1, weight=1)
+        self._path_row(self.folders_frame, 0, "Music library:", self.library_dir, True)
+        self._path_row(self.folders_frame, 1, "Structured LRC backup:", self.backup_dir, False)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=4)
@@ -161,6 +187,9 @@ class App(tk.Tk):
         self.notebook.add(self.tabs["mark"], text="Mark existing lyrics")
         self.notebook.add(self.tabs["tidal"], text="TIDAL / normalize")
         self.notebook.add(self.tabs["restore"], text="Restore sidecars")
+        self.notebook.add(self.tabs["playlist_sync"], text="Folders to VDJ lists")
+        self.notebook.add(self.tabs["setup"], text="VirtualDJ setup")
+        self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
 
         import_tab = self.tabs["import"]
         self._description(
@@ -224,6 +253,104 @@ class App(tk.Tk):
                         variable=self.opt_overwrite_restore).pack(anchor="w", pady=3)
         self._dry_run_checkbox(restore_tab, "Preview only (do not write sidecar files)")
 
+        playlist_tab = self.tabs["playlist_sync"]
+        self._description(
+            playlist_tab,
+            "Mirror the selected music folder directly into one isolated VirtualDJ "
+            "MyLists root. New tracks are added and tracks or folders no longer on disk "
+            "are removed from that managed root only.",
+        )
+        playlist_vdj_row = ttk.Frame(playlist_tab)
+        playlist_vdj_row.pack(fill="x", pady=3)
+        ttk.Label(playlist_vdj_row, text="VirtualDJ home:").pack(side="left")
+        ttk.Label(playlist_vdj_row, textvariable=self.vdj_home).pack(
+            side="left", padx=6, fill="x", expand=True)
+        ttk.Button(
+            playlist_vdj_row, text="Find automatically", command=self._detect_vdj_home
+        ).pack(side="right")
+        root_row = ttk.Frame(playlist_tab)
+        root_row.pack(fill="x", pady=3)
+        ttk.Label(root_row, text="Managed MyLists root:").pack(side="left")
+        ttk.Entry(root_row, textvariable=self.playlist_root_name).pack(
+            side="left", padx=6, fill="x", expand=True)
+        ttk.Button(
+            root_row, text="Use folder name", command=self._playlist_root_from_library
+        ).pack(side="right")
+        ttk.Checkbutton(
+            playlist_tab,
+            text="Adopt and replace an existing MyLists root with this exact name",
+            variable=self.opt_adopt_playlist_root,
+        ).pack(anchor="w", pady=3)
+        self._dry_run_checkbox(
+            playlist_tab, "Preview only (scan and compare, but do not change MyLists)")
+        ttk.Label(
+            playlist_tab,
+            text=(
+                "Only the named managed root is replaced. Other VirtualDJ lists remain "
+                "untouched. A timestamped backup is created before every real change. "
+                "Folders containing both tracks and subfolders receive a separate "
+                "'_ Tracks in this folder' list."
+            ),
+            wraplength=790,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
+
+        setup_tab = self.tabs["setup"]
+        self._description(
+            setup_tab,
+            "Install or update the bundled LRC Master and LRC BlackOut DLLs. The same "
+            "verified installer used by Install.cmd creates backups, removes obsolete "
+            "plugin variants, and requires VirtualDJ to be closed.",
+        )
+        vdj_path_row = ttk.Frame(setup_tab)
+        vdj_path_row.pack(fill="x", pady=(2, 4))
+        vdj_path_row.columnconfigure(1, weight=1)
+        ttk.Label(vdj_path_row, text="VirtualDJ home:").grid(row=0, column=0, sticky="w")
+        self.vdj_home_combo = ttk.Combobox(
+            vdj_path_row, textvariable=self.vdj_home, state="normal")
+        self.vdj_home_combo.grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(vdj_path_row, text="Find automatically", command=self._detect_vdj_home).grid(
+            row=0, column=2, padx=(0, 4))
+        ttk.Button(vdj_path_row, text="Browse...", command=self._browse_vdj_home).grid(
+            row=0, column=3)
+        ttk.Label(
+            setup_tab, textvariable=self.vdj_status, wraplength=790, justify="left"
+        ).pack(anchor="w", pady=(0, 8))
+        ttk.Label(
+            setup_tab, textvariable=self.vdj_installation_status,
+            wraplength=790, justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        package_text = (
+            f"Bundled plugin package: version {self.package_layout.version} "
+            f"({self.package_layout.payload})"
+            if self.package_layout is not None
+            else f"Bundled plugin package unavailable: {self.package_error}"
+        )
+        ttk.Label(setup_tab, text=package_text, wraplength=790, justify="left").pack(
+            anchor="w", pady=(0, 8))
+        ttk.Radiobutton(
+            setup_tab,
+            text="Install or update the VirtualDJ plugin (recommended)",
+            variable=self.setup_action,
+            value="install",
+            command=self._update_run_button,
+        ).pack(anchor="w", pady=3)
+        ttk.Radiobutton(
+            setup_tab,
+            text="Uninstall the plugin and create a backup first",
+            variable=self.setup_action,
+            value="uninstall",
+            command=self._update_run_button,
+        ).pack(anchor="w", pady=3)
+        ttk.Radiobutton(
+            setup_tab,
+            text="Restore the newest installer backup",
+            variable=self.setup_action,
+            value="restore",
+            command=self._update_run_button,
+        ).pack(anchor="w", pady=3)
+
         log_frame = ttk.LabelFrame(self, text="Activity")
         log_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=4)
         log_frame.columnconfigure(0, weight=1)
@@ -240,6 +367,7 @@ class App(tk.Tk):
         self.run_button = ttk.Button(
             actions, text="Run selected tool", command=self._run_current_tab)
         self.run_button.pack(side="right")
+        self._update_run_button()
 
     def _path_row(self, parent, row: int, label: str, variable, update_backup: bool) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=4)
@@ -254,12 +382,115 @@ class App(tk.Tk):
             if update_backup:
                 self.backup_dir.set(str(Path(chosen) / "_lrc_backup"))
 
+    def _browse_vdj_home(self) -> None:
+        chosen = filedialog.askdirectory(
+            initialdir=self.vdj_home.get() or str(Path.home()))
+        if chosen:
+            self.vdj_home.set(chosen)
+            self._validate_vdj_home(show_error=True)
+
+    def _playlist_root_from_library(self) -> None:
+        library = Path(self.library_dir.get()).expanduser()
+        name = library.name or "Music"
+        self.playlist_root_name.set(f"Folder Sync - {name}")
+
+    def _initial_vdj_detection(self) -> None:
+        if self.package_layout is None:
+            self.vdj_status.set(self.package_error)
+            return
+        if self.vdj_home.get().strip() and self._validate_vdj_home(show_error=False):
+            return
+        self._detect_vdj_home(show_error=False)
+
+    def _detect_vdj_home(self, show_error: bool = True) -> None:
+        if self.package_layout is None:
+            if show_error:
+                messagebox.showerror("Installer unavailable", self.package_error)
+            return
+        try:
+            result = vdj_setup.query_virtualdj(self.package_layout)
+        except Exception as exc:
+            self.vdj_status.set(str(exc))
+            if show_error:
+                messagebox.showerror("VirtualDJ detection failed", str(exc))
+            return
+
+        candidates = result.get("Candidates") or []
+        candidate_paths = [str(item.get("Path")) for item in candidates if item.get("Path")]
+        self.vdj_home_combo.configure(values=candidate_paths)
+        selected = result.get("Selected")
+        if selected:
+            self.vdj_home.set(str(selected))
+            self.vdj_status.set("Active VirtualDJ home folder detected and validated.")
+            self.vdj_installation_status.set(
+                vdj_setup.installed_status(Path(str(selected))))
+        elif candidate_paths:
+            self.vdj_installation_status.set("Select a VirtualDJ folder to check installation status.")
+            self.vdj_status.set(
+                str(result.get("Message") or "Choose the active VirtualDJ home folder from the list."))
+        else:
+            self.vdj_installation_status.set("Select a VirtualDJ folder to check installation status.")
+            self.vdj_status.set(
+                str(result.get("Message") or "Choose the active VirtualDJ home folder manually."))
+
+    def _validate_vdj_home(self, show_error: bool) -> Path | None:
+        if self.package_layout is None:
+            if show_error:
+                messagebox.showerror("Installer unavailable", self.package_error)
+            return None
+        value = self.vdj_home.get().strip()
+        if not value:
+            if show_error:
+                messagebox.showerror("VirtualDJ folder required", "Select the active VirtualDJ home folder.")
+            return None
+        try:
+            result = vdj_setup.query_virtualdj(self.package_layout, value)
+        except Exception as exc:
+            self.vdj_status.set(str(exc))
+            if show_error:
+                messagebox.showerror("Invalid VirtualDJ folder", str(exc))
+            return None
+        if not result.get("Valid"):
+            error = str(result.get("Message") or "The selected folder is not a VirtualDJ home folder.")
+            self.vdj_status.set(error)
+            if show_error:
+                messagebox.showerror("Invalid VirtualDJ folder", error)
+            return None
+        selected = Path(str(result.get("Selected") or value)).expanduser().resolve()
+        self.vdj_home.set(str(selected))
+        self.vdj_status.set("VirtualDJ home folder is valid.")
+        self.vdj_installation_status.set(vdj_setup.installed_status(selected))
+        return selected
+
     def _active_tab_name(self) -> str:
         selected = self.notebook.select()
         return next(
             (name for name, frame in self.tabs.items() if str(frame) == selected),
             "import",
         )
+
+    def _tab_changed(self, _event=None) -> None:
+        if self._active_tab_name() == "setup":
+            self.folders_frame.grid_remove()
+        else:
+            self.folders_frame.grid()
+        self._update_run_button()
+
+    def _update_run_button(self) -> None:
+        if not hasattr(self, "run_button"):
+            return
+        active_tab = self._active_tab_name()
+        if active_tab == "playlist_sync":
+            label = "Preview / sync folders"
+        elif active_tab != "setup":
+            label = "Run selected tool"
+        else:
+            label = {
+                "install": "Install / update plugin",
+                "uninstall": "Uninstall plugin",
+                "restore": "Restore newest backup",
+            }.get(self.setup_action.get(), "Run setup action")
+        self.run_button.configure(text=label)
 
     def _log(self, message) -> None:
         self.log_text.configure(state="normal")
@@ -322,6 +553,72 @@ class App(tk.Tk):
     def _run_current_tab(self) -> None:
         tab = self._active_tab_name()
         dry_run = self.opt_dryrun.get()
+        if tab == "playlist_sync":
+            library = self._validated_library()
+            virtualdj_home = self._validate_vdj_home(show_error=True)
+            if library is None or virtualdj_home is None or self.package_layout is None:
+                return
+            try:
+                target_name = vdj_playlist_sync.validate_target_name(
+                    self.playlist_root_name.get())
+            except ValueError as exc:
+                messagebox.showerror("Invalid MyLists root", str(exc))
+                return
+            adopt_existing = self.opt_adopt_playlist_root.get()
+            if not dry_run:
+                warning = (
+                    f"This will mirror:\n\n{library}\n\ninto the managed VirtualDJ "
+                    f"root:\n\n{target_name}\n\nTracks and folders missing from the "
+                    "source will be removed from that managed root. A backup is created first."
+                )
+                if adopt_existing:
+                    warning += (
+                        "\n\nAdoption is enabled: an existing root with this name may be replaced."
+                    )
+                if not messagebox.askyesno("Confirm VirtualDJ folder sync", warning):
+                    return
+
+            def job() -> None:
+                if not dry_run:
+                    vdj_setup.assert_virtualdj_closed(self.package_layout)
+                vdj_playlist_sync.sync_library(
+                    library,
+                    virtualdj_home,
+                    target_name,
+                    dry_run=dry_run,
+                    adopt_existing=adopt_existing,
+                    log=self.events.log,
+                )
+
+            self._start_worker(job)
+            return
+        if tab == "setup":
+            virtualdj_home = self._validate_vdj_home(show_error=True)
+            if virtualdj_home is None or self.package_layout is None:
+                return
+            action = self.setup_action.get()
+            descriptions = {
+                "install": "install or update LRC Master and LRC BlackOut",
+                "uninstall": "uninstall LRC Master and LRC BlackOut",
+                "restore": "restore the newest LRC Lyrics installer backup",
+            }
+            if action not in descriptions:
+                messagebox.showerror("Invalid setup action", "Choose a setup action.")
+                return
+            if not messagebox.askyesno(
+                "Confirm VirtualDJ setup",
+                f"Close VirtualDJ completely, then confirm that you want to "
+                f"{descriptions[action]} in:\n\n{virtualdj_home}",
+            ):
+                return
+
+            def job() -> None:
+                vdj_setup.run_action(
+                    self.package_layout, action, virtualdj_home, log=self.events.log)
+                self.events.log(vdj_setup.installed_status(virtualdj_home))
+
+            self._start_worker(job)
+            return
         if tab in ("import", "mark"):
             library = self._validated_library()
             if library is None:

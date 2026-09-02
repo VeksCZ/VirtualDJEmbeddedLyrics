@@ -3,7 +3,6 @@
 #include "AdvancedDialog.hpp"
 #include "LyricsTiming.hpp"
 #include "AsyncLyricsLoader.hpp"
-#include "BlackoutRenderer.hpp"
 #include "Diagnostics.hpp"
 #include "MasterDeckSelector.hpp"
 #include "TextTexture.hpp"
@@ -66,10 +65,8 @@ public:
             FAILED(DeclareParameterSlider(&timedLinesParameter_, 2, "Timed lines", "Timed lines", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
-#ifdef EMBEDDED_LYRICS_MASTER
             || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
             || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true))
-#endif
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
@@ -109,22 +106,12 @@ public:
         return S_OK;
     }
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
-#ifdef EMBEDDED_LYRICS_MASTER
         info->PluginName = "LRC Master";
-#else
-        info->PluginName = "LRC Deck";
-#endif
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
         info->Version = LRC_PLUGIN_VERSION;
-#ifdef EMBEDDED_LYRICS_MASTER
         info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
-#else
-        // Visualisations is VirtualDJ's SDK category for the single automatic
-        // audio-only video source selected by videoAudioOnlyVisualisation.
-        info->Flags = VDJFLAG_VIDEO_VISUALISATION;
-#endif
         info->Bitmap = nullptr;
         return S_OK;
     }
@@ -134,11 +121,7 @@ public:
             Diagnostics::Error(L"VirtualDJ did not provide a DirectX 11 device");
             return E_FAIL;
         }
-        if (!texture_.Initialize(device_) || !renderer_.Initialize(device_)
-#ifndef EMBEDDED_LYRICS_MASTER
-            || !backgroundRenderer_.Initialize(device_)
-#endif
-            ) {
+        if (!texture_.Initialize(device_) || !renderer_.Initialize(device_)) {
             Diagnostics::Error(L"DirectX 11 lyrics renderer initialization failed");
             return E_FAIL;
         }
@@ -146,46 +129,23 @@ public:
         return S_OK;
     }
     HRESULT VDJ_API OnDeviceClose() override {
-#ifndef EMBEDDED_LYRICS_MASTER
-        backgroundRenderer_.Reset();
-#endif
         renderer_.Reset(); texture_.Reset(); device_ = nullptr;
         drawContextLogged_ = false;
         return S_OK;
     }
     HRESULT VDJ_API OnDraw() override {
         TryCommitPendingRecording();
-#ifdef EMBEDDED_LYRICS_MASTER
         const auto deck = VisibleVideoDeck();
-#else
-        const auto deck = PluginDeck();
-#endif
         currentDeck_ = deck;
         if (!drawContextLogged_) {
-#ifdef EMBEDDED_LYRICS_MASTER
-            const std::wstring variant = L"Master";
-#else
-            const std::wstring variant = L"Deck";
-#endif
-            Diagnostics::Info(variant + L" draw context: deck=" + std::to_wstring(deck) +
+            Diagnostics::Info(L"Master draw context: deck=" + std::to_wstring(deck) +
                               L", size=" + std::to_wstring(width) + L"x" +
                               std::to_wstring(height));
             drawContextLogged_ = true;
         }
         if (deck <= 0) {
-#ifndef EMBEDDED_LYRICS_MASTER
-            if (!texture_.UpdateMessage(L"Select LRC Deck under Source for audio-only tracks",
-                                        width, height, FontScale(), VerticalPosition()) ||
-                !DrawLyricsTexture()) {
-                Diagnostics::Error(L"Failed to render deck-placement hint");
-            }
-#endif
             return S_OK;
         }
-#ifndef EMBEDDED_LYRICS_MASTER
-        if (!backgroundRenderer_.Draw(false))
-            Diagnostics::Error(L"Failed to render audio-only background");
-#endif
         char pathBuffer[4096]{};
         char command[128]{};
         std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
@@ -220,9 +180,7 @@ public:
                 Diagnostics::Error(L"No lyrics found for: " + loadedPath_.wstring() + L"; " + completed->result.error);
             } else {
                 Diagnostics::Info(L"Lyrics loaded: " + loadedPath_.wstring());
-#ifdef EMBEDDED_LYRICS_MASTER
                 if (autoTagLrcParameter_) EnsureLrcHashtag(deck);
-#endif
             }
         }
         CheckTextChanges();
@@ -251,27 +209,9 @@ public:
 
 private:
     bool DrawLyricsTexture() {
-#ifdef EMBEDDED_LYRICS_MASTER
         return renderer_.Draw(texture_.View());
-#else
-        // VDJ supplies the viewport for the current audio deck. Replacing it
-        // with the full target dimensions makes this source cover the master.
-        return renderer_.Draw(texture_.View(), false);
-#endif
     }
 
-#ifndef EMBEDDED_LYRICS_MASTER
-    int PluginDeck() {
-        double deck = 0.0;
-        if (SUCCEEDED(GetInfo("get_deck", &deck)) && deck > 0.0)
-            return static_cast<int>(deck);
-        if (SUCCEEDED(GetInfo("get_plugindeck", &deck)) && deck > 0.0)
-            return static_cast<int>(deck);
-        if (SUCCEEDED(GetInfo("get_activedeck", &deck)) && deck > 0.0)
-            return static_cast<int>(deck);
-        return 0;
-    }
-#else
     void EnsureLrcHashtag(int deck) {
         char command[256]{};
         char user1[4096]{};
@@ -305,7 +245,6 @@ private:
         if (FAILED(GetInfo(balanceQuery, &balance))) return masterDeckSelector_.Current();
         return masterDeckSelector_.Select(balance, static_cast<int>(leftDeck), static_cast<int>(rightDeck));
     }
-#endif
 
     void UpdateVisible(std::int64_t now) {
         if (lyrics_.lines.empty()) return;
@@ -585,9 +524,6 @@ private:
     }
 
     ID3D11Device* device_{};
-#ifndef EMBEDDED_LYRICS_MASTER
-    BlackoutRenderer backgroundRenderer_;
-#endif
     TextTexture texture_;
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
@@ -609,11 +545,9 @@ private:
     bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     std::optional<std::filesystem::file_time_type> textWriteTime_;
     std::chrono::steady_clock::time_point nextTextCheck_{};
-#ifdef EMBEDDED_LYRICS_MASTER
     MasterDeckSelector masterDeckSelector_;
     int useVolumeFadersParameter_{};
     int autoTagLrcParameter_{1};
-#endif
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {

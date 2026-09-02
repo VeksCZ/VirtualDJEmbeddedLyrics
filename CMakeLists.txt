@@ -23,7 +23,6 @@ if(WIN32)
 endif()
 
 option(BUILD_TESTING "Build parser tests" ON)
-option(BUILD_LRC_DECK "Build the experimental LRC Deck audio-only visualisation" OFF)
 if(BUILD_TESTING)
     enable_testing()
     add_executable(lyrics_tests tests/LyricsTests.cpp)
@@ -46,36 +45,27 @@ if(BUILD_TESTING)
 endif()
 
 if(WIN32)
-    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
+    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
-        function(add_vdj_lyrics_plugin target output_name is_master)
-            add_library(${target} SHARED
-                src/AdvancedDialog.cpp
-                src/Plugin.cpp
-                src/BlackoutRenderer.cpp
-                src/TextTexture.cpp
-                src/VideoRenderer.cpp
-                src/PluginExports.def
-            )
-            target_include_directories(${target} PRIVATE src)
-            target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
-            target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT)
-            target_compile_definitions(${target} PRIVATE LRC_PLUGIN_VERSION="${PROJECT_VERSION}")
-            if(${is_master})
-                target_compile_definitions(${target} PRIVATE EMBEDDED_LYRICS_MASTER=1)
-            endif()
-            if(MSVC)
-                target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
-                set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-            endif()
-            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
-            set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
-        endfunction()
-
-        if(BUILD_LRC_DECK)
-            add_vdj_lyrics_plugin(EmbeddedLyricsDeck "LRC Deck" FALSE)
+        add_library(EmbeddedLyricsMaster SHARED
+            src/AdvancedDialog.cpp
+            src/Plugin.cpp
+            src/TextTexture.cpp
+            src/VideoRenderer.cpp
+            src/PluginExports.def
+        )
+        target_include_directories(EmbeddedLyricsMaster PRIVATE src)
+        target_include_directories(EmbeddedLyricsMaster SYSTEM PRIVATE "${VDJ_SDK_DIR}")
+        target_compile_definitions(EmbeddedLyricsMaster PRIVATE
+            UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT
+            LRC_PLUGIN_VERSION="${PROJECT_VERSION}"
+        )
+        if(MSVC)
+            target_compile_options(EmbeddedLyricsMaster PRIVATE /W4 /external:W0 /permissive- /EHsc)
+            set_property(TARGET EmbeddedLyricsMaster PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
         endif()
-        add_vdj_lyrics_plugin(EmbeddedLyricsMaster "LRC Master" TRUE)
+        target_link_libraries(EmbeddedLyricsMaster PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
+        set_target_properties(EmbeddedLyricsMaster PROPERTIES PREFIX "" OUTPUT_NAME "LRCMaster")
 
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp
@@ -91,7 +81,7 @@ if(WIN32)
             set_property(TARGET Blackout PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
         endif()
         target_link_libraries(Blackout PRIVATE lyrics_core d3d11 d3dcompiler)
-        set_target_properties(Blackout PROPERTIES PREFIX "" OUTPUT_NAME "LRC BlackOut")
+        set_target_properties(Blackout PROPERTIES PREFIX "" OUTPUT_NAME "LRCBlackOut")
     else()
         message(FATAL_ERROR "VirtualDJ SDK headers were not found")
     endif()

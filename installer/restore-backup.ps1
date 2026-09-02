@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $OutputEncoding
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptRoot 'installer-common.ps1')
 

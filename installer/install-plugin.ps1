@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $OutputEncoding
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptRoot 'installer-common.ps1')
 
@@ -31,6 +33,8 @@ try {
     Write-Host "Plugin payload: $PayloadDirectory"
 
     $currentFiles = @(
+        (Join-Path $OverlayDirectory 'LRCMaster.dll'),
+        (Join-Path $OverlayDirectory 'LRCBlackOut.dll'),
         (Join-Path $OverlayDirectory 'LRC Master.dll'),
         (Join-Path $OverlayDirectory 'LRC BlackOut.dll'),
         (Join-Path $OverlayDirectory 'EmbeddedLyricsTagWriter.py')
@@ -47,6 +51,9 @@ try {
         )) {
             $legacyFiles.Add((Join-Path $directory $name))
         }
+    }
+    foreach ($name in @('LRC Master.dll', 'LRC BlackOut.dll')) {
+        $legacyFiles.Add((Join-Path $OverlayDirectory $name))
     }
     foreach ($directory in @($VideoFxDirectory, $VisualisationsDirectory, $VideoSourceDirectory)) {
         $legacyFiles.Add((Join-Path $directory 'EmbeddedLyricsTagWriter.py'))
@@ -89,19 +96,18 @@ try {
     }
 
     New-Item -ItemType Directory -Force -Path $OverlayDirectory | Out-Null
-    Copy-LrcVerifiedFile -Source (Join-Path $PayloadDirectory 'LRC Master.dll') -Destination (Join-Path $OverlayDirectory 'LRC Master.dll')
-    Copy-LrcVerifiedFile -Source (Join-Path $PayloadDirectory 'LRC BlackOut.dll') -Destination (Join-Path $OverlayDirectory 'LRC BlackOut.dll')
+    Copy-LrcVerifiedFile -Source (Join-Path $PayloadDirectory 'LRCMaster.dll') -Destination (Join-Path $OverlayDirectory 'LRCMaster.dll')
+    Copy-LrcVerifiedFile -Source (Join-Path $PayloadDirectory 'LRCBlackOut.dll') -Destination (Join-Path $OverlayDirectory 'LRCBlackOut.dll')
     Copy-LrcVerifiedFile -Source (Join-Path $PayloadDirectory 'EmbeddedLyricsTagWriter.py') -Destination (Join-Path $OverlayDirectory 'EmbeddedLyricsTagWriter.py')
 
-    $versionPath = Join-Path $ScriptRoot 'VERSION'
-    $version = if (Test-Path -LiteralPath $versionPath) { (Get-Content -LiteralPath $versionPath -Raw).Trim() } else { 'unknown' }
+    $version = Get-LrcVersion -ScriptRoot $ScriptRoot
     $manifest = [ordered]@{
         Version = $version
         InstalledAt = (Get-Date).ToString('o')
         VirtualDJHome = $VirtualDJHome
         Files = @(
-            'Plugins64\VideoOverlay\LRC Master.dll',
-            'Plugins64\VideoOverlay\LRC BlackOut.dll',
+            'Plugins64\VideoOverlay\LRCMaster.dll',
+            'Plugins64\VideoOverlay\LRCBlackOut.dll',
             'Plugins64\VideoOverlay\EmbeddedLyricsTagWriter.py'
         )
     }

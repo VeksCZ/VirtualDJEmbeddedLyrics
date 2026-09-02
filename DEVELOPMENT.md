@@ -11,7 +11,7 @@ the release ZIP and run `Install.cmd` as described in the main README.
 - Python 3 with dependencies from `requirements.txt`
 
 The public VirtualDJ 8 SDK headers are vendored under
-`third_party/VirtualDJ8_SDK_20211003`.
+`tools/sdk/VirtualDJ8_SDK_20211003`.
 
 ## Build and package
 
@@ -21,28 +21,34 @@ py -m pip install -r requirements.txt
 ```
 
 The script builds both supported DLLs, runs C++ tests, Python tests and installer
-integration tests, then creates:
+integration tests, then leaves only the publishable artifacts:
 
-- `dist/LRC-Lyrics-VirtualDJ-v<VERSION>/`
 - `dist/LRC-Lyrics-VirtualDJ-v<VERSION>.zip`
 - `dist/LRC-Lyrics-VirtualDJ-v<VERSION>.zip.sha256`
 
 The release version comes from the root `VERSION` file and is compiled into both
-plugins. Normal packages contain only LRC Master and LRC BlackOut.
+plugins. Normal packages contain only LRC Master and LRC BlackOut. Temporary
+compiler output and the extracted staging package are removed after a successful
+build.
 
 ## Local source-tree installation
 
-After a successful release build, close VirtualDJ and run:
+After a successful release build, close VirtualDJ and run the root
+`LyricsTools.cmd`, open **VirtualDJ setup**, confirm the detected home
+folder and choose **Install / update plugin**. The source GUI reads the exact
+plugin payload from the built release ZIP.
+
+For command-line testing, extract the release ZIP and run its `Install.cmd`.
+The underlying script also accepts an explicit custom location:
 
 ```powershell
-./Install.cmd
+./install-plugin.ps1 -VirtualDJHome 'D:\VirtualDJ' -PayloadDirectory './Plugins' -NonInteractive
 ```
 
-For automated testing or a custom location:
-
-```powershell
-./install-plugin.ps1 -VirtualDJHome 'D:\VirtualDJ' -NonInteractive
-```
+The only source-tree end-user launcher is `LyricsTools.cmd`; all Python
+implementation files live in `tools/`, and canonical installation scripts live
+in `installer/`. `build-release.ps1` places the GUI launcher and the no-Python
+installer entry points in the release root.
 
 ## Tests
 
@@ -50,22 +56,6 @@ Parser and renderer tests are registered with CTest. Python tests use unittest.
 `tests/InstallerTests.ps1` creates an isolated VirtualDJ home folder under the
 Windows temporary directory and verifies installation, legacy cleanup, backup,
 repeat installation, settings migration, file hashes, uninstall and rollback.
-
-## Experimental LRC Deck
-
-The source tree retains an unsupported experimental audio-only visualization.
-VirtualDJ hosts the selected `videoAudioOnlyVisualisation` in a shared slot, so
-the SDK behavior does not provide the independent per-deck preview and crossfade
-source implied by the name.
-
-It can be built for development only:
-
-```powershell
-./build-release.ps1 -BuildLrcDeck
-```
-
-The DLL is placed under `dist/experimental` and is never included in the public
-release ZIP.
 
 ## Release checklist
 

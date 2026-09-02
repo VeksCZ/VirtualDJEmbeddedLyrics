@@ -62,8 +62,8 @@ function Resolve-VirtualDJHome {
 
     if ($ExplicitPath) {
         $fullPath = ConvertTo-FullPath $ExplicitPath
-        if (-not (Test-Path -LiteralPath $fullPath -PathType Container)) {
-            throw "The selected VirtualDJ home folder does not exist: $fullPath"
+        if (-not (Test-VirtualDJHome $fullPath)) {
+            throw "The selected folder is not a VirtualDJ home folder: $fullPath"
         }
         return $fullPath
     }
@@ -100,8 +100,8 @@ function Resolve-VirtualDJHome {
     while ($true) {
         $manual = Read-Host 'Paste the active VirtualDJ home folder path'
         try { $fullPath = ConvertTo-FullPath $manual } catch { Write-Warning $_.Exception.Message; continue }
-        if (Test-Path -LiteralPath $fullPath -PathType Container) { return $fullPath }
-        Write-Warning "Folder not found: $fullPath"
+        if (Test-VirtualDJHome $fullPath) { return $fullPath }
+        Write-Warning "Not a VirtualDJ home folder: $fullPath"
     }
 }
 
@@ -120,8 +120,8 @@ function Resolve-LrcPayloadDirectory {
     )
     if ($ExplicitPath) {
         $explicitFullPath = ConvertTo-FullPath $ExplicitPath
-        if ((Test-Path -LiteralPath (Join-Path $explicitFullPath 'LRC Master.dll') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $explicitFullPath 'LRC BlackOut.dll') -PathType Leaf) -and
+        if ((Test-Path -LiteralPath (Join-Path $explicitFullPath 'LRCMaster.dll') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $explicitFullPath 'LRCBlackOut.dll') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $explicitFullPath 'EmbeddedLyricsTagWriter.py') -PathType Leaf)) {
             return $explicitFullPath
         }
@@ -129,25 +129,43 @@ function Resolve-LrcPayloadDirectory {
     }
 
     $candidates = [System.Collections.Generic.List[string]]::new()
-    $candidates.Add((Join-Path $ScriptRoot 'Plugins'))
+    $roots = [System.Collections.Generic.List[string]]::new()
+    $roots.Add($ScriptRoot)
+    $parentRoot = Split-Path -Parent $ScriptRoot
+    if ($parentRoot -and $parentRoot -ne $ScriptRoot) { $roots.Add($parentRoot) }
 
-    $versionFile = Join-Path $ScriptRoot 'VERSION'
-    if (Test-Path -LiteralPath $versionFile) {
-        $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
-        if ($version) {
-            $candidates.Add((Join-Path $ScriptRoot "dist\LRC-Lyrics-VirtualDJ-v$version\Plugins"))
+    foreach ($root in $roots | Select-Object -Unique) {
+        $candidates.Add((Join-Path $root 'Plugins'))
+        $versionFile = Join-Path $root 'VERSION'
+        if (Test-Path -LiteralPath $versionFile) {
+            $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+            if ($version) {
+                $candidates.Add((Join-Path $root "dist\LRC-Lyrics-VirtualDJ-v$version\Plugins"))
+            }
         }
+        $candidates.Add((Join-Path $root 'dist\full'))
     }
-    $candidates.Add((Join-Path $ScriptRoot 'dist\full'))
 
     foreach ($candidate in $candidates) {
-        if ((Test-Path -LiteralPath (Join-Path $candidate 'LRC Master.dll') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $candidate 'LRC BlackOut.dll') -PathType Leaf) -and
+        if ((Test-Path -LiteralPath (Join-Path $candidate 'LRCMaster.dll') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate 'LRCBlackOut.dll') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $candidate 'EmbeddedLyricsTagWriter.py') -PathType Leaf)) {
             return (ConvertTo-FullPath $candidate)
         }
     }
     throw 'Plugin payload was not found. Download and extract the complete release ZIP, or run build-release.ps1 first.'
+}
+
+function Get-LrcVersion {
+    param([Parameter(Mandatory)][string]$ScriptRoot)
+    foreach ($root in @($ScriptRoot, (Split-Path -Parent $ScriptRoot)) | Select-Object -Unique) {
+        $versionFile = Join-Path $root 'VERSION'
+        if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
+            $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+            if ($version) { return $version }
+        }
+    }
+    return 'unknown'
 }
 
 function Copy-LrcBackupItem {

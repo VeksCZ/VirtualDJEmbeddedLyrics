@@ -70,24 +70,35 @@ use the standard ID3 `Grouping` field for the portable markers
 
 ## Optional MP3 tools
 
-The extracted `Tools` folder contains one **MP3 & Lyrics Tools** GUI with tabs
-for:
+The extracted release has one **LyricsTools.cmd** launcher in its root.
+It opens a single GUI with tabs for:
 
 - importing same-name LRC/TXT files into MP3 lyrics tags;
 - scanning existing embedded lyrics and writing the portable Grouping marker;
 - downloading or normalizing lyrics with structure-preserving LRC backups;
-- restoring LRC sidecars from those backups.
+- restoring LRC sidecars from those backups;
+- mirroring a music directory tree directly into an isolated VirtualDJ MyLists
+  root without creating Serato crates first;
+- finding or selecting the active VirtualDJ home folder and installing, updating,
+  uninstalling or restoring the bundled plugin DLLs.
 
-Drag a music folder onto **MP3 & Lyrics Tools.cmd**, or start it and choose a
-folder. The legacy **Import Lyrics.cmd** and **Mark Existing Lyrics.cmd** names
-remain as shortcuts to the matching GUI tabs. Preview mode is enabled on first
-use. Source LRC/TXT files are deleted only after successful verification and only
-when you explicitly enable deletion.
+Drag a music folder onto **LyricsTools.cmd**, or start it and choose a
+folder. Preview mode is enabled on first use. Source LRC/TXT files are deleted
+only after successful verification and only when you explicitly enable deletion.
 
 These optional tools require Python 3, Mutagen and tidalapi. If Python is
 installed but packages are missing, the launcher offers to install the required
 versions for the current user.
 Python is also required by **Record timing**, but not for normal lyrics display.
+
+The **VirtualDJ setup** tab uses the same verified installer as `Install.cmd`.
+It validates the selected folder, keeps replaced files in `LRC Lyrics Backups`,
+and never bypasses the check that VirtualDJ is closed.
+
+The **Folders to VDJ lists** tab is a one-way mirror. It rebuilds only the named
+managed root: new files appear, removed files disappear, and unrelated manual
+lists remain untouched. Preview mode performs no writes. Real synchronization
+requires VirtualDJ to be closed and creates a timestamped backup first.
 
 Full tool documentation is in [tools/README.md](tools/README.md). The tools are
 not required to run the VirtualDJ plugins.
@@ -107,8 +118,8 @@ get_browsed_song 'Grouping' & param_contains 'Lyrics:' ? get_browsed_song 'User 
 ```
 
 VDJScript handles one loaded or browsed track here; it does not iterate through
-every private lyrics frame in a library. Use **Mark Existing Lyrics.cmd** for a
-recursive MP3 scan.
+every private lyrics frame in a library. Use the **Mark existing lyrics** GUI tab
+for a recursive MP3 scan.
 
 ## Update or uninstall
 
@@ -117,7 +128,7 @@ The operation is repeatable and keeps a backup of replaced files.
 
 To remove the plugin, close VirtualDJ and run **Uninstall.cmd** from the extracted
 release. Only files installed by this project are removed, and they are backed up
-first. **Restore Backup.cmd** can restore one of the snapshots created before an
+first. **Restore-Backup.cmd** can restore one of the snapshots created before an
 installation or uninstall operation.
 
 ## Troubleshooting
@@ -146,5 +157,5 @@ python -m pip install --user -r requirements.txt
 
 ## Development
 
-Source builds, tests, SDK information and the unsupported experimental deck build
-are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
+Source builds, tests and SDK information are documented in
+[DEVELOPMENT.md](DEVELOPMENT.md).

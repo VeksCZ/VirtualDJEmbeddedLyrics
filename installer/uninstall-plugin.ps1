@@ -5,6 +5,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $OutputEncoding
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptRoot 'installer-common.ps1')
 
@@ -16,7 +18,10 @@ $BackupRoot = Join-Path $VirtualDJHome "LRC Lyrics Backups\$timestamp-before-uni
 New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
 
 $removed = 0
-foreach ($name in @('LRC Master.dll', 'LRC BlackOut.dll', 'EmbeddedLyricsTagWriter.py')) {
+foreach ($name in @(
+    'LRCMaster.dll', 'LRCBlackOut.dll', 'EmbeddedLyricsTagWriter.py',
+    'LRC Master.dll', 'LRC BlackOut.dll'
+)) {
     $path = Join-Path $OverlayDirectory $name
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         Copy-LrcBackupItem -Path $path -VirtualDJHome $VirtualDJHome -BackupRoot $BackupRoot
