@@ -302,11 +302,18 @@ class App(tk.Tk):
         ).pack(anchor="w", pady=(8, 0))
 
         setup_tab = self.tabs["setup"]
-        self._description(
-            setup_tab,
+        setup_description = (
+            "Find or select the VirtualDJ home folder. Native macOS LRC Master "
+            "and LRC BlackOut bundles are not included yet; the remaining tools "
+            "on the other tabs are available."
+            if sys.platform == "darwin" else
             "Install or update the bundled LRC Master and LRC BlackOut DLLs. The same "
             "verified installer used by Install.cmd creates backups, removes obsolete "
-            "plugin variants, and requires VirtualDJ to be closed.",
+            "plugin variants, and requires VirtualDJ to be closed."
+        )
+        self._description(
+            setup_tab,
+            setup_description,
         )
         self._vdj_path_row(setup_tab)
         ttk.Label(
@@ -415,18 +422,11 @@ class App(tk.Tk):
         self.playlist_root_name.set(f"Folder Sync - {name}")
 
     def _initial_vdj_detection(self) -> None:
-        if self.package_layout is None:
-            self.vdj_status.set(self.package_error)
-            return
         if self.vdj_home.get().strip() and self._validate_vdj_home(show_error=False):
             return
         self._detect_vdj_home(show_error=False)
 
     def _detect_vdj_home(self, show_error: bool = True) -> None:
-        if self.package_layout is None:
-            if show_error:
-                messagebox.showerror("Installer unavailable", self.package_error)
-            return
         try:
             result = vdj_setup.query_virtualdj(self.package_layout)
         except Exception as exc:
@@ -455,10 +455,6 @@ class App(tk.Tk):
                 str(result.get("Message") or "Choose the active VirtualDJ home folder manually."))
 
     def _validate_vdj_home(self, show_error: bool) -> Path | None:
-        if self.package_layout is None:
-            if show_error:
-                messagebox.showerror("Installer unavailable", self.package_error)
-            return None
         value = self.vdj_home.get().strip()
         if not value:
             if show_error:
@@ -507,7 +503,9 @@ class App(tk.Tk):
                 "uninstall": "Uninstall plugin",
                 "restore": "Restore newest backup",
             }.get(self.setup_action.get(), "Run setup action")
-        self.run_button.configure(text=label)
+        unavailable_setup = active_tab == "setup" and self.package_layout is None
+        state = "disabled" if self.worker_running or unavailable_setup else "normal"
+        self.run_button.configure(text=label, state=state)
 
     def _log(self, message) -> None:
         self.log_text.configure(state="normal")
@@ -523,7 +521,7 @@ class App(tk.Tk):
                     self._log(payload)
                 elif kind == "done":
                     self.worker_running = False
-                    self.run_button.configure(state="normal")
+                    self._update_run_button()
         except queue.Empty:
             pass
         if self.winfo_exists():
@@ -573,7 +571,7 @@ class App(tk.Tk):
         if tab == "playlist_sync":
             library = self._validated_library()
             virtualdj_home = self._validate_vdj_home(show_error=True)
-            if library is None or virtualdj_home is None or self.package_layout is None:
+            if library is None or virtualdj_home is None:
                 return
             try:
                 target_name = vdj_playlist_sync.validate_target_name(
@@ -618,7 +616,10 @@ class App(tk.Tk):
             return
         if tab == "setup":
             virtualdj_home = self._validate_vdj_home(show_error=True)
-            if virtualdj_home is None or self.package_layout is None:
+            if virtualdj_home is None:
+                return
+            if self.package_layout is None:
+                messagebox.showerror("Plugin installer unavailable", self.package_error)
                 return
             action = self.setup_action.get()
             descriptions = {

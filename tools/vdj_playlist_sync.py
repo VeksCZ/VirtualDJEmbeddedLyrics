@@ -11,10 +11,11 @@ import shutil
 import tempfile
 import time
 import uuid
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Callable
 
 from mutagen import File as MutagenFile
@@ -66,11 +67,12 @@ def validate_target_name(value: str) -> str:
     name = value.strip()
     if not name:
         raise ValueError("Enter a name for the managed VirtualDJ list root.")
-    if name in {".", ".."} or name.endswith((".", " ")):
-        raise ValueError("The VirtualDJ list root name is not valid on Windows.")
-    if any(character in INVALID_NAME_CHARS or ord(character) < 32 for character in name):
+    if name in {".", ".."} or (os.name == "nt" and name.endswith((".", " "))):
+        raise ValueError("The VirtualDJ list root name is not valid.")
+    invalid_chars = INVALID_NAME_CHARS if os.name == "nt" else frozenset({"/", ":"})
+    if any(character in invalid_chars or ord(character) < 32 for character in name):
         raise ValueError("The VirtualDJ list root name contains an invalid character.")
-    if name.split(".", 1)[0].upper() in RESERVED_NAMES:
+    if os.name == "nt" and name.split(".", 1)[0].upper() in RESERVED_NAMES:
         raise ValueError("The VirtualDJ list root name is reserved by Windows.")
     if len(name) > 120:
         raise ValueError("The VirtualDJ list root name is too long.")
@@ -178,7 +180,10 @@ def _existing_files(root: Path) -> dict[PurePath, bytes]:
 
 
 def _path_key(value: str | Path) -> str:
-    return os.path.normpath(str(value)).replace("/", "\\").casefold()
+    normalized = os.path.normpath(str(value))
+    if os.name == "nt":
+        return normalized.replace("/", "\\").casefold()
+    return os.path.realpath(normalized)
 
 
 def _playlist_track_paths(files: dict[PurePath, bytes]) -> dict[str, Path]:
@@ -370,6 +375,11 @@ def _all_tracks(root: MusicNode) -> tuple[Path, ...]:
 
 
 def _database_path_for_track(track: Path, virtualdj_home: Path) -> Path:
+    if sys.platform == "darwin":
+        parts = PurePosixPath(str(track).replace("\\", "/")).parts
+        if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes":
+            return Path("/Volumes") / parts[2] / "VirtualDJ" / "database.xml"
+        return virtualdj_home / "database.xml"
     track_drive = track.drive.casefold()
     home_drive = virtualdj_home.drive.casefold()
     if not track_drive or track_drive == home_drive:

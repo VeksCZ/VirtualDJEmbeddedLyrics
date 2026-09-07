@@ -1,13 +1,13 @@
 # MP3 & Lyrics Tools
 
-This optional Windows suite provides one GUI for importing LRC/TXT sidecars,
+This optional Windows and macOS suite provides one GUI for importing LRC/TXT sidecars,
 marking existing embedded lyrics, normalizing or retrieving lyrics, restoring
 structure-preserving backups, mirroring folders into VirtualDJ lists, and
 managing the VirtualDJ plugin installation.
 
 ## Requirements
 
-- Windows 10 or newer
+- Windows 10 or newer, or macOS 11 or newer
 - Python 3.10 or newer with `python` and `pythonw` available in `PATH`
 - A TIDAL account when TIDAL lookup is enabled
 
@@ -20,8 +20,11 @@ python -m pip install --user -r requirements.txt
 
 ## Start the GUI
 
-- Double-click the single `LyricsTools.cmd` in the repository or extracted
-  release root. It can install missing Python packages after asking permission.
+- On Windows, double-click `LyricsTools.cmd` in the repository or extracted
+  release root.
+- On macOS, open `LyricsTools.app` without a Terminal window. Use
+  `LyricsTools.command` when you want visible launcher diagnostics. On first
+  launch, Control-click the unsigned app and choose **Open** if Gatekeeper asks.
 - Drag a music folder onto that launcher to select it immediately.
 - From an Explorer address bar, enter its full path while the desired music
   folder is open.
@@ -37,17 +40,19 @@ turning dry-run off.
 
 ### VirtualDJ setup
 
-This is the first tab. It finds the active VirtualDJ home folder from
-VirtualDJ's registry setting and the standard current or legacy locations. You
-can also type a path or browse to a custom folder; the GUI validates it before
-enabling an operation.
+This is the first tab. On Windows it finds the active VirtualDJ home folder from
+VirtualDJ's registry setting and the standard current or legacy locations. On
+macOS it checks `~/Library/Application Support/VirtualDJ` and the legacy
+`~/Documents/VirtualDJ` location. You can also type a path or browse to a custom
+folder on either platform.
 
-The tab can install or update the bundled LRC Master and LRC BlackOut DLLs,
+On Windows, the tab can install or update the bundled LRC Master and LRC BlackOut DLLs,
 uninstall them, or restore the newest installer backup. It calls the same
 PowerShell scripts as the root `Install.cmd`, `Uninstall.cmd`, and
 `Restore-Backup.cmd` launchers. VirtualDJ must be completely closed. Install and
 uninstall operations create a timestamped snapshot under `LRC Lyrics Backups`
-before changing files.
+before changing files. The current macOS tools package does not contain native
+LRC Master or LRC BlackOut bundles, so plugin installation is unavailable there.
 
 ### Sync folders to VDJ
 
@@ -68,10 +73,11 @@ and can reactivate them if VirtualDJ previously marked them hidden or missing.
 It does not delete unrelated or now-missing database entries and preserves
 existing track metadata and analysis. Newly registered files are not analyzed;
 use VirtualDJ if you also want BPM, waveform, stem, or other analysis data.
-VirtualDJ keeps a separate database for each drive, so the tool routes tracks on
-additional drives to `Drive:\VirtualDJ\database.xml` and tracks on the home drive
-to the home database. Every database changed by a run is included in the backup
-and rollback transaction.
+VirtualDJ keeps a separate database for each drive or volume. The tool routes
+Windows tracks to `Drive:\VirtualDJ\database.xml`, macOS external tracks to
+`/Volumes/<name>/VirtualDJ/database.xml`, and tracks on the system volume to the
+home database. Every database changed by a run is included in the backup and
+rollback transaction.
 
 Preview mode scans and compares without writing anything. A real sync requires
 VirtualDJ to be closed, writes through a staging directory, keeps a timestamped

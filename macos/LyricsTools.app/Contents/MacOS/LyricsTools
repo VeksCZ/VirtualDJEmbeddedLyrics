@@ -1,0 +1,48 @@
+#!/bin/bash
+set -u
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+bundle_parent="$(cd "$script_dir/../../.." && pwd)"
+tools_dir=""
+for candidate in "$bundle_parent/Tools" "$bundle_parent/tools" "$bundle_parent/../tools"; do
+    if [[ -f "$candidate/lyrics_tools_gui.py" ]]; then
+        tools_dir="$candidate"
+        break
+    fi
+done
+
+show_error() {
+    /usr/bin/osascript -e "display dialog \"$1\" with title \"LyricsTools\" buttons {\"OK\"} default button \"OK\" with icon stop" >/dev/null
+}
+
+if [[ -z "$tools_dir" ]]; then
+    show_error "The Tools folder is missing. Keep LyricsTools.app beside the extracted Tools folder."
+    exit 1
+fi
+
+python_bin="$(command -v python3 || true)"
+if [[ -z "$python_bin" ]]; then
+    show_error "Python 3 was not found. Install the current macOS version from python.org, then open LyricsTools again."
+    exit 1
+fi
+
+if ! "$python_bin" -c 'import tkinter' >/dev/null 2>&1; then
+    show_error "This Python installation does not include Tkinter. Install the current macOS Python from python.org."
+    exit 1
+fi
+
+if ! "$python_bin" -c 'import mutagen, tidalapi' >/dev/null 2>&1; then
+    answer="$(/usr/bin/osascript -e 'button returned of (display dialog "LyricsTools needs the Mutagen and tidalapi Python packages. Install them for this user now?" with title "LyricsTools" buttons {"Cancel", "Install"} default button "Install")' 2>/dev/null || true)"
+    if [[ "$answer" != "Install" ]]; then
+        exit 1
+    fi
+    if ! "$python_bin" -m pip install --user -r "$tools_dir/requirements.txt"; then
+        show_error "Python package installation failed. Open LyricsTools.command to see detailed diagnostics."
+        exit 1
+    fi
+fi
+
+log_file="$HOME/Library/Logs/LyricsTools-launch.log"
+mkdir -p "$(dirname "$log_file")"
+exec "$python_bin" "$tools_dir/lyrics_tools_gui.py" "$@" >>"$log_file" 2>&1

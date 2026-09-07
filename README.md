@@ -68,9 +68,11 @@ as synchronized lyrics.
 use the standard ID3 `Grouping` field for the portable markers
 `Lyrics: Synced` and `Lyrics: Unsynced`.
 
-## Optional MP3 tools
+## Optional MP3 tools (Windows and macOS)
 
-The extracted release has one **LyricsTools.cmd** launcher in its root.
+The Windows release has one **LyricsTools.cmd** launcher in its root. A macOS
+tools package provides **LyricsTools.app** for normal no-Terminal startup and
+**LyricsTools.command** for diagnostics.
 It opens a single GUI with tabs for:
 
 - finding or selecting the active VirtualDJ home folder and installing, updating,
@@ -90,6 +92,19 @@ These optional tools require Python 3, Mutagen and tidalapi. If Python is
 installed but packages are missing, the launcher offers to install the required
 versions for the current user.
 Python is also required by **Record timing**, but not for normal lyrics display.
+
+On macOS, install the current Python from python.org, extract the complete macOS
+tools ZIP, and open **LyricsTools.app**. If Gatekeeper blocks the unsigned local
+app on first launch, Control-click it, choose **Open**, and confirm once. The GUI
+detects both `~/Library/Application Support/VirtualDJ` and the legacy
+`~/Documents/VirtualDJ` home. Music on external drives is registered in that
+volume's `/Volumes/<name>/VirtualDJ/database.xml`.
+
+The two video-overlay binaries in the current public release remain Windows
+DLLs. macOS VirtualDJ requires separately compiled `.bundle` plugins (and
+separate Intel and Apple Silicon locations), so the macOS package currently
+covers LyricsTools, folder/MyLists synchronization, Search DB registration, and
+MP3 lyrics maintenance—not LRC Master/LRC BlackOut rendering inside VirtualDJ.
 
 The **VirtualDJ setup** tab uses the same verified installer as `Install.cmd`.
 It validates the selected folder, keeps replaced files in `LRC Lyrics Backups`,

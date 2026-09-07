@@ -31,6 +31,19 @@ plugins. Normal packages contain only LRC Master and LRC BlackOut. Temporary
 compiler output and the extracted staging package are removed after a successful
 build.
 
+The cross-platform Python tools can be tested and packaged on macOS with:
+
+```bash
+python3 -m pip install -r requirements.txt
+./build-macos-tools-release.sh
+```
+
+This creates `dist/LRC-Lyrics-Tools-macOS-v<VERSION>.zip`, including a
+no-Terminal `LyricsTools.app`. The macOS CI job also compiles and tests the
+platform-neutral C++ lyrics core. Native VirtualDJ video overlays still require
+a separate Metal/CoreText `.bundle` implementation and validation in VirtualDJ
+on both Intel and Apple Silicon.
+
 ## Local source-tree installation
 
 After a successful release build, close VirtualDJ and run the root

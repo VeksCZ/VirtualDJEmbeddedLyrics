@@ -5,19 +5,26 @@ from __future__ import annotations
 import json
 import locale
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 
-PAYLOAD_FILES = (
+WINDOWS_PAYLOAD_FILES = (
     "LRCMaster.dll",
     "LRCBlackOut.dll",
     "EmbeddedLyricsTagWriter.py",
 )
+MAC_PAYLOAD_FILES = (
+    "LRCMaster.bundle",
+    "LRCBlackOut.bundle",
+)
+PAYLOAD_FILES = MAC_PAYLOAD_FILES if sys.platform == "darwin" else WINDOWS_PAYLOAD_FILES
 INSTALLER_FILES = {
     "install": "install-plugin.ps1",
     "uninstall": "uninstall-plugin.ps1",
@@ -42,7 +49,84 @@ class PackageLayout:
 
 
 def _complete_payload(path: Path) -> bool:
-    return path.is_dir() and all((path / name).is_file() for name in PAYLOAD_FILES)
+    return path.is_dir() and all((path / name).exists() for name in PAYLOAD_FILES)
+
+
+def plugin_directory(virtualdj_home: Path) -> Path:
+    if sys.platform == "darwin":
+        architecture = platform.machine().lower()
+        root = "PluginsArm" if architecture in {"arm64", "aarch64"} else "Plugins64"
+        return virtualdj_home / root / "VideoOverlay"
+    return virtualdj_home / "Plugins64" / "VideoOverlay"
+
+
+def is_virtualdj_home(path: Path) -> bool:
+    try:
+        candidate = path.expanduser().resolve()
+    except OSError:
+        return False
+    markers = ("settings.xml", "database.xml", "MyLists", "Folders", "Plugins64", "PluginsArm")
+    return candidate.is_dir() and any((candidate / marker).exists() for marker in markers)
+
+
+def _mac_candidates() -> list[dict[str, object]]:
+    locations = (
+        (Path.home() / "Library" / "Application Support" / "VirtualDJ",
+         "current macOS default", True),
+        (Path.home() / "Documents" / "VirtualDJ", "legacy macOS default", False),
+    )
+    result = []
+    seen = set()
+    for path, source, preferred in locations:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            continue
+        key = str(resolved)
+        if key in seen or not is_virtualdj_home(resolved):
+            continue
+        seen.add(key)
+        result.append({"Path": key, "Source": source, "Preferred": preferred})
+    return result
+
+
+def _mac_virtualdj_running() -> bool:
+    try:
+        completed = subprocess.run(
+            ["pgrep", "-x", "VirtualDJ"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=5,
+        )
+        return completed.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _query_virtualdj_mac(explicit_path: str = "") -> dict:
+    candidates = _mac_candidates()
+    if explicit_path.strip():
+        selected = Path(explicit_path.strip()).expanduser().resolve()
+        valid = is_virtualdj_home(selected)
+        return {
+            "Valid": valid,
+            "Selected": str(selected) if valid else None,
+            "Candidates": candidates,
+            "Message": ("The selected VirtualDJ home folder is valid." if valid else
+                        "The selected folder is not a VirtualDJ home folder."),
+            "VirtualDJRunning": _mac_virtualdj_running(),
+        }
+    preferred = next((item for item in candidates if item["Preferred"]), None)
+    selected_item = preferred or (candidates[0] if len(candidates) == 1 else None)
+    return {
+        "Valid": selected_item is not None,
+        "Selected": selected_item["Path"] if selected_item else None,
+        "Candidates": candidates,
+        "Message": ("VirtualDJ home folder detected." if selected_item else
+                    "Choose the active VirtualDJ home folder manually."),
+        "VirtualDJRunning": _mac_virtualdj_running(),
+    }
 
 
 def _read_version(root: Path) -> str:
@@ -134,6 +218,11 @@ def locate_package_layout(
                 version=version,
             )
 
+    if sys.platform == "darwin":
+        raise FileNotFoundError(
+            "Native macOS LRC Master and LRC BlackOut bundles are not included. "
+            "Lyrics, playlist, and Search DB tools remain available."
+        )
     raise FileNotFoundError(
         "The complete installer payload was not found. Extract the complete "
         "release ZIP, or run build-release.ps1 before using setup from source."
@@ -172,7 +261,11 @@ def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def query_virtualdj(layout: PackageLayout, explicit_path: str = "") -> dict:
+def query_virtualdj(layout: PackageLayout | None = None, explicit_path: str = "") -> dict:
+    if sys.platform == "darwin":
+        return _query_virtualdj_mac(explicit_path)
+    if layout is None:
+        raise FileNotFoundError("The Windows VirtualDJ detector is unavailable.")
     command = _base_command(layout.detector)
     if explicit_path.strip():
         command.extend(("-ExplicitPath", explicit_path.strip()))
@@ -198,8 +291,8 @@ def query_virtualdj(layout: PackageLayout, explicit_path: str = "") -> dict:
 
 
 def installed_status(virtualdj_home: Path) -> str:
-    overlay = virtualdj_home / "Plugins64" / "VideoOverlay"
-    present = [name for name in PAYLOAD_FILES if (overlay / name).is_file()]
+    overlay = plugin_directory(virtualdj_home)
+    present = [name for name in PAYLOAD_FILES if (overlay / name).exists()]
     legacy_present = [
         name for name in ("LRC Master.dll", "LRC BlackOut.dll")
         if (overlay / name).is_file()
@@ -223,7 +316,7 @@ def installed_status(virtualdj_home: Path) -> str:
     return "The LRC Lyrics plugin is not installed in this VirtualDJ folder."
 
 
-def assert_virtualdj_closed(layout: PackageLayout) -> None:
+def assert_virtualdj_closed(layout: PackageLayout | None = None) -> None:
     result = query_virtualdj(layout)
     if result.get("VirtualDJRunning"):
         raise RuntimeError(

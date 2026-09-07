@@ -1,0 +1,28 @@
+name: macOS tools
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - run: cmake -S . -B build-macos -DBUILD_TESTING=ON
+      - run: cmake --build build-macos
+      - run: ctest --test-dir build-macos --output-on-failure
+      - run: bash -n LyricsTools.command macos/LyricsTools.app/Contents/MacOS/LyricsTools build-macos-tools-release.sh
+      - run: ./build-macos-tools-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LyricsTools-macOS
+          path: |
+            dist/LRC-Lyrics-Tools-macOS-*.zip
+            dist/LRC-Lyrics-Tools-macOS-*.zip.sha256

@@ -16,6 +16,7 @@ import difflib
 import json
 import os
 import re
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -33,6 +34,9 @@ BACKUP_FORMAT_MARKER = ".lrc-backup-format"
 
 
 def default_runtime_dir() -> Path:
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Application Support" /
+                "VirtualDJEmbeddedLyrics" / "LyricsTools")
     base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
     return base / "VirtualDJEmbeddedLyrics" / "LyricsTools"
 

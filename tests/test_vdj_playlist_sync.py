@@ -69,6 +69,19 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         self.assertEqual(sync._database_backup_name(external, home),
                          "database-D.before.xml")
 
+    def test_search_database_is_selected_per_macos_volume(self):
+        home = Path("/Users/dj/Library/Application Support/VirtualDJ")
+        with mock.patch.object(sync.sys, "platform", "darwin"):
+            self.assertEqual(
+                sync._database_path_for_track(Path("/Users/dj/Music/local.mp3"), home),
+                home / "database.xml",
+            )
+            self.assertEqual(
+                sync._database_path_for_track(
+                    Path("/Volumes/DJ SSD/Music/external.mp3"), home),
+                Path("/Volumes/DJ SSD/VirtualDJ/database.xml"),
+            )
+
     def test_preview_does_not_write_and_real_sync_mirrors_only_managed_root(self):
         original_database = self.database.read_bytes()
         root_track = self._track(self.library / "Root & One.mp3")
@@ -178,7 +191,7 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         self.assertEqual(reactivated, 1)
         current = next(
             song for song in ET.fromstring(updated).findall("Song")
-            if song.attrib["FilePath"] == str(track.resolve())
+            if sync._path_key(song.attrib["FilePath"]) == sync._path_key(track.resolve())
         )
         self.assertNotIn("Flag", current.attrib)
         self.assertIn('<Scan Version="801" Bpm="0.4" Key="F#m" />', text)
@@ -273,7 +286,14 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         self.assertFalse(any(self.mylists.glob(".Managed.*.subfolders")))
 
     def test_invalid_or_empty_targets_are_rejected(self):
-        for value in ("", "..", "Bad/Name", "CON", "Trailing."):
+        for value in ("", "..", "Bad/Name"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    sync.validate_target_name(value)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows filename rules")
+    def test_windows_reserved_targets_are_rejected(self):
+        for value in ("CON", "Trailing."):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     sync.validate_target_name(value)
