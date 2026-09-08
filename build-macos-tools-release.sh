@@ -11,12 +11,28 @@ fi
 python_bin="${PYTHON:-python3}"
 "$python_bin" -m unittest discover -s "$project_root/tests" -p 'test_*.py'
 
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/lrc-macos-build.XXXXXX")"
+trap 'rm -rf "$work_dir"' EXIT
+build_dir="$work_dir/build"
+cmake -S "$project_root" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_ARCHITECTURES="${MACOS_ARCHITECTURES:-arm64;x86_64}" -DBUILD_TESTING=ON
+cmake --build "$build_dir" --config Release
+ctest --test-dir "$build_dir" -C Release --output-on-failure
+
 dist_dir="$project_root/dist"
-package_name="LRC-Lyrics-Tools-macOS-v$version"
-stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/lrc-tools.XXXXXX")"
-trap 'rm -rf "$stage_dir"' EXIT
+package_name="LRC-Lyrics-VirtualDJ-macOS-v$version"
+stage_dir="$work_dir/stage"
 package_dir="$stage_dir/$package_name"
-mkdir -p "$package_dir/Tools"
+mkdir -p "$package_dir/Tools" "$package_dir/Plugins"
+
+master_bundle="$(find "$build_dir" -type d -name 'LRCMaster.bundle' -print -quit)"
+blackout_bundle="$(find "$build_dir" -type d -name 'LRCBlackOut.bundle' -print -quit)"
+if [[ -z "$master_bundle" || -z "$blackout_bundle" ]]; then
+    echo "The macOS plugin bundles were not produced." >&2
+    exit 1
+fi
+cp -R "$master_bundle" "$package_dir/Plugins/LRCMaster.bundle"
+cp -R "$blackout_bundle" "$package_dir/Plugins/LRCBlackOut.bundle"
 
 cp -R "$project_root/macos/LyricsTools.app" "$package_dir/LyricsTools.app"
 cp "$project_root/LyricsTools.command" "$package_dir/LyricsTools.command"
@@ -30,6 +46,12 @@ cp "$project_root/tools/README.md" "$package_dir/Tools/README.md"
 cp "$project_root/README.md" "$package_dir/README.md"
 cp "$project_root/requirements.txt" "$package_dir/Tools/requirements.txt"
 cp "$project_root/VERSION" "$package_dir/VERSION"
+
+# Ad-hoc signing preserves bundle integrity. Public notarization can replace this
+# when an Apple Developer ID certificate is configured by the release runner.
+/usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCMaster.bundle"
+/usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCBlackOut.bundle"
+/usr/bin/codesign --force --deep --sign - "$package_dir/LyricsTools.app"
 
 mkdir -p "$dist_dir"
 zip_path="$dist_dir/$package_name.zip"

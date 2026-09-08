@@ -94,17 +94,16 @@ versions for the current user.
 Python is also required by **Record timing**, but not for normal lyrics display.
 
 On macOS, install the current Python from python.org, extract the complete macOS
-tools ZIP, and open **LyricsTools.app**. If Gatekeeper blocks the unsigned local
+ZIP, and open **LyricsTools.app**. If Gatekeeper blocks the locally signed
 app on first launch, Control-click it, choose **Open**, and confirm once. The GUI
 detects both `~/Library/Application Support/VirtualDJ` and the legacy
 `~/Documents/VirtualDJ` home. Music on external drives is registered in that
 volume's `/Volumes/<name>/VirtualDJ/database.xml`.
 
-The two video-overlay binaries in the current public release remain Windows
-DLLs. macOS VirtualDJ requires separately compiled `.bundle` plugins (and
-separate Intel and Apple Silicon locations), so the macOS package currently
-covers LyricsTools, folder/MyLists synchronization, Search DB registration, and
-MP3 lyrics maintenance—not LRC Master/LRC BlackOut rendering inside VirtualDJ.
+The macOS package contains universal LRC Master and LRC BlackOut `.bundle`
+plugins. The installer selects the proper Intel or Apple Silicon plugin location
+automatically. LyricsTools, folder/MyLists synchronization, Search DB
+registration, and MP3 lyrics maintenance are available on both platforms.
 
 The **VirtualDJ setup** tab uses the same verified installer as `Install.cmd`.
 It validates the selected folder, keeps replaced files in `LRC Lyrics Backups`,

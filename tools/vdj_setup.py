@@ -9,8 +9,11 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+import uuid
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -182,6 +185,14 @@ def locate_package_layout(
     root = script_dir.parent
 
     release_payload = root / "Plugins"
+    if sys.platform == "darwin" and _complete_payload(release_payload):
+        return PackageLayout(
+            root=root,
+            scripts=root,
+            payload=release_payload,
+            detector=root / "detect-vdj-home.ps1",
+            version=_read_version(root),
+        )
     if (all((root / name).is_file() for name in INSTALLER_FILES.values())
             and (root / "detect-vdj-home.ps1").is_file()
             and _complete_payload(release_payload)):
@@ -202,7 +213,7 @@ def locate_package_layout(
             root / "dist" / "full",
         )
         payload = next((path for path in payload_candidates if _complete_payload(path)), None)
-        if payload is None:
+        if payload is None and sys.platform != "darwin":
             release_zip = root / "dist" / f"LRC-Lyrics-VirtualDJ-v{version}.zip"
             if release_zip.is_file():
                 try:
@@ -220,8 +231,8 @@ def locate_package_layout(
 
     if sys.platform == "darwin":
         raise FileNotFoundError(
-            "Native macOS LRC Master and LRC BlackOut bundles are not included. "
-            "Lyrics, playlist, and Search DB tools remain available."
+            "The macOS LRC Master and LRC BlackOut bundles were not found. "
+            "Use the complete macOS release package or build it on macOS."
         )
     raise FileNotFoundError(
         "The complete installer payload was not found. Extract the complete "
@@ -325,6 +336,8 @@ def assert_virtualdj_closed(layout: PackageLayout | None = None) -> None:
 
 
 def build_action_command(layout: PackageLayout, action: str, virtualdj_home: Path) -> list[str]:
+    if sys.platform == "darwin":
+        raise RuntimeError("macOS setup actions run directly and do not use PowerShell.")
     command = _base_command(layout.action_script(action))
     command.extend(("-VirtualDJHome", str(virtualdj_home), "-NonInteractive"))
     if action == "install":
@@ -338,6 +351,9 @@ def run_action(
     virtualdj_home: Path,
     log: Callable[[str], None] = print,
 ) -> None:
+    if sys.platform == "darwin":
+        _run_action_mac(layout, action, virtualdj_home, log)
+        return
     command = build_action_command(layout, action, virtualdj_home)
     log(f"VirtualDJ home: {virtualdj_home}")
     log(f"Package version: {layout.version}")
@@ -355,3 +371,134 @@ def run_action(
     return_code = process.wait()
     if return_code:
         raise RuntimeError(f"VirtualDJ setup failed with exit code {return_code}.")
+
+
+def _copy_item(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        shutil.copytree(source, destination)
+    else:
+        shutil.copy2(source, destination)
+
+
+def _backup_item(path: Path, virtualdj_home: Path, backup_root: Path) -> None:
+    if not path.exists():
+        return
+    home = virtualdj_home.resolve()
+    resolved = path.resolve()
+    try:
+        relative = resolved.relative_to(home)
+    except ValueError as exc:
+        raise RuntimeError(f"Refusing to back up a path outside VirtualDJ home: {path}") from exc
+    _copy_item(path, backup_root / relative)
+
+
+def _atomic_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(value, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _run_action_mac(
+    layout: PackageLayout,
+    action: str,
+    virtualdj_home: Path,
+    log: Callable[[str], None],
+) -> None:
+    if action not in {"install", "uninstall", "restore"}:
+        raise ValueError(f"Unsupported setup action: {action}")
+    virtualdj_home = virtualdj_home.expanduser().resolve()
+    if not is_virtualdj_home(virtualdj_home):
+        raise ValueError(f"The selected folder is not a VirtualDJ home folder: {virtualdj_home}")
+    assert_virtualdj_closed(layout)
+    backups_root = virtualdj_home / "LRC Lyrics Backups"
+
+    if action == "restore":
+        candidates = sorted(
+            (path for path in backups_root.iterdir() if path.is_dir()),
+            key=lambda path: path.name,
+            reverse=True,
+        ) if backups_root.is_dir() else []
+        if not candidates:
+            raise FileNotFoundError("No LRC Lyrics backup is available.")
+        selected = candidates[0]
+        for source in selected.rglob("*"):
+            if source.is_file():
+                destination = virtualdj_home / source.relative_to(selected)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+        log(f"Restored the newest backup: {selected}")
+        return
+
+    overlay = plugin_directory(virtualdj_home)
+    managed = [overlay / name for name in MAC_PAYLOAD_FILES]
+    changed = action == "install" or any(path.exists() for path in managed)
+    if not changed:
+        log("LRC Lyrics is already uninstalled.")
+        return
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    backup = backups_root / f"{timestamp}-before-{action}"
+    backup.mkdir(parents=True)
+    for path in managed:
+        _backup_item(path, virtualdj_home, backup)
+    manifest_path = virtualdj_home / "LRC Lyrics Installation.json"
+    _backup_item(manifest_path, virtualdj_home, backup)
+
+    if action == "uninstall":
+        for path in managed:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
+        log(f"LRC Lyrics was uninstalled. Backup: {backup}")
+        return
+
+    overlay.mkdir(parents=True, exist_ok=True)
+    installed = []
+    staging_paths = []
+    try:
+        for name, destination in zip(MAC_PAYLOAD_FILES, managed):
+            source = layout.payload / name
+            if not source.is_dir():
+                raise FileNotFoundError(f"macOS plugin bundle is missing: {source}")
+            staging = overlay / f".{name}.{uuid.uuid4().hex}.installing"
+            staging_paths.append(staging)
+            shutil.copytree(source, staging)
+            if destination.is_dir():
+                shutil.rmtree(destination)
+            elif destination.exists():
+                destination.unlink()
+            os.replace(staging, destination)
+            staging_paths.remove(staging)
+            installed.append(destination)
+        _atomic_json(manifest_path, {
+            "Version": layout.version,
+            "Platform": "macOS",
+            "Files": [str(path.relative_to(virtualdj_home)) for path in managed],
+        })
+    except Exception:
+        for staging in staging_paths:
+            if staging.is_dir():
+                shutil.rmtree(staging)
+        for destination in installed:
+            if destination.is_dir():
+                shutil.rmtree(destination)
+        for source in backup.rglob("*"):
+            if source.is_file():
+                destination = virtualdj_home / source.relative_to(backup)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+        raise
+    log(f"LRC Lyrics {layout.version} was installed into: {overlay}")
+    log(f"Backup: {backup}")

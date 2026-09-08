@@ -156,6 +156,37 @@ class PackageLayoutTests(unittest.TestCase):
                 home / "Plugins64" / "VideoOverlay",
             )
 
+    def test_macos_install_uninstall_and_restore_preserve_bundle_contents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / "VirtualDJ"
+            payload = root / "Plugins"
+            (home / "MyLists").mkdir(parents=True)
+            for name in vdj_setup.MAC_PAYLOAD_FILES:
+                executable = payload / name / "Contents" / "MacOS" / name.removesuffix(".bundle")
+                executable.parent.mkdir(parents=True)
+                executable.write_bytes(f"new-{name}".encode())
+            layout = vdj_setup.PackageLayout(
+                root=root, scripts=root, payload=payload,
+                detector=root / "unused.ps1", version="1.2.3")
+
+            with (mock.patch.object(vdj_setup.sys, "platform", "darwin"),
+                  mock.patch.object(vdj_setup.platform, "machine", return_value="arm64"),
+                  mock.patch.object(vdj_setup, "_mac_virtualdj_running", return_value=False)):
+                vdj_setup.run_action(layout, "install", home, lambda _message: None)
+                overlay = home / "PluginsArm" / "VideoOverlay"
+                for name in vdj_setup.MAC_PAYLOAD_FILES:
+                    self.assertTrue((overlay / name / "Contents" / "MacOS").is_dir())
+                self.assertIn(
+                    '"Platform": "macOS"',
+                    (home / "LRC Lyrics Installation.json").read_text(encoding="utf-8"),
+                )
+
+                vdj_setup.run_action(layout, "uninstall", home, lambda _message: None)
+                self.assertFalse(any((overlay / name).exists() for name in vdj_setup.MAC_PAYLOAD_FILES))
+                vdj_setup.run_action(layout, "restore", home, lambda _message: None)
+                self.assertTrue(all((overlay / name).is_dir() for name in vdj_setup.MAC_PAYLOAD_FILES))
+
 
 if __name__ == "__main__":
     unittest.main()

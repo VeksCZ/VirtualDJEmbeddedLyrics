@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" LRC_VERSION LIMIT_COUNT 1)
 project(VirtualDJEmbeddedLyrics VERSION "${LRC_VERSION}" LANGUAGES CXX)
 
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -20,6 +24,24 @@ add_library(lyrics_core STATIC
 target_include_directories(lyrics_core PUBLIC src)
 if(WIN32)
     target_link_libraries(lyrics_core PUBLIC shell32)
+endif()
+
+if(APPLE)
+    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
+    function(add_mac_vdj_plugin target source output_name)
+        add_library(${target} MODULE ${source})
+        target_include_directories(${target} PRIVATE src)
+        target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
+        target_compile_definitions(${target} PRIVATE
+            NODLLEXPORT LRC_PLUGIN_VERSION="${PROJECT_VERSION}")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -fobjc-arc)
+        target_link_libraries(${target} PRIVATE lyrics_core
+            "-framework Cocoa" "-framework Metal")
+        set_target_properties(${target} PROPERTIES
+            PREFIX "" OUTPUT_NAME "${output_name}" BUNDLE TRUE BUNDLE_EXTENSION "bundle")
+    endfunction()
+    add_mac_vdj_plugin(EmbeddedLyricsMaster src/MacLyricsPlugin.mm LRCMaster)
+    add_mac_vdj_plugin(Blackout src/MacBlackoutPlugin.mm LRCBlackOut)
 endif()
 
 option(BUILD_TESTING "Build parser tests" ON)

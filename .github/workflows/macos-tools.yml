@@ -24,5 +24,5 @@ jobs:
         with:
           name: LyricsTools-macOS
           path: |
-            dist/LRC-Lyrics-Tools-macOS-*.zip
-            dist/LRC-Lyrics-Tools-macOS-*.zip.sha256
+            dist/LRC-Lyrics-VirtualDJ-macOS-*.zip
+            dist/LRC-Lyrics-VirtualDJ-macOS-*.zip.sha256

@@ -303,9 +303,8 @@ class App(tk.Tk):
 
         setup_tab = self.tabs["setup"]
         setup_description = (
-            "Find or select the VirtualDJ home folder. Native macOS LRC Master "
-            "and LRC BlackOut bundles are not included yet; the remaining tools "
-            "on the other tabs are available."
+            "Find or select the VirtualDJ home folder. The installer selects the "
+            "correct PluginsArm or Plugins64 folder automatically."
             if sys.platform == "darwin" else
             "Install or update the bundled LRC Master and LRC BlackOut DLLs. The same "
             "verified installer used by Install.cmd creates backups, removes obsolete "

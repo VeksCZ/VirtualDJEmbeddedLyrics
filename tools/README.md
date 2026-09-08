@@ -51,8 +51,8 @@ uninstall them, or restore the newest installer backup. It calls the same
 PowerShell scripts as the root `Install.cmd`, `Uninstall.cmd`, and
 `Restore-Backup.cmd` launchers. VirtualDJ must be completely closed. Install and
 uninstall operations create a timestamped snapshot under `LRC Lyrics Backups`
-before changing files. The current macOS tools package does not contain native
-LRC Master or LRC BlackOut bundles, so plugin installation is unavailable there.
+before changing files. The macOS package installs the native LRC Master and
+LRC BlackOut bundles into the architecture-appropriate VirtualDJ plugin folder.
 
 ### Sync folders to VDJ
 
