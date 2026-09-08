@@ -48,6 +48,7 @@ class PackageLayoutTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 vdj_setup.locate_package_layout(tools)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows DLL ZIP extraction")
     def test_source_layout_extracts_only_plugin_payload_from_release_zip(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
