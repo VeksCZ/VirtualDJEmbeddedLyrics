@@ -7,7 +7,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION value: $Versi
 
 $BuildDirectory = Join-Path $ProjectRoot 'build-release'
 $DistRoot = Join-Path $ProjectRoot 'dist'
-$PackageName = "LRC-Lyrics-VirtualDJ-v$Version"
+$PackageName = "LRC-Lyrics-VirtualDJ-Windows-v$Version"
 $PackageDirectory = Join-Path $DistRoot $PackageName
 $PluginsDirectory = Join-Path $PackageDirectory 'Plugins'
 $ToolsDirectory = Join-Path $PackageDirectory 'Tools'

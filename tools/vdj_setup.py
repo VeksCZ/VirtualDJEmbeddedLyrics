@@ -209,12 +209,13 @@ def locate_package_layout(
             and (source_scripts / "detect-vdj-home.ps1").is_file()):
         version = _read_version(root)
         payload_candidates = (
+            root / "dist" / f"LRC-Lyrics-VirtualDJ-Windows-v{version}" / "Plugins",
             root / "dist" / f"LRC-Lyrics-VirtualDJ-v{version}" / "Plugins",
             root / "dist" / "full",
         )
         payload = next((path for path in payload_candidates if _complete_payload(path)), None)
         if payload is None and sys.platform != "darwin":
-            release_zip = root / "dist" / f"LRC-Lyrics-VirtualDJ-v{version}.zip"
+            release_zip = root / "dist" / f"LRC-Lyrics-VirtualDJ-Windows-v{version}.zip"
             if release_zip.is_file():
                 try:
                     payload = _extract_payload_from_zip(release_zip, version, runtime_dir)

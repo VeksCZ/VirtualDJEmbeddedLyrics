@@ -33,7 +33,10 @@ try {
     }
     Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.cmd') -PathType Leaf) 'root GUI launcher is missing'
     $toolsDirectory = Join-Path $PackageDirectory 'Tools'
-    Assert-True ((Get-ChildItem -LiteralPath $toolsDirectory -Include '*.cmd', '*.bat', '*.vbs' -File).Count -eq 0) 'Tools contains a duplicate launcher'
+    $duplicateLaunchers = @(Get-ChildItem -LiteralPath $toolsDirectory -File | Where-Object {
+        $_.Extension -in @('.cmd', '.bat', '.vbs')
+    })
+    Assert-True ($duplicateLaunchers.Count -eq 0) 'Tools contains a duplicate launcher'
     foreach ($name in @(
         'lyrics_tools_gui.py',
         'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py', 'vdj_setup.py',

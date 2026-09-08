@@ -23,8 +23,8 @@ py -m pip install -r requirements.txt
 The script builds both supported DLLs, runs C++ tests, Python tests and installer
 integration tests, then leaves only the publishable artifacts:
 
-- `dist/LRC-Lyrics-VirtualDJ-v<VERSION>.zip`
-- `dist/LRC-Lyrics-VirtualDJ-v<VERSION>.zip.sha256`
+- `dist/LRC-Lyrics-VirtualDJ-Windows-v<VERSION>.zip`
+- `dist/LRC-Lyrics-VirtualDJ-Windows-v<VERSION>.zip.sha256`
 
 The release version comes from the root `VERSION` file and is compiled into both
 plugins. Normal packages contain only LRC Master and LRC BlackOut. Temporary
@@ -38,7 +38,7 @@ python3 -m pip install -r requirements.txt
 ./build-macos-tools-release.sh
 ```
 
-This creates `dist/LRC-Lyrics-Tools-macOS-v<VERSION>.zip`, including a
+This creates `dist/LRC-Lyrics-VirtualDJ-macOS-v<VERSION>.zip`, including a
 no-Terminal `LyricsTools.app`. The macOS CI job also compiles and tests the
 platform-neutral C++ lyrics core. Native VirtualDJ video overlays still require
 a separate Metal/CoreText `.bundle` implementation and validation in VirtualDJ

@@ -140,7 +140,7 @@ function Resolve-LrcPayloadDirectory {
         if (Test-Path -LiteralPath $versionFile) {
             $version = (Get-Content -LiteralPath $versionFile -Raw).Trim()
             if ($version) {
-                $candidates.Add((Join-Path $root "dist\LRC-Lyrics-VirtualDJ-v$version\Plugins"))
+                $candidates.Add((Join-Path $root "dist\LRC-Lyrics-VirtualDJ-Windows-v$version\Plugins"))
             }
         }
         $candidates.Add((Join-Path $root 'dist\full'))

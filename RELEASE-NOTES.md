@@ -2,21 +2,22 @@
 
 ## Highlights
 
-- Reordered the GUI so VirtualDJ setup is the first tab and folder-to-playlist
-  synchronization is the second tab.
-- Kept the tab bar at a stable vertical position and added matching manual
-  VirtualDJ folder selection to both setup and synchronization.
-- Upgraded folder synchronization to a full managed-root mirror that adds new
-  tracks and removes playlist references that disappeared from the source tree.
-- Added optional, add-only Search DB registration while preserving unrelated
-  entries, existing metadata and VirtualDJ analysis.
-- Correctly routes Search DB updates to VirtualDJ's database for each track's
-  drive, including databases such as `D:\VirtualDJ\database.xml`.
-- Added XML validation, atomic writes, per-database backups and transactional
-  rollback. Preview scans avoid unnecessary metadata reads on large libraries.
+- Added native Metal builds of LRC Master and LRC BlackOut for macOS.
+- Added one universal macOS package for Apple Silicon and Intel Macs.
+- Added a native macOS installer with automatic `PluginsArm`/`Plugins64`
+  selection, timestamped backups, uninstall, and restore.
+- Added **LyricsTools.app**, which opens the unified GUI without a Terminal
+  window and supports lyrics maintenance, managed MyLists synchronization, and
+  add-only Search DB registration on macOS.
+- Kept the Windows package and workflow unchanged apart from an explicit
+  `Windows` label in its filename.
 
 ## Installation
 
-Download and extract `LRC-Lyrics-VirtualDJ-v{{VERSION}}.zip`, close VirtualDJ,
-then run `Install.cmd`. Restart VirtualDJ and enable LRC Master under Video
-Overlays. LRC BlackOut remains optional.
+- Windows: extract `LRC-Lyrics-VirtualDJ-Windows-v{{VERSION}}.zip`, close
+  VirtualDJ, and run `Install.cmd`.
+- macOS: extract `LRC-Lyrics-VirtualDJ-macOS-v{{VERSION}}.zip`, close VirtualDJ,
+  and open `LyricsTools.app`; install from the first tab.
+
+Restart VirtualDJ and enable LRC Master under Video Overlays. LRC BlackOut
+remains optional.

@@ -8,7 +8,7 @@ master video output. The project provides two Windows 64-bit video overlays:
 
 ## Download and install
 
-1. Download the `LRC-Lyrics-VirtualDJ-vX.Y.Z.zip` asset from the
+1. Download the `LRC-Lyrics-VirtualDJ-Windows-vX.Y.Z.zip` asset from the
    [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
 2. Extract the complete ZIP. Do not run the installer from inside the ZIP preview.
 3. Close VirtualDJ completely.

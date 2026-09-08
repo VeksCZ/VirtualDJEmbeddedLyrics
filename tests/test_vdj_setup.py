@@ -59,7 +59,7 @@ class PackageLayoutTests(unittest.TestCase):
             self._touch_files(scripts, ("detect-vdj-home.ps1",))
             (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
 
-            archive_path = root / "dist" / "LRC-Lyrics-VirtualDJ-v1.2.3.zip"
+            archive_path = root / "dist" / "LRC-Lyrics-VirtualDJ-Windows-v1.2.3.zip"
             archive_path.parent.mkdir()
             with zipfile.ZipFile(archive_path, "w") as archive:
                 for name in vdj_setup.PAYLOAD_FILES:
