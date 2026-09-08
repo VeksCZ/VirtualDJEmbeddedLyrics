@@ -33,6 +33,8 @@ if [[ -z "$master_bundle" || -z "$blackout_bundle" ]]; then
 fi
 /usr/bin/lipo "$master_bundle/Contents/MacOS/LRCMaster" -verify_arch arm64 x86_64
 /usr/bin/lipo "$blackout_bundle/Contents/MacOS/LRCBlackOut" -verify_arch arm64 x86_64
+/usr/bin/nm -gU "$master_bundle/Contents/MacOS/LRCMaster" | /usr/bin/grep -q ' _DllGetClassObject$'
+/usr/bin/nm -gU "$blackout_bundle/Contents/MacOS/LRCBlackOut" | /usr/bin/grep -q ' _DllGetClassObject$'
 cp -R "$master_bundle" "$package_dir/Plugins/LRCMaster.bundle"
 cp -R "$blackout_bundle" "$package_dir/Plugins/LRCBlackOut.bundle"
 
@@ -54,6 +56,9 @@ cp "$project_root/VERSION" "$package_dir/VERSION"
 /usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCMaster.bundle"
 /usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCBlackOut.bundle"
 /usr/bin/codesign --force --deep --sign - "$package_dir/LyricsTools.app"
+/usr/bin/codesign --verify --deep --strict "$package_dir/Plugins/LRCMaster.bundle"
+/usr/bin/codesign --verify --deep --strict "$package_dir/Plugins/LRCBlackOut.bundle"
+/usr/bin/codesign --verify --deep --strict "$package_dir/LyricsTools.app"
 
 mkdir -p "$dist_dir"
 zip_path="$dist_dir/$package_name.zip"
