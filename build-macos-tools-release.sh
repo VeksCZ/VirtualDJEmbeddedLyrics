@@ -31,8 +31,8 @@ if [[ -z "$master_bundle" || -z "$blackout_bundle" ]]; then
     echo "The macOS plugin bundles were not produced." >&2
     exit 1
 fi
-/usr/bin/lipo -verify_arch arm64 x86_64 "$master_bundle/Contents/MacOS/LRCMaster"
-/usr/bin/lipo -verify_arch arm64 x86_64 "$blackout_bundle/Contents/MacOS/LRCBlackOut"
+/usr/bin/lipo "$master_bundle/Contents/MacOS/LRCMaster" -verify_arch arm64 x86_64
+/usr/bin/lipo "$blackout_bundle/Contents/MacOS/LRCBlackOut" -verify_arch arm64 x86_64
 cp -R "$master_bundle" "$package_dir/Plugins/LRCMaster.bundle"
 cp -R "$blackout_bundle" "$package_dir/Plugins/LRCBlackOut.bundle"
 

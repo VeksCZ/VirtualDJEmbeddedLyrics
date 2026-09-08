@@ -56,7 +56,8 @@ public:
             CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
             CGContextRef context = CGBitmapContextCreate(
                 pixels.data(), width, height, 8, rowBytes, colorSpace,
-                kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+                static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little |
+                                          static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst)));
             CGColorSpaceRelease(colorSpace);
             if (!context) return false;
 
