@@ -3,6 +3,7 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" LRC_VERSION LIMIT_COUNT 1)
 project(VirtualDJEmbeddedLyrics VERSION "${LRC_VERSION}" LANGUAGES CXX)
 
 if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum supported macOS version")
     enable_language(OBJCXX)
 endif()
 
