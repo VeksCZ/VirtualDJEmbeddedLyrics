@@ -17,6 +17,7 @@ import lyrics_tag_converter
 import restore_lrc
 import vdj_playlist_sync
 import vdj_setup
+import gui_common
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -24,7 +25,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("setup", "playlist_sync", "import", "mark", "tidal", "restore")
+TAB_NAMES = ("playlist_sync", "import", "mark", "tidal", "restore")
 
 
 def parse_launch_arguments():
@@ -67,7 +68,7 @@ class App(tk.Tk):
         self.geometry("860x760")
         self.minsize(760, 660)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         settings = load_settings()
         if ARGV_LIBRARY is not None:
@@ -82,7 +83,9 @@ class App(tk.Tk):
         self.vdj_home = tk.StringVar(value=str(settings.get("vdj_home") or ""))
         self.vdj_status = tk.StringVar(value="VirtualDJ folder has not been checked yet.")
         self.vdj_installation_status = tk.StringVar(value="Installation status is unknown.")
-        self.setup_action = tk.StringVar(value=str(settings.get("setup_action") or "install"))
+        self.opt_advanced = tk.BooleanVar(value=bool(settings.get("opt_advanced", False)))
+        self.last_operation = tk.StringVar(value="No operation has been run in this session.")
+        self.last_backup: Path | None = None
         default_list_root = f"Folder Sync - {initial_library.name or 'Music'}"
         self.playlist_root_name = tk.StringVar(
             value=str(
@@ -110,7 +113,8 @@ class App(tk.Tk):
         self.opt_english_threshold = tk.IntVar(value=min(50, max(1, saved_threshold)))
 
         try:
-            self.package_layout = vdj_setup.locate_package_layout(SCRIPT_DIR)
+            self.package_layout = vdj_setup.locate_package_layout(
+                gui_common.package_tools_dir(SCRIPT_DIR))
             self.package_error = ""
         except Exception as exc:
             self.package_layout = None
@@ -120,8 +124,8 @@ class App(tk.Tk):
         self.events = EventQueue()
         self.vdj_home_combos = []
         self._build_ui()
-        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "setup"))
-        if requested_tab in self.tabs:
+        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "playlist_sync"))
+        if requested_tab in self.tabs and (self.opt_advanced.get() or requested_tab not in {"tidal", "restore"}):
             self.notebook.select(self.tabs[requested_tab])
         self._tab_changed()
         self.after(100, self._poll_events)
@@ -133,7 +137,7 @@ class App(tk.Tk):
             "library_dir": self.library_dir.get(),
             "backup_dir": self.backup_dir.get(),
             "vdj_home": self.vdj_home.get(),
-            "setup_action": self.setup_action.get(),
+            "opt_advanced": self.opt_advanced.get(),
             "playlist_root_name": self.playlist_root_name.get(),
             "opt_adopt_playlist_root": self.opt_adopt_playlist_root.get(),
             "opt_add_search_db": self.opt_add_search_db.get(),
@@ -179,10 +183,18 @@ class App(tk.Tk):
             anchor="w", pady=3)
 
     def _build_ui(self) -> None:
+        header = tk.Frame(self, bg="#eaf2f8", padx=12, pady=8)
+        header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
+        header.columnconfigure(1, weight=1)
+        tk.Label(header, text="VirtualDJ", bg="#eaf2f8", font=("TkDefaultFont", 10, "bold")).grid(row=0, column=0)
+        tk.Label(header, textvariable=self.vdj_status, bg="#eaf2f8", anchor="w").grid(row=0, column=1, sticky="ew", padx=10)
+        self.header_state = tk.Label(header, textvariable=self.vdj_installation_status, bg="#3b536b", fg="white", padx=9, pady=4)
+        self.header_state.grid(row=0, column=2)
+        ttk.Checkbutton(header, text="Advanced", variable=self.opt_advanced, command=self._toggle_advanced).grid(row=0, column=3, padx=(10, 0))
+
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
         self.tabs = {name: ttk.Frame(self.notebook, padding=10) for name in TAB_NAMES}
-        self.notebook.add(self.tabs["setup"], text="VirtualDJ setup")
         self.notebook.add(self.tabs["playlist_sync"], text="Sync folders to VDJ")
         self.notebook.add(self.tabs["import"], text="Import LRC / TXT")
         self.notebook.add(self.tabs["mark"], text="Mark existing lyrics")
@@ -301,60 +313,8 @@ class App(tk.Tk):
             justify="left",
         ).pack(anchor="w", pady=(8, 0))
 
-        setup_tab = self.tabs["setup"]
-        setup_description = (
-            "Find or select the VirtualDJ home folder. The installer selects the "
-            "correct PluginsArm or Plugins64 folder automatically."
-            if sys.platform == "darwin" else
-            "Install or update the bundled LRC Master and LRC BlackOut DLLs. The same "
-            "verified installer used by Install.cmd creates backups, removes obsolete "
-            "plugin variants, and requires VirtualDJ to be closed."
-        )
-        self._description(
-            setup_tab,
-            setup_description,
-        )
-        self._vdj_path_row(setup_tab)
-        ttk.Label(
-            setup_tab, textvariable=self.vdj_status, wraplength=790, justify="left"
-        ).pack(anchor="w", pady=(0, 8))
-        ttk.Label(
-            setup_tab, textvariable=self.vdj_installation_status,
-            wraplength=790, justify="left",
-        ).pack(anchor="w", pady=(0, 8))
-
-        package_text = (
-            f"Bundled plugin package: version {self.package_layout.version} "
-            f"({self.package_layout.payload})"
-            if self.package_layout is not None
-            else f"Bundled plugin package unavailable: {self.package_error}"
-        )
-        ttk.Label(setup_tab, text=package_text, wraplength=790, justify="left").pack(
-            anchor="w", pady=(0, 8))
-        ttk.Radiobutton(
-            setup_tab,
-            text="Install or update the VirtualDJ plugin (recommended)",
-            variable=self.setup_action,
-            value="install",
-            command=self._update_run_button,
-        ).pack(anchor="w", pady=3)
-        ttk.Radiobutton(
-            setup_tab,
-            text="Uninstall the plugin and create a backup first",
-            variable=self.setup_action,
-            value="uninstall",
-            command=self._update_run_button,
-        ).pack(anchor="w", pady=3)
-        ttk.Radiobutton(
-            setup_tab,
-            text="Restore the newest installer backup",
-            variable=self.setup_action,
-            value="restore",
-            command=self._update_run_button,
-        ).pack(anchor="w", pady=3)
-
         log_frame = ttk.LabelFrame(self, text="Activity")
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        log_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=4)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, wrap="word", state="disabled")
@@ -364,11 +324,16 @@ class App(tk.Tk):
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
         actions = ttk.Frame(self)
-        actions.grid(row=2, column=0, sticky="ew", padx=8, pady=(4, 8))
-        ttk.Label(actions, text=f"Runtime data: {APP_DATA_DIR}").pack(side="left")
+        actions.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 8))
+        ttk.Label(actions, textvariable=self.last_operation).pack(side="left")
+        self.backup_button = ttk.Button(actions, text="Open backup", state="disabled", command=self._open_last_backup)
+        self.backup_button.pack(side="left", padx=6)
+        ttk.Button(actions, text="Diagnostics…", command=self._create_diagnostics).pack(side="right", padx=(6, 0))
+        ttk.Button(actions, text="Check updates", command=self._check_updates).pack(side="right", padx=(6, 0))
         self.run_button = ttk.Button(
             actions, text="Run selected tool", command=self._run_current_tab)
         self.run_button.pack(side="right")
+        self._toggle_advanced()
         self._update_run_button()
 
     def _folder_panel(self, parent, *, include_backup: bool = False) -> None:
@@ -430,6 +395,8 @@ class App(tk.Tk):
             result = vdj_setup.query_virtualdj(self.package_layout)
         except Exception as exc:
             self.vdj_status.set(str(exc))
+            self.vdj_installation_status.set("VirtualDJ detection failed")
+            self.header_state.configure(bg="#b42318")
             if show_error:
                 messagebox.showerror("VirtualDJ detection failed", str(exc))
             return
@@ -441,15 +408,19 @@ class App(tk.Tk):
         selected = result.get("Selected")
         if selected:
             self.vdj_home.set(str(selected))
-            self.vdj_status.set("Active VirtualDJ home folder detected and validated.")
-            self.vdj_installation_status.set(
-                vdj_setup.installed_status(Path(str(selected))))
+            self.vdj_status.set(str(selected))
+            version = self.package_layout.version if self.package_layout else "0.0.0"
+            level, text = gui_common.plugin_state(Path(str(selected)), version, vdj_setup)
+            self.vdj_installation_status.set(text)
+            self.header_state.configure(bg={"ok": "#167a3f", "warning": "#b56500", "error": "#b42318"}[level])
         elif candidate_paths:
             self.vdj_installation_status.set("Select a VirtualDJ folder to check installation status.")
+            self.header_state.configure(bg="#b56500")
             self.vdj_status.set(
                 str(result.get("Message") or "Choose the active VirtualDJ home folder from the list."))
         else:
             self.vdj_installation_status.set("Select a VirtualDJ folder to check installation status.")
+            self.header_state.configure(bg="#b42318")
             self.vdj_status.set(
                 str(result.get("Message") or "Choose the active VirtualDJ home folder manually."))
 
@@ -463,20 +434,42 @@ class App(tk.Tk):
             result = vdj_setup.query_virtualdj(self.package_layout, value)
         except Exception as exc:
             self.vdj_status.set(str(exc))
+            self.vdj_installation_status.set("VirtualDJ folder is invalid")
+            self.header_state.configure(bg="#b42318")
             if show_error:
                 messagebox.showerror("Invalid VirtualDJ folder", str(exc))
             return None
         if not result.get("Valid"):
             error = str(result.get("Message") or "The selected folder is not a VirtualDJ home folder.")
             self.vdj_status.set(error)
+            self.vdj_installation_status.set("VirtualDJ folder is invalid")
+            self.header_state.configure(bg="#b42318")
             if show_error:
                 messagebox.showerror("Invalid VirtualDJ folder", error)
             return None
         selected = Path(str(result.get("Selected") or value)).expanduser().resolve()
         self.vdj_home.set(str(selected))
-        self.vdj_status.set("VirtualDJ home folder is valid.")
-        self.vdj_installation_status.set(vdj_setup.installed_status(selected))
+        self.vdj_status.set(str(selected))
+        version = self.package_layout.version if self.package_layout else "0.0.0"
+        level, text = gui_common.plugin_state(selected, version, vdj_setup)
+        self.vdj_installation_status.set(text)
+        self.header_state.configure(bg={"ok": "#167a3f", "warning": "#b56500", "error": "#b42318"}[level])
         return selected
+
+    def _toggle_advanced(self) -> None:
+        advanced_tabs = (("tidal", "TIDAL / normalize"), ("restore", "Restore sidecars"))
+        visible = {self.notebook.tab(tab_id, "text") for tab_id in self.notebook.tabs()}
+        if self.opt_advanced.get():
+            for name, title in advanced_tabs:
+                if title not in visible:
+                    self.notebook.add(self.tabs[name], text=title)
+        else:
+            for name, _title in advanced_tabs:
+                try:
+                    self.notebook.forget(self.tabs[name])
+                except tk.TclError:
+                    pass
+        self._update_run_button()
 
     def _active_tab_name(self) -> str:
         selected = self.notebook.select()
@@ -492,18 +485,8 @@ class App(tk.Tk):
         if not hasattr(self, "run_button"):
             return
         active_tab = self._active_tab_name()
-        if active_tab == "playlist_sync":
-            label = "Preview / sync folders"
-        elif active_tab != "setup":
-            label = "Run selected tool"
-        else:
-            label = {
-                "install": "Install / update plugin",
-                "uninstall": "Uninstall plugin",
-                "restore": "Restore newest backup",
-            }.get(self.setup_action.get(), "Run setup action")
-        unavailable_setup = active_tab == "setup" and self.package_layout is None
-        state = "disabled" if self.worker_running or unavailable_setup else "normal"
+        label = "Preview / sync folders" if active_tab == "playlist_sync" else "Run selected tool"
+        state = "disabled" if self.worker_running else "normal"
         self.run_button.configure(text=label, state=state)
 
     def _log(self, message) -> None:
@@ -512,12 +495,53 @@ class App(tk.Tk):
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
+    def _open_last_backup(self) -> None:
+        if self.last_backup is not None:
+            gui_common.open_path(self.last_backup)
+
+    def _check_updates(self) -> None:
+        current = self.package_layout.version if self.package_layout else "0.0.0"
+        try:
+            latest, url, available = gui_common.check_latest_version(current)
+            text = f"Version {latest} is available." if available else f"Version {current} is current."
+            if messagebox.askyesno("Release check", text + "\n\nOpen the releases page?"):
+                import webbrowser
+                webbrowser.open(url)
+        except Exception as exc:
+            messagebox.showerror("Release check failed", str(exc))
+
+    def _create_diagnostics(self) -> None:
+        current = self.package_layout.version if self.package_layout else "unknown"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            initialfile=f"LyricsTools-diagnostics-{current}.zip",
+            filetypes=[("ZIP archive", "*.zip")],
+        )
+        if not path:
+            return
+        result = gui_common.create_diagnostic_zip(
+            Path(path), app_name="LyricsTools", version=current,
+            status=self.vdj_installation_status.get(),
+            recent_log=self.log_text.get("1.0", "end"),
+        )
+        messagebox.showinfo(
+            "Diagnostics created",
+            f"Created:\n{result}\n\nNo music, tags, credentials, or absolute user paths were included.",
+        )
+
     def _poll_events(self) -> None:
         try:
             while True:
                 kind, payload = self.events.queue.get_nowait()
                 if kind == "log":
                     self._log(payload)
+                elif kind == "operation":
+                    name, backup = payload
+                    self.last_operation.set(f"Last operation completed: {name}")
+                    self.last_backup = backup
+                    self.backup_button.configure(state="normal" if backup else "disabled")
+                elif kind == "error":
+                    self.last_operation.set(f"Last operation failed: {payload}")
                 elif kind == "done":
                     self.worker_running = False
                     self._update_run_button()
@@ -541,7 +565,7 @@ class App(tk.Tk):
             return None
         return library
 
-    def _start_worker(self, target) -> None:
+    def _start_worker(self, target, operation_name: str = "operation") -> None:
         if self.worker_running:
             messagebox.showinfo("Operation in progress", "Wait for the current operation to finish.")
             return
@@ -554,9 +578,11 @@ class App(tk.Tk):
 
         def wrapper() -> None:
             try:
-                target()
+                backup = target()
+                self.events.queue.put(("operation", (operation_name, backup)))
             except Exception as exc:
                 self.events.log(f"[ERROR] {exc}")
+                self.events.queue.put(("error", str(exc)))
             finally:
                 self.events.done()
 
@@ -581,10 +607,21 @@ class App(tk.Tk):
             adopt_existing = self.opt_adopt_playlist_root.get()
             add_search_db = self.opt_add_search_db.get()
             if not dry_run:
+                try:
+                    preview = vdj_playlist_sync.sync_library(
+                        library, virtualdj_home, target_name, dry_run=True,
+                        adopt_existing=adopt_existing, add_search_db=add_search_db,
+                        log=lambda _line: None)
+                except Exception as exc:
+                    messagebox.showerror("Preview failed", str(exc))
+                    return
+                unchanged = max(0, preview.tracks - preview.added_tracks)
                 warning = (
-                    f"This will mirror:\n\n{library}\n\ninto the managed VirtualDJ "
-                    f"root:\n\n{target_name}\n\nTracks and folders missing from the "
-                    "source will be removed from that managed root. A backup is created first."
+                    f"Planned playlist changes:\n\n"
+                    f"Add: {preview.added_tracks}\nRemove: {preview.removed_tracks}\n"
+                    f"Unchanged: {unchanged}\n\nPlaylist files to update: "
+                    f"{preview.created_or_updated}; obsolete files: {preview.removed}\n\n"
+                    f"Mirror {library} into {target_name}? A backup is created first."
                 )
                 if adopt_existing:
                     warning += (
@@ -598,10 +635,10 @@ class App(tk.Tk):
                 if not messagebox.askyesno("Confirm VirtualDJ folder sync", warning):
                     return
 
-            def job() -> None:
+            def job():
                 if not dry_run:
                     vdj_setup.assert_virtualdj_closed(self.package_layout)
-                vdj_playlist_sync.sync_library(
+                result = vdj_playlist_sync.sync_library(
                     library,
                     virtualdj_home,
                     target_name,
@@ -610,38 +647,9 @@ class App(tk.Tk):
                     add_search_db=add_search_db,
                     log=self.events.log,
                 )
+                return result.backup
 
-            self._start_worker(job)
-            return
-        if tab == "setup":
-            virtualdj_home = self._validate_vdj_home(show_error=True)
-            if virtualdj_home is None:
-                return
-            if self.package_layout is None:
-                messagebox.showerror("Plugin installer unavailable", self.package_error)
-                return
-            action = self.setup_action.get()
-            descriptions = {
-                "install": "install or update LRC Master and LRC BlackOut",
-                "uninstall": "uninstall LRC Master and LRC BlackOut",
-                "restore": "restore the newest LRC Lyrics installer backup",
-            }
-            if action not in descriptions:
-                messagebox.showerror("Invalid setup action", "Choose a setup action.")
-                return
-            if not messagebox.askyesno(
-                "Confirm VirtualDJ setup",
-                f"Close VirtualDJ completely, then confirm that you want to "
-                f"{descriptions[action]} in:\n\n{virtualdj_home}",
-            ):
-                return
-
-            def job() -> None:
-                vdj_setup.run_action(
-                    self.package_layout, action, virtualdj_home, log=self.events.log)
-                self.events.log(vdj_setup.installed_status(virtualdj_home))
-
-            self._start_worker(job)
+            self._start_worker(job, "VirtualDJ folder sync")
             return
         if tab in ("import", "mark"):
             library = self._validated_library()
@@ -705,7 +713,8 @@ class App(tk.Tk):
                     library, backup, overwrite=overwrite, dry_run=dry_run, log=self.events.log,
                 )
 
-        self._start_worker(job)
+        operation_name = self.notebook.tab(self.notebook.select(), "text")
+        self._start_worker(job, operation_name)
 
 
 if __name__ == "__main__":

@@ -1,18 +1,18 @@
 # MP3 & Lyrics Tools
 
-This optional Windows and macOS suite provides one GUI for importing LRC/TXT sidecars,
+This Windows and macOS suite provides a dedicated `LRCPluginSetup` application
+and a separate `LyricsTools` GUI for importing LRC/TXT sidecars,
 marking existing embedded lyrics, normalizing or retrieving lyrics, restoring
 structure-preserving backups, mirroring folders into VirtualDJ lists, and
-managing the VirtualDJ plugin installation.
+with plugin installation kept outside the music-maintenance application.
 
 ## Requirements
 
 - Windows 10 or newer, or macOS 11 or newer
-- Python 3.10 or newer with `python` and `pythonw` available in `PATH`
 - A TIDAL account when TIDAL lookup is enabled
 
-From the repository root, install the pinned dependency range into the same
-Python installation used by the launcher:
+Release applications include their Python runtime. Python is required only when
+running directly from a source checkout; contributors install:
 
 ```powershell
 python -m pip install --user -r requirements.txt
@@ -20,10 +20,9 @@ python -m pip install --user -r requirements.txt
 
 ## Start the GUI
 
-- On Windows, double-click `LyricsTools.cmd` in the repository or extracted
-  release root.
-- On macOS, open `LyricsTools.app` without a Terminal window. Use
-  `LyricsTools.command` when you want visible launcher diagnostics. On first
+- In a release, open `LRCPluginSetup.exe/.app` for plugin management and
+  `LyricsTools.exe/.app` for all music and playlist tools.
+- In a source checkout, use `LyricsTools.cmd` or `LyricsTools.command`. On first
   launch, Control-click the unsigned app and choose **Open** if Gatekeeper asks.
 - Drag a music folder onto that launcher to select it immediately.
 - From an Explorer address bar, enter its full path while the desired music
@@ -36,23 +35,23 @@ library into a previous library's backup.
 The GUI starts in dry-run mode on first use. Review the activity log before
 turning dry-run off.
 
-## Tabs
+## Applications and tabs
 
-### VirtualDJ setup
+### LRCPluginSetup
 
-This is the first tab. On Windows it finds the active VirtualDJ home folder from
-VirtualDJ's registry setting and the standard current or legacy locations. On
-macOS it checks `~/Library/Application Support/VirtualDJ` and the legacy
-`~/Documents/VirtualDJ` location. You can also type a path or browse to a custom
-folder on either platform.
+Finds or accepts the active VirtualDJ home folder, installs the proper plugin
+payload, and supports uninstall and newest-backup restore. The top panel reports
+the path and a green, orange, or red plugin state. VirtualDJ must be closed for
+changes. Installation and uninstall create timestamped snapshots under
+`LRC Lyrics Backups`. Update checking is network-silent until requested.
 
-On Windows, the tab can install or update the bundled LRC Master and LRC BlackOut DLLs,
-uninstall them, or restore the newest installer backup. It calls the same
-PowerShell scripts as the root `Install.cmd`, `Uninstall.cmd`, and
-`Restore-Backup.cmd` launchers. VirtualDJ must be completely closed. Install and
-uninstall operations create a timestamped snapshot under `LRC Lyrics Backups`
-before changing files. The macOS package installs the native LRC Master and
-LRC BlackOut bundles into the architecture-appropriate VirtualDJ plugin folder.
+### LyricsTools
+
+The shared top panel shows the same VirtualDJ path and plugin state. Simple mode
+contains the common synchronization and tag tools. **Advanced** reveals
+TIDAL/normalization and sidecar restore. The footer shows the last operation and
+links to its backup when one was created. Diagnostic ZIPs exclude music, tags,
+credentials, and absolute user paths.
 
 ### Sync folders to VDJ
 

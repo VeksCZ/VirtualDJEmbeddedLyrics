@@ -6,9 +6,10 @@ QUICK INSTALL
 
 1. Extract the complete ZIP.
 2. Close VirtualDJ completely.
-3. Double-click Install.cmd.
-4. Start VirtualDJ.
-5. Enable LRC Master under Video Overlays. Enable LRC BlackOut only when a
+3. Double-click LRCPluginSetup.exe.
+4. Confirm the VirtualDJ folder and click Install / update.
+5. Start VirtualDJ.
+6. Enable LRC Master under Video Overlays. Enable LRC BlackOut only when a
    solid black background is wanted.
 
 The installer supports current AppData installations, legacy Documents
@@ -28,32 +29,28 @@ BEHAVIOR
 - Auto-tag #lrc adds #lrc to VirtualDJ User 1 without replacing existing data.
 - LRC BlackOut is an optional black background processed before later overlays.
 
-OPTIONAL TOOLS
---------------
+INCLUDED APPLICATIONS
+---------------------
 
-Run LyricsTools.cmd from the extracted release root to open one GUI with
-tabs to import LRC/TXT,
+LRCPluginSetup.exe handles plugin installation, update, removal and backup
+restore. LyricsTools.exe provides tabs to import LRC/TXT,
 mark existing lyrics in ID3 Grouping, retrieve or normalize lyrics with safe
-structured backups, restore LRC sidecars, and manage the VirtualDJ plugin files.
+structured backups, and restore LRC sidecars.
 It can also mirror a music directory hierarchy directly into one isolated
 VirtualDJ MyLists root, so Serato crates are not required. The folder sync starts
 in preview mode, protects unrelated lists, and creates a backup before changes.
-The VirtualDJ setup tab can detect or select the active home folder and run the
-same verified install, uninstall and backup-restore operations as the root
-launchers. Drag a music folder onto LyricsTools.cmd or start it normally
-and choose a folder. The Tools directory contains implementation files and does
-not contain additional launchers.
+Both applications display the detected VirtualDJ path and plugin status. They
+also provide on-demand update checks and privacy-safe diagnostic ZIP files.
+LyricsTools starts in Simple mode; enable Advanced for TIDAL/normalization and
+restore tools.
 
-Preview mode is enabled on first use. The optional tools require Python 3; their
-launcher can install the required Mutagen and tidalapi packages after asking for
-permission. Python is not required for normal plugin playback.
+Preview mode is enabled on first use. Both applications include their runtime;
+Python is not required.
 
 UPDATE / REMOVE
 ---------------
 
-Run Install.cmd again to update. Close VirtualDJ first.
-Run Uninstall.cmd to remove the installed files safely.
-Run Restore-Backup.cmd to select and restore a previous installer snapshot.
+Close VirtualDJ and use LRCPluginSetup.exe to update, remove, or restore.
 
 Full documentation:
 https://github.com/VeksCZ/VirtualDJEmbeddedLyrics

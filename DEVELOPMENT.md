@@ -1,14 +1,14 @@
 # Development
 
 This document is for contributors and source builds. End users should download
-the release ZIP and run `Install.cmd` as described in the main README.
+the release ZIP and open `LRCPluginSetup` as described in the main README.
 
 ## Requirements
 
 - Windows 10 or 11, x64
 - Visual Studio 2022 with **Desktop development with C++**
 - CMake 3.24 or newer
-- Python 3 with dependencies from `requirements.txt`
+- Python 3 with dependencies from `requirements.txt` and `requirements-build.txt`
 
 The public VirtualDJ 8 SDK headers are vendored under
 `tools/sdk/VirtualDJ8_SDK_20211003`.
@@ -17,10 +17,12 @@ The public VirtualDJ 8 SDK headers are vendored under
 
 ```powershell
 py -m pip install -r requirements.txt
+py -m pip install -r requirements-build.txt
 ./build-release.ps1
 ```
 
-The script builds both supported DLLs, runs C++ tests, Python tests and installer
+The script builds both supported DLLs and standalone GUI executables, then runs
+C++ tests, Python tests and installer
 integration tests, then leaves only the publishable artifacts:
 
 - `dist/LRC-Lyrics-VirtualDJ-Windows-v<VERSION>.zip`
@@ -35,21 +37,21 @@ The cross-platform Python tools can be tested and packaged on macOS with:
 
 ```bash
 python3 -m pip install -r requirements.txt
+python3 -m pip install -r requirements-build.txt
 ./build-macos-tools-release.sh
 ```
 
-This creates `dist/LRC-Lyrics-VirtualDJ-macOS-v<VERSION>.zip`, including a
-no-Terminal `LyricsTools.app`. The macOS CI job also compiles and tests the
-platform-neutral C++ lyrics core. Native VirtualDJ video overlays still require
-a separate Metal/CoreText `.bundle` implementation and validation in VirtualDJ
-on both Intel and Apple Silicon.
+This creates `dist/LRC-Lyrics-VirtualDJ-macOS-<architecture>-v<VERSION>.zip`.
+CI publishes separate `AppleSilicon` and `Intel` packages containing standalone
+`LyricsTools.app` and `LRCPluginSetup.app`. The macOS CI job builds
+universal Metal/CoreText plugin bundles, verifies both architectures, exported
+entry points, and code signatures, and tests the platform-neutral lyrics core.
 
 ## Local source-tree installation
 
-After a successful release build, close VirtualDJ and run the root
-`LyricsTools.cmd`, open **VirtualDJ setup**, confirm the detected home
-folder and choose **Install / update plugin**. The source GUI reads the exact
-plugin payload from the built release ZIP.
+After a successful release build, close VirtualDJ and run the generated
+`LRCPluginSetup.exe`, confirm the detected home folder, and choose
+**Install / update**.
 
 For command-line testing, extract the release ZIP and run its `Install.cmd`.
 The underlying script also accepts an explicit custom location:
@@ -58,10 +60,8 @@ The underlying script also accepts an explicit custom location:
 ./install-plugin.ps1 -VirtualDJHome 'D:\VirtualDJ' -PayloadDirectory './Plugins' -NonInteractive
 ```
 
-The only source-tree end-user launcher is `LyricsTools.cmd`; all Python
-implementation files live in `tools/`, and canonical installation scripts live
-in `installer/`. `build-release.ps1` places the GUI launcher and the no-Python
-installer entry points in the release root.
+Python implementation files live in `tools/`, and canonical installation scripts
+live in `installer/`. Release builds package both GUIs with their own runtime.
 
 ## Tests
 

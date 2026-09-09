@@ -10,6 +10,10 @@ fi
 
 python_bin="${PYTHON:-python3}"
 "$python_bin" -m unittest discover -s "$project_root/tests" -p 'test_*.py'
+"$python_bin" -c 'import PyInstaller' >/dev/null 2>&1 || {
+    echo "PyInstaller is required. Install requirements-build.txt." >&2
+    exit 1
+}
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/lrc-macos-build.XXXXXX")"
 trap 'rm -rf "$work_dir"' EXIT
@@ -20,7 +24,8 @@ cmake --build "$build_dir" --config Release
 ctest --test-dir "$build_dir" -C Release --output-on-failure
 
 dist_dir="$project_root/dist"
-package_name="LRC-Lyrics-VirtualDJ-macOS-v$version"
+variant="${MACOS_VARIANT:-$(uname -m)}"
+package_name="LRC-Lyrics-VirtualDJ-macOS-$variant-v$version"
 stage_dir="$work_dir/stage"
 package_dir="$stage_dir/$package_name"
 mkdir -p "$package_dir/Tools" "$package_dir/Plugins"
@@ -38,12 +43,19 @@ fi
 cp -R "$master_bundle" "$package_dir/Plugins/LRCMaster.bundle"
 cp -R "$blackout_bundle" "$package_dir/Plugins/LRCBlackOut.bundle"
 
-cp -R "$project_root/macos/LyricsTools.app" "$package_dir/LyricsTools.app"
-cp "$project_root/LyricsTools.command" "$package_dir/LyricsTools.command"
-chmod +x "$package_dir/LyricsTools.command" "$package_dir/LyricsTools.app/Contents/MacOS/LyricsTools"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" \
-    "$package_dir/LyricsTools.app/Contents/Info.plist"
-for name in lyrics_tag_converter.py lrc_tool.py restore_lrc.py lyrics_tools_gui.py vdj_setup.py vdj_playlist_sync.py; do
+"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
+    --name LRCPluginSetup --paths "$project_root/tools" \
+    --distpath "$work_dir/setup-dist" --workpath "$work_dir/setup-build" \
+    --specpath "$work_dir/setup-spec" "$project_root/tools/plugin_setup_gui.py"
+cp -R "$work_dir/setup-dist/LRCPluginSetup.app" "$package_dir/LRCPluginSetup.app"
+"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
+    --name LyricsTools --paths "$project_root/tools" \
+    --distpath "$work_dir/tools-dist" --workpath "$work_dir/tools-build" \
+    --specpath "$work_dir/tools-spec" "$project_root/tools/lyrics_tools_gui.py"
+cp -R "$work_dir/tools-dist/LyricsTools.app" "$package_dir/LyricsTools.app"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$package_dir/LyricsTools.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$package_dir/LRCPluginSetup.app/Contents/Info.plist"
+for name in lyrics_tag_converter.py lrc_tool.py restore_lrc.py lyrics_tools_gui.py plugin_setup_gui.py gui_common.py vdj_setup.py vdj_playlist_sync.py; do
     cp "$project_root/tools/$name" "$package_dir/Tools/$name"
 done
 cp "$project_root/tools/README.md" "$package_dir/Tools/README.md"
@@ -56,9 +68,11 @@ cp "$project_root/VERSION" "$package_dir/VERSION"
 /usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCMaster.bundle"
 /usr/bin/codesign --force --deep --sign - "$package_dir/Plugins/LRCBlackOut.bundle"
 /usr/bin/codesign --force --deep --sign - "$package_dir/LyricsTools.app"
+/usr/bin/codesign --force --deep --sign - "$package_dir/LRCPluginSetup.app"
 /usr/bin/codesign --verify --deep --strict "$package_dir/Plugins/LRCMaster.bundle"
 /usr/bin/codesign --verify --deep --strict "$package_dir/Plugins/LRCBlackOut.bundle"
 /usr/bin/codesign --verify --deep --strict "$package_dir/LyricsTools.app"
+/usr/bin/codesign --verify --deep --strict "$package_dir/LRCPluginSetup.app"
 
 mkdir -p "$dist_dir"
 zip_path="$dist_dir/$package_name.zip"

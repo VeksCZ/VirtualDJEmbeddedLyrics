@@ -31,47 +31,20 @@ try {
         $source = Join-Path $PayloadDirectory $name
         Assert-True ((Get-FileHash -LiteralPath $installed).Hash -eq (Get-FileHash -LiteralPath $source).Hash) "$name hash differs"
     }
-    Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.cmd') -PathType Leaf) 'root GUI launcher is missing'
+    Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe') -PathType Leaf) 'standalone LyricsTools app is missing'
+    Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LRCPluginSetup.exe') -PathType Leaf) 'standalone plugin setup is missing'
     $toolsDirectory = Join-Path $PackageDirectory 'Tools'
     $duplicateLaunchers = @(Get-ChildItem -LiteralPath $toolsDirectory -File | Where-Object {
         $_.Extension -in @('.cmd', '.bat', '.vbs')
     })
     Assert-True ($duplicateLaunchers.Count -eq 0) 'Tools contains a duplicate launcher'
     foreach ($name in @(
-        'lyrics_tools_gui.py',
+        'lyrics_tools_gui.py', 'plugin_setup_gui.py', 'gui_common.py',
         'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py', 'vdj_setup.py',
         'vdj_playlist_sync.py', 'requirements.txt', 'README.md'
     )) {
         Assert-True (Test-Path -LiteralPath (Join-Path $toolsDirectory $name) -PathType Leaf) "Tools/$name is missing"
     }
-
-    $mockBin = Join-Path $TestRoot 'mock-bin'
-    $launcherLog = Join-Path $TestRoot 'launcher.log'
-    New-Item -ItemType Directory -Force -Path $mockBin | Out-Null
-    Set-Content -LiteralPath (Join-Path $mockBin 'python.cmd') -Encoding ASCII -Value @(
-        '@echo off',
-        'echo %*>>"%LYRICS_LAUNCH_LOG%"',
-        'exit /b 0'
-    )
-    $previousPath = $env:PATH
-    $previousLauncherLog = $env:LYRICS_LAUNCH_LOG
-    try {
-        $env:PATH = "$mockBin;$previousPath"
-        $env:LYRICS_LAUNCH_LOG = $launcherLog
-        Push-Location $PackageDirectory
-        try {
-            & cmd.exe /d /c 'LyricsTools.cmd'
-            Assert-True ($LASTEXITCODE -eq 0) 'root GUI launcher returned an error'
-        } finally {
-            Pop-Location
-        }
-    } finally {
-        $env:PATH = $previousPath
-        $env:LYRICS_LAUNCH_LOG = $previousLauncherLog
-    }
-    $launcherCalls = Get-Content -LiteralPath $launcherLog
-    Assert-True ($launcherCalls.Count -eq 2) 'root GUI launcher did not invoke dependency check and GUI'
-    Assert-True ($launcherCalls[-1].ToLowerInvariant().Contains('tools\lyrics_tools_gui.py')) 'root GUI launcher did not invoke the bundled GUI'
 
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $VirtualDJTestHome 'Plugins64\VideoEffect\LRC Deck FX.dll'))) 'legacy Deck FX remains'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $VirtualDJTestHome 'Plugins64\Visualisations\LRC Deck.dll'))) 'legacy visualisation remains'

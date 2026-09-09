@@ -1,4 +1,7 @@
-param([string]$Generator = 'Visual Studio 17 2022')
+param(
+    [string]$Generator = 'Visual Studio 17 2022',
+    [string]$PythonCommand = 'py'
+)
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -27,8 +30,12 @@ function Assert-ChildPath {
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw 'CMake was not found. Install Visual Studio 2022 with Desktop development with C++.'
 }
-if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
-    throw 'Python 3 launcher (py.exe) is required to run the release tests.'
+if (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
+    throw "Python 3 is required to run the release tests: $PythonCommand"
+}
+& $PythonCommand -c "import PyInstaller" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw 'PyInstaller is required for releases. Run: py -m pip install -r requirements-build.txt'
 }
 
 Assert-ChildPath -Child $BuildDirectory -Parent $ProjectRoot
@@ -42,7 +49,7 @@ cmake --build $BuildDirectory --config Release
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
 ctest --test-dir $BuildDirectory -C Release --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw 'C++ tests failed.' }
-py -m unittest discover -s (Join-Path $ProjectRoot 'tests') -p 'test_*.py'
+& $PythonCommand -m unittest discover -s (Join-Path $ProjectRoot 'tests') -p 'test_*.py'
 if ($LASTEXITCODE -ne 0) { throw 'Python tests failed.' }
 
 New-Item -ItemType Directory -Force -Path $DistRoot | Out-Null
@@ -56,6 +63,21 @@ foreach ($artifact in @($ZipPath, $ChecksumPath)) {
 }
 New-Item -ItemType Directory -Force -Path $PluginsDirectory, $ToolsDirectory | Out-Null
 
+$SetupBuild = Join-Path $BuildDirectory 'plugin-setup-build'
+$SetupDist = Join-Path $BuildDirectory 'plugin-setup-dist'
+$SetupSpec = Join-Path $BuildDirectory 'plugin-setup-spec'
+& $PythonCommand -m PyInstaller --noconfirm --clean --onefile --windowed --name LRCPluginSetup `
+    --paths (Join-Path $ProjectRoot 'tools') --distpath $SetupDist --workpath $SetupBuild `
+    --specpath $SetupSpec (Join-Path $ProjectRoot 'tools\plugin_setup_gui.py')
+if ($LASTEXITCODE -ne 0) { throw 'Standalone plugin setup build failed.' }
+Copy-Item -LiteralPath (Join-Path $SetupDist 'LRCPluginSetup.exe') -Destination $PackageDirectory
+& $PythonCommand -m PyInstaller --noconfirm --clean --onefile --windowed --name LyricsTools `
+    --paths (Join-Path $ProjectRoot 'tools') --distpath $SetupDist `
+    --workpath (Join-Path $BuildDirectory 'lyrics-tools-build') --specpath $SetupSpec `
+    (Join-Path $ProjectRoot 'tools\lyrics_tools_gui.py')
+if ($LASTEXITCODE -ne 0) { throw 'Standalone LyricsTools build failed.' }
+Copy-Item -LiteralPath (Join-Path $SetupDist 'LyricsTools.exe') -Destination $PackageDirectory
+
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
@@ -68,10 +90,10 @@ foreach ($name in @(
     Copy-Item -LiteralPath (Join-Path $InstallerSource $name) -Destination $PackageDirectory
 }
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $PackageDirectory
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LyricsTools.cmd') -Destination $PackageDirectory
 $toolFiles = @(
     'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py',
-    'lyrics_tools_gui.py', 'vdj_setup.py', 'vdj_playlist_sync.py'
+    'lyrics_tools_gui.py', 'plugin_setup_gui.py', 'gui_common.py',
+    'vdj_setup.py', 'vdj_playlist_sync.py'
 )
 foreach ($name in $toolFiles) {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "tools\$name") -Destination $ToolsDirectory

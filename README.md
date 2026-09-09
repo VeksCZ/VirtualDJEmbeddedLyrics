@@ -8,12 +8,14 @@ master video output. The project provides two Windows 64-bit video overlays:
 
 ## Download and install
 
-1. Download the `LRC-Lyrics-VirtualDJ-Windows-vX.Y.Z.zip` asset from the
+1. Download the asset matching your system: `Windows`, `macOS-AppleSilicon`, or
+   `macOS-Intel`, from the
    [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
 2. Extract the complete ZIP. Do not run the installer from inside the ZIP preview.
 3. Close VirtualDJ completely.
-4. Double-click **Install.cmd**.
-5. Start VirtualDJ again.
+4. Open **LRCPluginSetup.exe** on Windows or **LRCPluginSetup.app** on macOS.
+5. Confirm the detected VirtualDJ folder and choose **Install / update**.
+6. Start VirtualDJ again.
 
 The installer detects the active VirtualDJ home folder from the VirtualDJ
 registry setting, the current `%LOCALAPPDATA%\VirtualDJ` location, or the legacy
@@ -68,15 +70,17 @@ as synchronized lyrics.
 use the standard ID3 `Grouping` field for the portable markers
 `Lyrics: Synced` and `Lyrics: Unsynced`.
 
-## Optional MP3 tools (Windows and macOS)
+## Included applications
 
-The Windows release has one **LyricsTools.cmd** launcher in its root. A macOS
-tools package provides **LyricsTools.app** for normal no-Terminal startup and
-**LyricsTools.command** for diagnostics.
-It opens a single GUI with tabs for:
+Both release packages contain two separate no-console applications:
 
-- finding or selecting the active VirtualDJ home folder and installing, updating,
-  uninstalling or restoring the bundled plugin DLLs;
+- **LRCPluginSetup** installs, updates, removes, or restores the VirtualDJ plugin.
+- **LyricsTools** manages music files, lyrics, MyLists, and Search DB.
+
+Both applications include their runtime; end users do not need to install
+Python. LyricsTools opens in Simple mode and exposes TIDAL/normalization and
+restore tools after enabling **Advanced**. Its tabs cover:
+
 - fully mirroring a music directory tree and its tracks into an isolated
   VirtualDJ MyLists root, with optional add-only Search DB registration;
 - importing same-name LRC/TXT files into MP3 lyrics tags;
@@ -84,30 +88,30 @@ It opens a single GUI with tabs for:
 - downloading or normalizing lyrics with structure-preserving LRC backups;
 - restoring LRC sidecars from those backups.
 
-Drag a music folder onto **LyricsTools.cmd**, or start it and choose a
-folder. Preview mode is enabled on first use. Source LRC/TXT files are deleted
+Start **LyricsTools** and choose a folder. Preview mode is enabled on first use.
+Source LRC/TXT files are deleted
 only after successful verification and only when you explicitly enable deletion.
 
-These optional tools require Python 3, Mutagen and tidalapi. If Python is
-installed but packages are missing, the launcher offers to install the required
-versions for the current user.
-Python is also required by **Record timing**, but not for normal lyrics display.
+Python is required only by the Windows plugin's optional **Record timing** helper,
+not by either packaged GUI application or normal lyrics display.
 
-On macOS, install the current Python from python.org, extract the complete macOS
-ZIP, and open **LyricsTools.app**. If Gatekeeper blocks the locally signed
+On macOS, extract the complete ZIP and open **LRCPluginSetup.app** first. If
+Gatekeeper blocks a locally signed
 app on first launch, Control-click it, choose **Open**, and confirm once. The GUI
 detects both `~/Library/Application Support/VirtualDJ` and the legacy
 `~/Documents/VirtualDJ` home. Music on external drives is registered in that
 volume's `/Volumes/<name>/VirtualDJ/database.xml`.
 
-The macOS package contains universal LRC Master and LRC BlackOut `.bundle`
-plugins. The installer selects the proper Intel or Apple Silicon plugin location
-automatically. LyricsTools, folder/MyLists synchronization, Search DB
+Each macOS package contains universal LRC Master and LRC BlackOut `.bundle`
+plugins plus GUI applications native to the architecture named in the ZIP. The
+installer selects the proper plugin location automatically. LyricsTools,
+folder/MyLists synchronization, Search DB
 registration, and MP3 lyrics maintenance are available on both platforms.
 
-The **VirtualDJ setup** tab uses the same verified installer as `Install.cmd`.
-It validates the selected folder, keeps replaced files in `LRC Lyrics Backups`,
-and never bypasses the check that VirtualDJ is closed.
+**LRCPluginSetup** validates the selected folder, shows a color-coded installation
+state, keeps replaced files in `LRC Lyrics Backups`, and never bypasses the check
+that VirtualDJ is closed. Both applications can create a privacy-safe diagnostic
+ZIP and check GitHub for updates only when the user presses the relevant button.
 
 The **Sync folders to VDJ** tab is a one-way, full mirror. It rebuilds only the
 named managed root: new files appear, and playlist references to files or folders
@@ -142,20 +146,18 @@ for a recursive MP3 scan.
 
 ## Update or uninstall
 
-To update, close VirtualDJ, extract the new release and run its **Install.cmd**.
+To update, close VirtualDJ, extract the new release and open **LRCPluginSetup**.
 The operation is repeatable and keeps a backup of replaced files.
 
-To remove the plugin, close VirtualDJ and run **Uninstall.cmd** from the extracted
-release. Only files installed by this project are removed, and they are backed up
-first. **Restore-Backup.cmd** can restore one of the snapshots created before an
-installation or uninstall operation.
+To remove or restore the plugin, close VirtualDJ and use **LRCPluginSetup**. Only
+managed files are removed, and they are backed up first.
 
 ## Troubleshooting
 
 ### The overlays are not listed
 
 - Restart VirtualDJ after installation.
-- Run `Install.cmd` again and confirm the displayed VirtualDJ home path.
+- Open `LRCPluginSetup` and confirm the displayed VirtualDJ home path.
 - If asked for a path, open it using **Settings > Options > cog button** in
   VirtualDJ.
 
