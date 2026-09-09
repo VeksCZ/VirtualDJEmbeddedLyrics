@@ -2,11 +2,15 @@
 
 #include "Diagnostics.hpp"
 
-AsyncLyricsLoader::AsyncLyricsLoader() : worker_([this](std::stop_token stopToken) { Run(stopToken); }) {}
+AsyncLyricsLoader::AsyncLyricsLoader() : worker_([this] { Run(); }) {}
 
 AsyncLyricsLoader::~AsyncLyricsLoader() {
-    worker_.request_stop();
+    {
+        std::scoped_lock lock{mutex_};
+        stopping_ = true;
+    }
     wake_.notify_all();
+    if (worker_.joinable()) worker_.join();
 }
 
 void AsyncLyricsLoader::Request(std::filesystem::path path) {
@@ -26,14 +30,14 @@ std::optional<AsyncLyricsLoader::Completed> AsyncLyricsLoader::Poll() {
     return result;
 }
 
-void AsyncLyricsLoader::Run(std::stop_token stopToken) {
-    while (!stopToken.stop_requested()) {
+void AsyncLyricsLoader::Run() {
+    while (true) {
         std::filesystem::path path;
         std::uint64_t generation = 0;
         {
             std::unique_lock lock{mutex_};
-            wake_.wait(lock, stopToken, [this] { return pending_.has_value(); });
-            if (stopToken.stop_requested()) break;
+            wake_.wait(lock, [this] { return stopping_ || pending_.has_value(); });
+            if (stopping_) break;
             path = std::move(*pending_);
             pending_.reset();
             generation = generation_;

@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <thread>
 
 class AsyncLyricsLoader {
@@ -26,12 +25,13 @@ public:
     std::optional<Completed> Poll();
 
 private:
-    void Run(std::stop_token stopToken);
+    void Run();
 
     std::mutex mutex_;
-    std::condition_variable_any wake_;
+    std::condition_variable wake_;
     std::optional<std::filesystem::path> pending_;
     std::optional<Completed> completed_;
     std::uint64_t generation_{};
-    std::jthread worker_;
+    bool stopping_{};
+    std::thread worker_;
 };
