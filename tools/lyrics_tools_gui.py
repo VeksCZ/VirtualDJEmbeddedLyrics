@@ -280,9 +280,9 @@ class App(tk.Tk):
         self._folder_panel(mark_tab)
         self._description(
             mark_tab,
-            "Scan embedded lyrics and set the portable ID3 Grouping marker to "
-            "Lyrics: Synced or Lyrics: Unsynced, then update #sylt/#uslt in VirtualDJ "
-            "User 1. Unrelated values are preserved.",
+            "Normalize embedded lyrics to exactly one standard SYLT or USLT frame, "
+            "remove obsolete custom lyric duplicates, set the portable ID3 Grouping "
+            "marker, then update #sylt/#uslt in VirtualDJ User 1. Unrelated tags are preserved.",
         )
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
 

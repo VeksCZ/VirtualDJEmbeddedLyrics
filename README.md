@@ -86,6 +86,11 @@ updates `#sylt/#uslt` directly in the appropriate VirtualDJ database. Missing
 database entries are added, while unrelated tags and existing analysis are kept.
 VirtualDJ must be closed for that direct database update, and a backup is created.
 
+The **Mark existing lyrics** action also cleans existing MP3 files: it keeps or
+creates exactly one standard `SYLT` for timed lyrics, otherwise exactly one
+standard `USLT` for plain lyrics, and removes recognized legacy lyric duplicates.
+Unrelated ID3 frames are not removed.
+
 ## Included application
 
 Each platform has one no-console **LyricsTools** download. Its first tab handles

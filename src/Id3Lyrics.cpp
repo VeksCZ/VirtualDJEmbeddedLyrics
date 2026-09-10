@@ -280,8 +280,8 @@ LyricsLoadResult LoadEmbeddedTimedLyrics(const std::filesystem::path& audioPath)
         }
         pos += size;
     }
-    if (!textLyrics.document.empty()) return textLyrics;
     if (!syltFallback.document.empty()) return syltFallback;
+    if (!textLyrics.document.empty()) return textLyrics;
     if (!timestampedUntimedFallback.document.empty()) return timestampedUntimedFallback;
     result.error = L"No synchronized embedded lyrics";
     return result;
@@ -334,8 +334,8 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
         }
         pos += size;
     }
-    if (!txxxLyrics.document.empty()) return txxxLyrics;
     if (!usltFallback.document.empty()) return usltFallback;
+    if (!txxxLyrics.document.empty()) return txxxLyrics;
     result.error = L"No unsynchronized embedded lyrics";
     return result;
 }

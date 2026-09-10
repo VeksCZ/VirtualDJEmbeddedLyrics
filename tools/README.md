@@ -99,7 +99,9 @@ track's VirtualDJ User 1 field.
 
 Scans embedded lyrics and writes `Lyrics: Synced` or `Lyrics: Unsynced` to the
 portable ID3 Grouping field. Existing unrelated Grouping content is preserved.
-It then mirrors that classification to VirtualDJ User 1 as `#sylt` or `#uslt`.
+It canonicalizes recognized lyrics to exactly one standard `SYLT` or `USLT`,
+removes legacy custom lyric duplicates, then mirrors that classification to
+VirtualDJ User 1 as `#sylt` or `#uslt`.
 The TIDAL/normalize workflow performs the same synchronization after writing.
 VirtualDJ database updates preserve other User 1 values and analysis, register
 missing tracks, require VirtualDJ to be closed, and are backed up under

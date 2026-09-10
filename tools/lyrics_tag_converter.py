@@ -135,9 +135,13 @@ def embedded_lyrics_kind(tags) -> str | None:
     """Return the strongest embedded lyrics kind understood by the plugin."""
     has_synced = any(getattr(frame, "text", None) for frame in tags.getall("SYLT"))
     has_synced = has_synced or any(
-        frame.desc.upper() == "SYNCEDLYRICS"
-        and any(str(value).strip() for value in frame.text)
+        frame.desc.upper() in {"SYNCEDLYRICS", "LYRICS", "USLT", "UNSYNCEDLYRICS"}
+        and parse_timestamped_text("\n".join(str(value) for value in frame.text))
         for frame in tags.getall("TXXX")
+    )
+    has_synced = has_synced or any(
+        parse_timestamped_text(str(getattr(frame, "text", "")))
+        for frame in tags.getall("USLT")
     )
     if has_synced:
         return "Synced"
@@ -157,6 +161,63 @@ def remove_legacy_lyrics_txxx(tags) -> None:
     for frame in list(tags.getall("TXXX")):
         if frame.desc.upper() in descriptions:
             tags.delall(frame.HashKey)
+
+
+def canonicalize_lyrics_frames(tags) -> tuple[str | None, bool]:
+    """Keep exactly one standard SYLT or USLT, converting readable legacy lyrics."""
+    Encoding, _, _, SYLT, _, _, USLT = load_mutagen()
+    sylt_frames = [frame for frame in tags.getall("SYLT") if getattr(frame, "text", None)]
+    uslt_frames = [frame for frame in tags.getall("USLT")
+                   if str(getattr(frame, "text", "")).strip()]
+    legacy_frames = [frame for frame in tags.getall("TXXX")
+                     if frame.desc.upper() in {"SYNCEDLYRICS", "UNSYNCEDLYRICS", "LYRICS", "USLT"}]
+
+    timed_lines: list[TimedLine] = []
+    for frame in legacy_frames:
+        timed_lines = parse_timestamped_text("\n".join(str(value) for value in frame.text))
+        if timed_lines:
+            break
+    if not timed_lines:
+        for frame in uslt_frames:
+            timed_lines = parse_timestamped_text(str(frame.text))
+            if timed_lines:
+                break
+
+    if sylt_frames:
+        chosen = sylt_frames[0]
+        changed = len(sylt_frames) != 1 or bool(uslt_frames) or bool(legacy_frames)
+        tags.delall("SYLT")
+        tags.delall("USLT")
+        remove_legacy_lyrics_txxx(tags)
+        tags.add(chosen)
+        return "Synced", changed
+    if timed_lines:
+        tags.delall("SYLT")
+        tags.delall("USLT")
+        remove_legacy_lyrics_txxx(tags)
+        tags.add(SYLT(encoding=Encoding.UTF16, lang="und", format=2, type=1,
+                      desc="Converted by LyricsTools",
+                      text=[(line.text, line.time_ms) for line in timed_lines]))
+        return "Synced", True
+    if uslt_frames:
+        chosen = uslt_frames[0]
+        changed = len(uslt_frames) != 1 or bool(legacy_frames)
+        tags.delall("SYLT")
+        tags.delall("USLT")
+        remove_legacy_lyrics_txxx(tags)
+        tags.add(chosen)
+        return "Unsynced", changed
+
+    for frame in legacy_frames:
+        text = sanitize_untimed_text("\n".join(str(value) for value in frame.text))
+        if text:
+            tags.delall("SYLT")
+            tags.delall("USLT")
+            remove_legacy_lyrics_txxx(tags)
+            tags.add(USLT(encoding=Encoding.UTF16, lang="und",
+                          desc="Converted by LyricsTools", text=text))
+            return "Unsynced", True
+    return None, False
 
 
 def set_grouping_lyrics_marker(tags, kind: str) -> bool:
@@ -200,15 +261,20 @@ def mark_existing_mp3(root: Path, write: bool, log: Callable[[object], None] = p
             if not write:
                 log(f"DRY-RUN  {mp3_path}: {marker} (Grouping: {current or '<empty>'})")
                 continue
-            if set_grouping_lyrics_marker(tags, kind):
+            kind, lyrics_changed = canonicalize_lyrics_frames(tags)
+            grouping_changed = bool(kind) and set_grouping_lyrics_marker(tags, kind)
+            if lyrics_changed or grouping_changed:
                 version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
                 tags.save(mp3_path, v2_version=version)
                 verify = ID3(mp3_path)
-                if not any(marker in str(value)
-                           for frame in verify.getall("TIT1") for value in frame.text):
+                if (len(verify.getall("SYLT")) + len(verify.getall("USLT")) != 1
+                        or any(frame.desc.upper() in {"SYNCEDLYRICS", "UNSYNCEDLYRICS", "LYRICS", "USLT"}
+                               for frame in verify.getall("TXXX"))
+                        or not any(marker in str(value)
+                           for frame in verify.getall("TIT1") for value in frame.text)):
                     raise RuntimeError("Grouping marker verification failed")
                 changed += 1
-                log(f"WRITE    {mp3_path}: Grouping += {marker}")
+                log(f"WRITE    {mp3_path}: canonical {kind}; Grouping = {marker}")
             else:
                 log(f"OK       {mp3_path}: {marker}")
         except Exception as exc:
