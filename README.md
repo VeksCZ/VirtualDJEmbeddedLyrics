@@ -1,7 +1,7 @@
 # LRC Lyrics for VirtualDJ
 
 Display synchronized or plain lyrics from your own music files in the VirtualDJ
-master video output. The project provides two Windows 64-bit video overlays:
+master video output. The project provides two video overlays for Windows and macOS:
 
 - **LRC Master** displays the lyrics.
 - **LRC BlackOut** adds an optional black background behind overlays.

@@ -25,9 +25,9 @@ python -m pip install --user -r requirements.txt
   End users should use the self-contained release application, which does not
   require Python or a command window.
 
-When a folder is supplied to a launcher, both the music library and its default
-`_lrc_backup` folder are selected together. Saved settings never redirect a new
-library into a previous library's backup.
+When a music library is selected, its default `_lrc_backup` folder is selected
+with it. Saved settings never redirect a new library into a previous library's
+backup.
 
 The GUI starts in dry-run mode on first use. Review the activity log before
 turning dry-run off.
