@@ -385,7 +385,7 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             for frame in tags.getall("TXXX")
         )
         if lrc_path and synchronized_available:
-            messages.append("TXT ignored because LRC/synchronized lyrics have priority")
+            messages.append("TXT ignored because LRC has priority over synchronized lyrics")
         elif txt_timed_lines:
             synced_txxx = [frame for frame in tags.getall("TXXX")
                            if frame.desc.upper() == "SYNCEDLYRICS"

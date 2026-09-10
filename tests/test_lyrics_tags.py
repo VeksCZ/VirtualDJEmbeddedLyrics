@@ -194,7 +194,7 @@ class TimedTxtImportTests(unittest.TestCase):
 
 
 class SidecarDeletionTests(unittest.TestCase):
-    def test_deletes_lrc_and_txt_only_after_both_are_written_and_verified(self):
+    def test_deletes_imported_lrc_but_keeps_txt_ignored_by_single_tag_policy(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mp3 = root / "song.mp3"
@@ -209,9 +209,9 @@ class SidecarDeletionTests(unittest.TestCase):
 
             self.assertTrue(changed)
             self.assertIn("LRC deleted", message)
-            self.assertIn("TXT deleted", message)
+            self.assertIn("TXT ignored", message)
             self.assertFalse(lrc.exists())
-            self.assertFalse(txt.exists())
+            self.assertTrue(txt.exists())
 
     def test_does_not_delete_txt_when_existing_tag_causes_skip(self):
         with tempfile.TemporaryDirectory() as directory:
