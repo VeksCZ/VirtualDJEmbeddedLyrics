@@ -331,6 +331,24 @@ class MarkLyricsGroupingTests(unittest.TestCase):
             self.assertTrue(any("DRY-RUN" in message for message in messages))
             self.assertFalse(ID3(mp3).getall("TIT1"))
 
+    def test_collects_virtualdj_markers_from_embedded_lyrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            synced = root / "synced.mp3"
+            synced_tags = ID3()
+            synced_tags.add(SYLT(encoding=3, lang="und", format=2, type=1,
+                                 desc="test", text=[("Line", 1000)]))
+            synced_tags.save(synced)
+            plain = root / "plain.mp3"
+            plain_tags = ID3()
+            plain_tags.add(USLT(encoding=3, lang="und", desc="", text="Plain"))
+            plain_tags.save(plain)
+
+            markers = converter.collect_virtualdj_lyrics_markers(root)
+
+            self.assertEqual(markers[synced.resolve()], "#sylt")
+            self.assertEqual(markers[plain.resolve()], "#uslt")
+
 
 class TimingWriterTests(unittest.TestCase):
     def test_writes_both_synced_frames_and_refuses_overwrite(self):

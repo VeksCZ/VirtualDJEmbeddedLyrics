@@ -91,12 +91,18 @@ is written to SYLT and `SYNCEDLYRICS`; plain TXT is written to USLT and
 `UNSYNCEDLYRICS`. Optional deletion happens only after the destination tags have
 been reopened and verified. A separate option deletes a lower-priority timed TXT
 only when a same-name LRC was imported and verified; plain and unverified skipped
-TXT files remain untouched.
+TXT files remain untouched. A real run also writes `#sylt` or `#uslt` to the
+track's VirtualDJ User 1 field.
 
 ### Mark existing lyrics
 
 Scans embedded lyrics and writes `Lyrics: Synced` or `Lyrics: Unsynced` to the
 portable ID3 Grouping field. Existing unrelated Grouping content is preserved.
+It then mirrors that classification to VirtualDJ User 1 as `#sylt` or `#uslt`.
+The TIDAL/normalize workflow performs the same synchronization after writing.
+VirtualDJ database updates preserve other User 1 values and analysis, register
+missing tracks, require VirtualDJ to be closed, and are backed up under
+`Lyrics Tag Backups`.
 
 ### TIDAL / normalize
 

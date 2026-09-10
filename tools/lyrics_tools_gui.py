@@ -253,7 +253,8 @@ class App(tk.Tk):
         self._description(
             import_tab,
             "Import same-name .lrc and .txt files into MP3 ID3 tags. LRC has priority "
-            "for synchronized lyrics. Writes are verified before sources are deleted.",
+            "for synchronized lyrics. Writes are verified before sources are deleted. "
+            "A real run also updates #sylt/#uslt in VirtualDJ User 1.",
         )
         ttk.Checkbutton(import_tab, text="Replace existing destination lyrics frames",
                         variable=self.opt_import_overwrite).pack(anchor="w", pady=3)
@@ -280,7 +281,8 @@ class App(tk.Tk):
         self._description(
             mark_tab,
             "Scan embedded lyrics and set the portable ID3 Grouping marker to "
-            "Lyrics: Synced or Lyrics: Unsynced. Unrelated Grouping values are preserved.",
+            "Lyrics: Synced or Lyrics: Unsynced, then update #sylt/#uslt in VirtualDJ "
+            "User 1. Unrelated values are preserved.",
         )
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
 
@@ -319,7 +321,8 @@ class App(tk.Tk):
         self._description(
             tidal_tab,
             "Prefer local LRC sidecars, optionally retrieve missing lyrics from TIDAL, "
-            "normalize USLT frames, and back up lyrics before editing MP3 tags.",
+            "normalize USLT frames, back up lyrics before editing MP3 tags, and update "
+            "VirtualDJ User 1 markers after a real run.",
         )
         ttk.Checkbutton(tidal_tab, text="Download missing lyrics from TIDAL (browser login required)",
                         variable=self.opt_tidal).pack(anchor="w", pady=3)
@@ -930,6 +933,20 @@ class App(tk.Tk):
                 return
             library, backup = paths
 
+        tag_vdj_home = None
+        if tab in ("import", "mark", "tidal") and not dry_run:
+            tag_vdj_home = self._validate_vdj_home(show_error=True)
+            if tag_vdj_home is None:
+                return
+
+        def sync_user1_after_tag_write():
+            if dry_run or tag_vdj_home is None:
+                return None
+            vdj_setup.assert_virtualdj_closed(self.package_layout)
+            markers = lyrics_tag_converter.collect_virtualdj_lyrics_markers(library)
+            return vdj_playlist_sync.sync_lyrics_user1_markers(
+                tag_vdj_home, markers, log=self.events.log)
+
         if tab == "import":
             language = self.opt_language.get().strip().lower()
             if (len(language) != 3 or not language.isascii()
@@ -944,6 +961,8 @@ class App(tk.Tk):
             delete_redundant_txt = self.opt_delete_redundant_txt.get()
 
             def job() -> None:
+                if not dry_run:
+                    vdj_setup.assert_virtualdj_closed(self.package_layout)
                 lyrics_tag_converter.import_sidecars(
                     library,
                     write=not dry_run,
@@ -953,13 +972,17 @@ class App(tk.Tk):
                     language=language,
                     log=self.events.log,
                 )
+                return sync_user1_after_tag_write()
         elif tab == "mark":
             def job() -> None:
+                if not dry_run:
+                    vdj_setup.assert_virtualdj_closed(self.package_layout)
                 found, changed, errors = lyrics_tag_converter.mark_existing_mp3(
                     library, write=not dry_run, log=self.events.log
                 )
                 self.events.log(
                     f"Summary: lyrics={found}, changed={changed}, errors={errors}")
+                return sync_user1_after_tag_write()
         elif tab == "tidal":
             do_tidal = self.opt_tidal.get()
             do_dedupe = self.opt_dedupe.get()
@@ -971,11 +994,14 @@ class App(tk.Tk):
                 return
 
             def job() -> None:
+                if not dry_run:
+                    vdj_setup.assert_virtualdj_closed(self.package_layout)
                 lrc_tool.run_library(
                     library, backup, session_file=SESSION_FILE, report_path=REPORT_FILE,
                     do_tidal=do_tidal, do_dedupe=do_dedupe, write_sylt=write_sylt,
                     english_threshold=english_threshold, dry_run=dry_run, log=self.events.log,
                 )
+                return sync_user1_after_tag_write()
         else:
             overwrite = self.opt_overwrite_restore.get()
 

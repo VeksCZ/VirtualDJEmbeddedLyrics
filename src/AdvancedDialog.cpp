@@ -15,6 +15,7 @@ constexpr int kHighlightColor = 105;
 constexpr int kReadColor = 106;
 constexpr int kBackgroundEnabled = 107;
 constexpr int kBackgroundColor = 108;
+constexpr int kPreview = 109;
 
 constexpr const wchar_t* kFonts[] = {L"Arial", L"Segoe UI", L"Verdana", L"Tahoma", L"Trebuchet", L"Calibri"};
 constexpr const wchar_t* kBackdrops[] = {L"Outline", L"Shadow", L"Outline + Shadow"};
@@ -25,9 +26,15 @@ constexpr ColorChoice kColors[] = {
     {L"Orange", RGB(255,138,36)}, {L"Red", RGB(240,68,68)}, {L"Green", RGB(66,214,107)},
     {L"Cyan", RGB(69,217,232)}, {L"Blue", RGB(75,131,255)}, {L"Magenta", RGB(217,81,232)}
 };
+constexpr ColorChoice kBackgroundColors[] = {
+    {L"Black", RGB(0,0,0)}, {L"White", RGB(255,255,255)}, {L"Gray", RGB(150,150,150)},
+    {L"Red", RGB(240,68,68)}, {L"Green", RGB(66,214,107)}, {L"Blue", RGB(75,131,255)},
+    {L"Yellow", RGB(255,210,0)}, {L"Orange", RGB(255,138,36)}, {L"Magenta", RGB(217,81,232)}
+};
 
 struct DialogState {
     AdvancedAppearanceSettings working;
+    AdvancedAppearanceSettings custom;
     bool accepted{};
     bool finished{};
     HWND owner{};
@@ -53,8 +60,23 @@ void FillColorCombo(HWND window, int id, int selected) {
     SendMessageW(combo, CB_SETCURSEL, std::clamp(selected, 0, static_cast<int>(std::size(kColors)) - 1), 0);
 }
 
+void FillBackgroundCombo(HWND window, int selected) {
+    const HWND combo = GetDlgItem(window, kBackgroundColor);
+    for (const auto& color : kBackgroundColors)
+        SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(color.name));
+    SendMessageW(combo, CB_SETCURSEL,
+                 std::clamp(selected, 0, static_cast<int>(std::size(kBackgroundColors)) - 1), 0);
+}
+
 int Selection(HWND window, int id) {
     return std::max(0, static_cast<int>(SendDlgItemMessageW(window, id, CB_GETCURSEL, 0, 0)));
+}
+
+AdvancedAppearanceSettings ReadSelections(HWND window) {
+    return {Selection(window, kFont), Selection(window, kBackdrop), Selection(window, kStrength),
+            Selection(window, kTextColor), Selection(window, kHighlightColor), Selection(window, kReadColor),
+            IsDlgButtonChecked(window, kBackgroundEnabled) == BST_CHECKED,
+            Selection(window, kBackgroundColor)};
 }
 
 void SetSelections(HWND window, const AdvancedAppearanceSettings& value) {
@@ -75,6 +97,83 @@ void ApplyPreset(HWND window, int preset) {
     if (preset == 1) value = {2, 2, 2, 0, 1, 2};
     else if (preset == 2) value = {1, 1, 1, 0, 1, 2};
     SetSelections(window, value);
+}
+
+bool SameAppearance(const AdvancedAppearanceSettings& left,
+                    const AdvancedAppearanceSettings& right) {
+    return left.font == right.font && left.backdrop == right.backdrop &&
+           left.strength == right.strength && left.textColor == right.textColor &&
+           left.highlightColor == right.highlightColor && left.readColor == right.readColor &&
+           left.backgroundEnabled == right.backgroundEnabled &&
+           left.backgroundColor == right.backgroundColor;
+}
+
+int MatchingPreset(const AdvancedAppearanceSettings& value) {
+    AdvancedAppearanceSettings preset;
+    if (SameAppearance(value, preset)) return 0;
+    preset = {2, 2, 2, 0, 1, 2};
+    if (SameAppearance(value, preset)) return 1;
+    preset = {1, 1, 1, 0, 1, 2};
+    return SameAppearance(value, preset) ? 2 : 3;
+}
+
+void DrawPreview(HWND window, const DRAWITEMSTRUCT& item) {
+    const auto value = ReadSelections(window);
+    RECT area = item.rcItem;
+    HBRUSH base = CreateSolidBrush(value.backgroundEnabled
+        ? kBackgroundColors[std::clamp(value.backgroundColor, 0, 8)].color : RGB(42, 47, 54));
+    FillRect(item.hDC, &area, base);
+    DeleteObject(base);
+    if (!value.backgroundEnabled) {
+        HBRUSH tile = CreateSolidBrush(RGB(54, 61, 69));
+        for (int y = area.top; y < area.bottom; y += 32)
+            for (int x = area.left; x < area.right; x += 32)
+                if (((x - area.left) / 32 + (y - area.top) / 32) % 2)
+                    {
+                        RECT square{x, y, std::min<LONG>(x + 32, area.right),
+                                    std::min<LONG>(y + 32, area.bottom)};
+                        FillRect(item.hDC, &square, tile);
+                    }
+        DeleteObject(tile);
+    }
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, RGB(190, 196, 204));
+    RECT caption{area.left + 14, area.top + 10, area.right - 14, area.top + 32};
+    DrawTextW(item.hDC, L"PREVIEW", -1, &caption, DT_LEFT | DT_SINGLELINE);
+
+    HFONT font = CreateFontW(-28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS,
+                             kFonts[std::clamp(value.font, 0, 5)]);
+    const auto oldFont = SelectObject(item.hDC, font);
+    const wchar_t* lines[] = {L"The previous lyric line", L"Current highlighted lyrics", L"The next lyric line"};
+    const int colors[] = {value.readColor, value.highlightColor, value.textColor};
+    const int centerY = (area.top + area.bottom) / 2;
+    for (int index = 0; index < 3; ++index) {
+        RECT line{area.left + 12, centerY - 55 + index * 42, area.right - 12,
+                  centerY - 18 + index * 42};
+        const int thickness = value.strength + 1;
+        if (value.backdrop == 1 || value.backdrop == 2) {
+            RECT shadow = line; OffsetRect(&shadow, thickness + 2, thickness + 2);
+            SetTextColor(item.hDC, RGB(0, 0, 0));
+            DrawTextW(item.hDC, lines[index], -1, &shadow, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+        }
+        if (value.backdrop == 0 || value.backdrop == 2) {
+            SetTextColor(item.hDC, RGB(0, 0, 0));
+            for (int dy = -thickness; dy <= thickness; ++dy)
+                for (int dx = -thickness; dx <= thickness; ++dx)
+                    if (dx || dy) {
+                        RECT outline = line; OffsetRect(&outline, dx, dy);
+                        DrawTextW(item.hDC, lines[index], -1, &outline,
+                                  DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+                    }
+        }
+        SetTextColor(item.hDC, kColors[std::clamp(colors[index], 0, 8)].color);
+        DrawTextW(item.hDC, lines[index], -1, &line, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+    }
+    SelectObject(item.hDC, oldFont);
+    DeleteObject(font);
+    FrameRect(item.hDC, &area, GetSysColorBrush(COLOR_WINDOWFRAME));
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -107,10 +206,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         AddControl(window, L"STATIC", L"Color", 0, 28, 341, 82, 20);
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP,
                    116, 338, 232, 190, kBackgroundColor);
-        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 202, 386, 78, 27, IDOK);
-        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 288, 386, 78, 27, IDCANCEL);
+        AddControl(window, L"STATIC", L"", SS_OWNERDRAW, 386, 48, 350, 322, kPreview);
+        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 570, 386, 78, 27, IDOK);
+        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 658, 386, 78, 27, IDCANCEL);
         const wchar_t* presets[] = {L"Default", L"Photos", L"Clean", L"Custom"};
-        FillCombo(window, kPreset, presets, 4, 3);
+        FillCombo(window, kPreset, presets, 4, MatchingPreset(state->working));
         FillCombo(window, kFont, kFonts, static_cast<int>(std::size(kFonts)), state->working.font);
         FillCombo(window, kBackdrop, kBackdrops, static_cast<int>(std::size(kBackdrops)), state->working.backdrop);
         FillCombo(window, kStrength, kStrengths, static_cast<int>(std::size(kStrengths)), state->working.strength);
@@ -119,23 +219,27 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         FillColorCombo(window, kReadColor, state->working.readColor);
         CheckDlgButton(window, kBackgroundEnabled,
                        state->working.backgroundEnabled ? BST_CHECKED : BST_UNCHECKED);
-        FillColorCombo(window, kBackgroundColor, state->working.backgroundColor);
+        FillBackgroundCombo(window, state->working.backgroundColor);
         return 0;
     }
     case WM_DRAWITEM: {
         const auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (item->CtlID == kPreview) { DrawPreview(window, *item); return TRUE; }
         if ((item->CtlID < kTextColor || item->CtlID > kReadColor) &&
             item->CtlID != kBackgroundColor) break;
         if (item->itemID == static_cast<UINT>(-1)) break;
-        const auto index = std::min<std::size_t>(item->itemID, std::size(kColors) - 1);
+        const auto& palette = item->CtlID == kBackgroundColor ? kBackgroundColors : kColors;
+        const auto paletteSize = item->CtlID == kBackgroundColor
+            ? std::size(kBackgroundColors) : std::size(kColors);
+        const auto index = std::min<std::size_t>(item->itemID, paletteSize - 1);
         FillRect(item->hDC, &item->rcItem, GetSysColorBrush((item->itemState & ODS_SELECTED) ? COLOR_HIGHLIGHT : COLOR_WINDOW));
         RECT swatch{item->rcItem.left + 5, item->rcItem.top + 3, item->rcItem.left + 39, item->rcItem.bottom - 3};
-        HBRUSH brush = CreateSolidBrush(kColors[index].color);
+        HBRUSH brush = CreateSolidBrush(palette[index].color);
         FillRect(item->hDC, &swatch, brush); DeleteObject(brush); FrameRect(item->hDC, &swatch, GetSysColorBrush(COLOR_WINDOWFRAME));
         SetBkMode(item->hDC, TRANSPARENT);
         SetTextColor(item->hDC, GetSysColor((item->itemState & ODS_SELECTED) ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
         RECT label = item->rcItem; label.left += 47;
-        DrawTextW(item->hDC, kColors[index].name, -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        DrawTextW(item->hDC, palette[index].name, -1, &label, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
         if (item->itemState & ODS_FOCUS) DrawFocusRect(item->hDC, &item->rcItem);
         return TRUE;
     }
@@ -143,19 +247,20 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         if (LOWORD(wParam) == kPreset && HIWORD(wParam) == CBN_SELCHANGE) {
             const int preset = Selection(window, kPreset);
             if (preset < 3) ApplyPreset(window, preset);
+            else SetSelections(window, state->custom);
             return 0;
         }
         if (LOWORD(wParam) == IDOK) {
-            state->working = {Selection(window, kFont), Selection(window, kBackdrop), Selection(window, kStrength),
-                              Selection(window, kTextColor), Selection(window, kHighlightColor), Selection(window, kReadColor),
-                              IsDlgButtonChecked(window, kBackgroundEnabled) == BST_CHECKED,
-                              Selection(window, kBackgroundColor)};
+            state->working = ReadSelections(window);
             state->accepted = true; state->finished = true; DestroyWindow(window); return 0;
         }
         if (LOWORD(wParam) == IDCANCEL) { state->finished = true; DestroyWindow(window); return 0; }
         if ((HIWORD(wParam) == CBN_SELCHANGE || LOWORD(wParam) == kBackgroundEnabled) &&
-            LOWORD(wParam) != kPreset)
+            LOWORD(wParam) != kPreset) {
+            state->custom = ReadSelections(window);
             SendDlgItemMessageW(window, kPreset, CB_SETCURSEL, 3, 0);
+            InvalidateRect(GetDlgItem(window, kPreview), nullptr, FALSE);
+        }
         break;
     case WM_CLOSE:
         if (state) state->finished = true;
@@ -165,7 +270,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 }
 }
 
-bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings) {
+bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings,
+                                  AdvancedAppearanceSettings& customSettings) {
     WNDCLASSEXW windowClass{sizeof(windowClass)};
     windowClass.lpfnWndProc = WindowProc;
     windowClass.hInstance = GetModuleHandleW(nullptr);
@@ -174,10 +280,10 @@ bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settin
     windowClass.lpszClassName = kWindowClass;
     RegisterClassExW(&windowClass);
 
-    DialogState state{settings, false, false, owner};
+    DialogState state{settings, customSettings, false, false, owner};
     HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClass, L"LRC Presets",
                                   WS_CAPTION | WS_SYSMENU | WS_POPUP,
-                                  CW_USEDEFAULT, CW_USEDEFAULT, 394, 459,
+                                  CW_USEDEFAULT, CW_USEDEFAULT, 764, 459,
                                   owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!window) return false;
     RECT bounds{}; GetWindowRect(window, &bounds);
@@ -192,7 +298,10 @@ bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settin
         if (!IsDialogMessageW(window, &message)) { TranslateMessage(&message); DispatchMessageW(&message); }
     }
     if (owner) { EnableWindow(owner, TRUE); SetActiveWindow(owner); }
-    if (state.accepted) settings = state.working;
+    if (state.accepted) {
+        settings = state.working;
+        customSettings = state.custom;
+    }
     return state.accepted;
 }
 #endif

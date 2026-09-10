@@ -477,7 +477,7 @@ private:
             static_cast<int>(PaletteIndex(readColorParameter_)),
             backgroundParameter_ != 0,
             static_cast<int>(DiscreteIndex(backgroundColorParameter_, std::size(kBackgroundPalette)))};
-        if (!ShowAdvancedAppearanceDialog(GetForegroundWindow(), settings)) return;
+        if (!ShowAdvancedAppearanceDialog(GetForegroundWindow(), settings, customAppearance_)) return;
         fontFamilyParameter_ = static_cast<float>(settings.font) /
                                static_cast<float>(std::size(kFontNames) - 1);
         backdropStyleParameter_ = static_cast<float>(settings.backdrop) /
@@ -511,6 +511,17 @@ private:
         readColorParameter_ = static_cast<float>(value(L"ReadColor", 2, 8)) / 8.0f;
         backgroundParameter_ = value(L"BackgroundEnabled", 0, 1);
         backgroundColorParameter_ = static_cast<float>(value(L"BackgroundColor", 0, 8)) / 8.0f;
+        customAppearance_ = {
+            value(L"CustomFont", FontFamily(), 5),
+            value(L"CustomBackdrop", BackdropStyle(), 2),
+            value(L"CustomStrength", BackdropStrength(), 2),
+            value(L"CustomTextColor", static_cast<int>(PaletteIndex(textColorParameter_)), 8),
+            value(L"CustomHighlightColor", static_cast<int>(PaletteIndex(highlightColorParameter_)), 8),
+            value(L"CustomReadColor", static_cast<int>(PaletteIndex(readColorParameter_)), 8),
+            value(L"CustomBackgroundEnabled", backgroundParameter_ != 0, 1) != 0,
+            value(L"CustomBackgroundColor",
+                  static_cast<int>(DiscreteIndex(backgroundColorParameter_,
+                                                 std::size(kBackgroundPalette))), 8)};
     }
 
     void SaveAdvancedSettings() const {
@@ -528,6 +539,14 @@ private:
         write(L"BackgroundEnabled", backgroundParameter_ != 0 ? 1u : 0u);
         write(L"BackgroundColor", DiscreteIndex(backgroundColorParameter_,
                                                   std::size(kBackgroundPalette)));
+        write(L"CustomFont", customAppearance_.font);
+        write(L"CustomBackdrop", customAppearance_.backdrop);
+        write(L"CustomStrength", customAppearance_.strength);
+        write(L"CustomTextColor", customAppearance_.textColor);
+        write(L"CustomHighlightColor", customAppearance_.highlightColor);
+        write(L"CustomReadColor", customAppearance_.readColor);
+        write(L"CustomBackgroundEnabled", customAppearance_.backgroundEnabled ? 1u : 0u);
+        write(L"CustomBackgroundColor", customAppearance_.backgroundColor);
     }
 
     void OpenTextEditor() {
@@ -576,6 +595,7 @@ private:
     int autoTagLrcParameter_{1};
     int backgroundParameter_{};
     float backgroundColorParameter_{};
+    AdvancedAppearanceSettings customAppearance_{};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {

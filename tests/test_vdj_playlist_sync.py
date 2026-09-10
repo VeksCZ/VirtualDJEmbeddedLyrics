@@ -197,6 +197,42 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         self.assertIn('<Scan Version="801" Bpm="0.4" Key="F#m" />', text)
         self.assertIn(f'<Song FilePath="{absent}" Flag="16">', text)
 
+    def test_lyrics_user1_marker_preserves_other_tags_and_analysis(self):
+        track = self._track(self.library / "Current.mp3").resolve()
+        self.database.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\r\n'
+            '<VirtualDJ_Database Version="8.5">\r\n'
+            f' <Song FilePath="{track}">\r\n'
+            '  <Tags Author="Artist" User1="favorite #lrc #uslt" />\r\n'
+            '  <Scan Version="801" Bpm="0.4" Key="F#m" />\r\n'
+            ' </Song>\r\n'
+            '</VirtualDJ_Database>\r\n',
+            encoding="utf-8",
+        )
+
+        updated, changed = sync.plan_lyrics_user1_database(
+            self.database, {track: "#sylt"})
+        text = updated.decode("utf-8")
+
+        self.assertEqual(changed, 1)
+        self.assertIn('User1="favorite #sylt"', text)
+        self.assertIn('Author="Artist"', text)
+        self.assertIn('<Scan Version="801" Bpm="0.4" Key="F#m" />', text)
+
+    def test_lyrics_user1_sync_adds_missing_track_and_creates_backup(self):
+        track = self._track(self.library / "New.mp3").resolve()
+        original = self.database.read_bytes()
+
+        backup = sync.sync_lyrics_user1_markers(
+            self.home, {track: "#uslt"}, log=lambda _message: None)
+
+        self.assertIsNotNone(backup)
+        self.assertEqual((backup / "database.before.xml").read_bytes(), original)
+        database = ET.fromstring(self.database.read_bytes())
+        song = next(item for item in database.findall("Song")
+                    if sync._path_key(item.attrib["FilePath"]) == sync._path_key(track))
+        self.assertEqual(song.find("Tags").attrib["User1"], "#uslt")
+
     def test_search_database_can_be_disabled(self):
         self._track(self.library / "Not registered.mp3")
         original_database = self.database.read_bytes()

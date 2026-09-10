@@ -268,6 +268,11 @@ _ATTRIBUTE_RE = re.compile(
     re.IGNORECASE,
 )
 _DATABASE_CLOSE_RE = re.compile(r"</VirtualDJ_Database\s*>", re.IGNORECASE)
+_SONG_BLOCK_RE = re.compile(
+    r"(?P<open><Song\b[^>]*>)(?P<body>.*?)(?P<close></Song\s*>)",
+    re.IGNORECASE | re.DOTALL,
+)
+_TAGS_OPEN_RE = re.compile(r"<Tags\b[^>]*/?>", re.IGNORECASE)
 
 
 def plan_search_database(
@@ -439,6 +444,114 @@ def _atomic_write(path: Path, data: bytes) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _replace_xml_attribute(opening: str, name: str, value: str) -> str:
+    pattern = re.compile(rf'\s+{re.escape(name)}="[^"]*"', re.IGNORECASE)
+    attribute = f' {name}="{_xml_attribute(value)}"'
+    if pattern.search(opening):
+        return pattern.sub(attribute, opening, count=1)
+    insertion = opening.rfind("/>")
+    if insertion < 0:
+        insertion = opening.rfind(">")
+    return opening[:insertion] + attribute + opening[insertion:]
+
+
+def _updated_user1(current: str, wanted: str) -> str:
+    obsolete = {"#lrc", "#sylt", "#uslt"}
+    parts = [part for part in current.split() if part.casefold() not in obsolete]
+    parts.append(wanted)
+    return " ".join(parts)
+
+
+def plan_lyrics_user1_database(
+    database_path: Path,
+    markers: dict[Path, str],
+) -> tuple[bytes, int]:
+    """Add missing tracks and set User1 markers while preserving analysis XML."""
+    tracks = tuple(markers)
+    materialized, _added, _reactivated = plan_search_database(database_path, tracks)
+    had_bom = materialized.startswith(b"\xef\xbb\xbf")
+    text = materialized.decode("utf-8-sig")
+    marker_by_key = {_path_key(path): marker for path, marker in markers.items()}
+    changed = 0
+
+    def update_song(match: re.Match[str]) -> str:
+        nonlocal changed
+        opening, body, closing = match.group("open", "body", "close")
+        attributes = {
+            item.group("name").casefold(): html.unescape(item.group("value"))
+            for item in _ATTRIBUTE_RE.finditer(opening)
+        }
+        wanted = marker_by_key.get(_path_key(attributes.get("filepath", "")))
+        if not wanted:
+            return match.group(0)
+        tags_match = _TAGS_OPEN_RE.search(body)
+        if tags_match:
+            tags_open = tags_match.group(0)
+            tag_attributes = {
+                item.group("name").casefold(): html.unescape(item.group("value"))
+                for item in _ATTRIBUTE_RE.finditer(tags_open)
+            }
+            updated = _replace_xml_attribute(
+                tags_open, "User1", _updated_user1(tag_attributes.get("user1", ""), wanted))
+            if updated == tags_open:
+                return match.group(0)
+            changed += 1
+            body = body[:tags_match.start()] + updated + body[tags_match.end():]
+        else:
+            separator = "\r\n" if "\r\n" in text else "\n"
+            body = f'{separator}  <Tags User1="{wanted}" />' + body
+            changed += 1
+        return opening + body + closing
+
+    updated_text = _SONG_BLOCK_RE.sub(update_song, text)
+    ET.fromstring(updated_text)
+    encoded = updated_text.encode("utf-8")
+    return (b"\xef\xbb\xbf" + encoded if had_bom else encoded), changed
+
+
+def sync_lyrics_user1_markers(
+    virtualdj_home: Path,
+    markers: dict[Path, str],
+    *,
+    log: Callable[[str], None] = print,
+) -> Path | None:
+    """Write #sylt/#uslt to per-volume VirtualDJ databases with backups."""
+    if not markers:
+        log("[USER 1] No embedded lyrics markers were found.")
+        return None
+    plans: dict[Path, tuple[bytes | None, bytes, int]] = {}
+    for database_path, tracks in _tracks_by_database(tuple(markers), virtualdj_home).items():
+        subset = {track: markers[track] for track in tracks}
+        original = database_path.read_bytes() if database_path.is_file() else None
+        updated, changed = plan_lyrics_user1_database(database_path, subset)
+        if original != updated:
+            plans[database_path] = (original, updated, changed)
+    if not plans:
+        log("[USER 1] All #sylt/#uslt markers are already current.")
+        return None
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    backup = virtualdj_home / "Lyrics Tag Backups" / timestamp
+    backup.mkdir(parents=True)
+    written: list[tuple[Path, bytes | None]] = []
+    try:
+        for database_path, (original, updated, changed) in plans.items():
+            if original is not None:
+                (backup / _database_backup_name(database_path, virtualdj_home)).write_bytes(original)
+            _atomic_write(database_path, updated)
+            written.append((database_path, original))
+            log(f"[USER 1] Updated {changed} lyric markers in {database_path}")
+    except Exception:
+        for database_path, original in reversed(written):
+            if original is None:
+                database_path.unlink(missing_ok=True)
+            else:
+                _atomic_write(database_path, original)
+        raise
+    log(f"[USER 1] Completed. Backup: {backup}")
+    return backup
 
 
 def _root_order(existing: bytes | None, target_name: str) -> bytes:

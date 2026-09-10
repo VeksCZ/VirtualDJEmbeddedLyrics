@@ -5,8 +5,13 @@
 - Added an optional solid background to LRC Master's Advanced settings, with
   black and additional color choices; transparency remains the default and the
   top/bottom fade now remains active over solid backgrounds.
+- Added a live font, color, backdrop, and background preview to Advanced settings.
+  Custom appearance values are now stored independently from built-in presets.
 - LRC Master now tags loaded synchronized lyrics as `#sylt` and untimed lyrics
   as `#uslt` in VirtualDJ User 1, replacing the older generic `#lrc` marker.
+- LyricsTools now performs the same `#sylt/#uslt` update directly in VirtualDJ's
+  per-volume databases after MP3-writing workflows, with backups and without
+  discarding unrelated User 1 values or track analysis.
 - Refined LyricsTools with a top-right settings dialog, action-specific run
   buttons, a Problems scrollbar, and color-coded Activity messages.
 - Added a separate conservative option to delete redundant timed TXT sidecars

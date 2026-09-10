@@ -14,5 +14,6 @@ struct AdvancedAppearanceSettings {
     int backgroundColor{};
 };
 
-bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings);
+bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings,
+                                  AdvancedAppearanceSettings& customSettings);
 #endif

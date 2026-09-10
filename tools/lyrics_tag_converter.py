@@ -209,6 +209,26 @@ def mark_existing_mp3(root: Path, write: bool, log: Callable[[object], None] = p
     return found, changed, errors
 
 
+def collect_virtualdj_lyrics_markers(root: Path) -> dict[Path, str]:
+    """Return canonical file paths mapped to #sylt/#uslt from embedded tags."""
+    _, ID3, ID3NoHeaderError, _, _, _, _ = load_mutagen()
+    paths = [root] if root.is_file() else sorted(
+        (path for path in root.rglob("*")
+         if path.is_file() and path.suffix.casefold() == ".mp3"),
+        key=lambda path: str(path).casefold(),
+    )
+    result: dict[Path, str] = {}
+    for path in paths:
+        try:
+            tags = ID3(path)
+        except (ID3NoHeaderError, OSError):
+            continue
+        kind = embedded_lyrics_kind(tags)
+        if kind:
+            result[path.resolve()] = "#sylt" if kind == "Synced" else "#uslt"
+    return result
+
+
 def import_sidecars(root: Path, *, write: bool = False, overwrite: bool = False,
                     delete_lrc: bool = False, delete_sidecars: bool = False,
                     delete_redundant_txt: bool = False,

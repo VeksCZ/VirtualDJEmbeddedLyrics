@@ -60,8 +60,10 @@ as synchronized lyrics.
 - **Font size**, **Timed lines**, **Untimed lines** and **Vertical position**
   control the layout.
 - **Advanced** opens presets, font selection, outline/shadow options, colors,
-  and the optional solid video background. The top/bottom lyrics fade remains
-  active with either a transparent or solid background.
+  and the optional solid video background. Its live sample previews those choices
+  before they are applied. The Custom preset is stored separately and survives
+  trying or applying a built-in preset. The top/bottom lyrics fade remains active
+  with either a transparent or solid background.
 - **Next** and **Prev** move through plain untimed lyrics.
 - **Edit TXT** creates or opens the current track's same-name TXT file.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
@@ -70,9 +72,12 @@ as synchronized lyrics.
   untimed lyrics to VirtualDJ **User 1** after lyrics have been loaded. It also
   replaces the older `#lrc` marker and preserves unrelated User 1 content.
 
-`User 1` is stored in the VirtualDJ database, not in the MP3. The optional tools
-use the standard ID3 `Grouping` field for the portable markers
-`Lyrics: Synced` and `Lyrics: Unsynced`.
+`User 1` is stored in the VirtualDJ database, not in the MP3. LyricsTools writes
+the standard ID3 `Grouping` field for the portable markers `Lyrics: Synced` and
+`Lyrics: Unsynced`; after a real Import, Mark, or TIDAL/normalize run it also
+updates `#sylt/#uslt` directly in the appropriate VirtualDJ database. Missing
+database entries are added, while unrelated tags and existing analysis are kept.
+VirtualDJ must be closed for that direct database update, and a backup is created.
 
 ## Included application
 
