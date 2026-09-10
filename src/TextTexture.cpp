@@ -113,7 +113,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
                               const std::vector<bool>& subduedLines,
                               std::uint32_t textColor, std::uint32_t highlightColor,
                               std::uint32_t readColor, int fontFamily,
-                              int backdropStyle, int backdropStrength) {
+                              int backdropStyle, int backdropStrength,
+                              bool backgroundEnabled, std::uint32_t backgroundColor) {
     if (!device_ || width <= 0 || height <= 0 || lines.empty() || activeLine >= lines.size()) return false;
     highlightProgress = std::clamp(highlightProgress, 0.0f, 1.0f);
     scrollProgress = std::clamp(scrollProgress, 0.0f, 1.0f);
@@ -131,7 +132,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
            std::to_wstring(static_cast<int>(verticalPosition * 100)) + L":" +
            std::to_wstring(textColor) + L":" + std::to_wstring(highlightColor) + L":" +
            std::to_wstring(readColor) + L":" + std::to_wstring(fontFamily) + L":" +
-           std::to_wstring(backdropStyle) + L":" + std::to_wstring(backdropStrength);
+           std::to_wstring(backdropStyle) + L":" + std::to_wstring(backdropStrength) + L":" +
+           std::to_wstring(backgroundEnabled) + L":" + std::to_wstring(backgroundColor);
     if (key == cacheKey_ && view_) return true;
 
     BITMAPINFO info{};
@@ -148,7 +150,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     if (!bitmap || !pixels) { DestroyCanvas(dc, bitmap, nullptr); return false; }
     const auto oldBitmap = SelectObject(dc, bitmap);
     if (!oldBitmap || oldBitmap == HGDI_ERROR) { DestroyCanvas(dc, bitmap, nullptr); return false; }
-    std::fill_n(static_cast<std::uint32_t*>(pixels), static_cast<std::size_t>(width) * height, 0u);
+    std::fill_n(static_cast<std::uint32_t*>(pixels), static_cast<std::size_t>(width) * height,
+                backgroundEnabled ? (0xff000000u | backgroundColor) : 0u);
     SetBkMode(dc, TRANSPARENT);
     SetTextAlign(dc, TA_CENTER | TA_BASELINE);
 
@@ -212,13 +215,19 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         highlightY += spacing;
     }
 
-    FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
+    if (backgroundEnabled) {
+        auto* values = static_cast<std::uint32_t*>(pixels);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(width) * height; ++i)
+            values[i] |= 0xff000000u;
+    } else {
+        FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
+    }
     auto* pixelValues = static_cast<std::uint32_t*>(pixels);
     const float topZero = static_cast<float>(anchor) - spacing * 5.25f;
     const float topOpaque = static_cast<float>(anchor) - spacing * 2.5f;
     const float bottomOpaque = static_cast<float>(anchor) + spacing * 2.5f;
     const float bottomZero = static_cast<float>(anchor) + spacing * 4.0f;
-    for (int row = 0; row < height; ++row) {
+    for (int row = 0; !backgroundEnabled && row < height; ++row) {
         float fade = 1.0f;
         if (row < topOpaque) fade = std::clamp((row - topZero) / (topOpaque - topZero), 0.0f, 1.0f);
         else if (row > bottomOpaque) fade = std::clamp((bottomZero - row) / (bottomZero - bottomOpaque), 0.0f, 1.0f);
@@ -246,7 +255,11 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
 }
 
 bool TextTexture::UpdateMessage(const std::wstring& message, int width, int height,
-                                float fontScale, float verticalPosition) {
-    return Update(message, L"", 0.0f, width, height, fontScale, verticalPosition);
+                                float fontScale, float verticalPosition,
+                                bool backgroundEnabled, std::uint32_t backgroundColor) {
+    std::vector<std::wstring> lines{message};
+    return UpdateTimed(lines, 0, 0.0f, 0.0f, width, height, fontScale,
+                       verticalPosition, {}, 0x00ffffffu, 0x0000d2ffu,
+                       0x00969696u, 0, 0, 1, backgroundEnabled, backgroundColor);
 }
 #endif

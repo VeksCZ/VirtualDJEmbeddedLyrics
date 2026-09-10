@@ -58,6 +58,8 @@ as synchronized lyrics.
 
 - **Font size**, **Timed lines**, **Untimed lines** and **Vertical position**
   control the layout.
+- **Background** keeps the overlay transparent when off. Turn it on and choose
+  **Background color** for black or another solid color without LRC BlackOut.
 - **Advanced** opens presets, font selection, outline/shadow options and colors.
 - **Next** and **Prev** move through plain untimed lyrics.
 - **Edit TXT** creates or opens the current track's same-name TXT file.
@@ -158,6 +160,11 @@ The operation is repeatable and keeps a backup of replaced files.
 
 To remove or restore the plugin, close VirtualDJ and use **LRCPluginSetup**. Only
 managed files are removed, and they are backed up first.
+
+If VirtualDJ has remembered an unwanted external-video window size or monitor,
+use **Reset video window layout** in LRCPluginSetup. It backs up `settings.xml`
+and forgets only the saved video-window geometry; VirtualDJ chooses its default
+again and can remember the new position for the current monitor arrangement.
 
 ## Troubleshooting
 

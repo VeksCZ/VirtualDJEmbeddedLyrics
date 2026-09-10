@@ -6,6 +6,7 @@ import json
 import locale
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -428,6 +429,45 @@ def request_virtualdj_close(layout: PackageLayout | None = None, timeout: float 
             return True
         time.sleep(0.25)
     return False
+
+
+def reset_video_window_layout(
+    virtualdj_home: Path,
+    layout: PackageLayout | None = None,
+    log: Callable[[str], None] = print,
+) -> Path | None:
+    """Remove only VirtualDJ's remembered external-video window geometry."""
+    virtualdj_home = virtualdj_home.expanduser().resolve()
+    if not is_virtualdj_home(virtualdj_home):
+        raise ValueError(f"The selected folder is not a VirtualDJ home folder: {virtualdj_home}")
+    assert_virtualdj_closed(layout)
+    settings = virtualdj_home / "settings.xml"
+    data = settings.read_bytes()
+    pattern = re.compile(
+        rb"[ \t]*<videoWindowPosition\b[^>]*>.*?</videoWindowPosition>[ \t]*(?:\r?\n)?",
+        re.DOTALL,
+    )
+    updated, count = pattern.subn(b"", data, count=1)
+    if not count:
+        log("No saved external-video window layout was found.")
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    backup = virtualdj_home / "LRC Lyrics Backups" / f"{timestamp}-before-video-window-reset"
+    backup.mkdir(parents=True)
+    shutil.copy2(settings, backup / "settings.xml")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".settings.", dir=settings.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(updated)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, settings)
+    finally:
+        temporary.unlink(missing_ok=True)
+    log("Reset the saved external-video window size and position.")
+    log(f"Settings backup: {backup}")
+    return backup
 
 
 def build_action_command(layout: PackageLayout, action: str, virtualdj_home: Path) -> list[str]:

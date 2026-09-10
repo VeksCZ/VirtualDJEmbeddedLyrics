@@ -2,6 +2,10 @@
 
 ## Highlights
 
+- Added an optional solid background directly to LRC Master, with black and
+  additional color choices; transparency remains the default.
+- Added a backed-up **Reset video window layout** action that removes only
+  VirtualDJ's remembered external-video window geometry.
 - Split releases into dedicated **LRC Plugin Setup** and **LyricsTools**
   downloads for every supported platform and architecture.
 - Added opt-in automatic updates with SHA-256 verification and safe extraction.

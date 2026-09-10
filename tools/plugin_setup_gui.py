@@ -73,6 +73,9 @@ class App(tk.Tk):
         self.uninstall_button.pack(side="left", padx=8)
         self.restore_button = ttk.Button(buttons, text="Restore newest backup", command=lambda: self._run("restore"))
         self.restore_button.pack(side="left")
+        self.window_button = ttk.Button(
+            buttons, text="Reset video window layout", command=self._reset_video_window)
+        self.window_button.pack(side="left", padx=(8, 0))
         ttk.Button(buttons, text="Check for updates", command=self._check_updates).pack(side="left", padx=8)
 
         activity = ttk.LabelFrame(self, text="Activity and last operation", padding=8)
@@ -133,8 +136,48 @@ class App(tk.Tk):
     def _set_running(self, running: bool) -> None:
         self.running = running
         state = "disabled" if running or self.layout is None else "normal"
-        for button in (self.install_button, self.uninstall_button, self.restore_button):
+        for button in (self.install_button, self.uninstall_button, self.restore_button, self.window_button):
             button.configure(state=state)
+
+    def _reset_video_window(self) -> None:
+        home = self._valid_home()
+        if home is None or self.layout is None:
+            return
+        try:
+            running = vdj_setup.virtualdj_running(self.layout)
+        except Exception as exc:
+            messagebox.showerror("VirtualDJ status", str(exc))
+            return
+        close_requested = False
+        if running:
+            close_requested = messagebox.askyesno(
+                "VirtualDJ is running",
+                "Save any current work first. Ask VirtualDJ to close before resetting "
+                "the external video window layout?",
+            )
+            if not close_requested:
+                return
+        if not messagebox.askyesno(
+            "Reset video window layout",
+            "Forget only the saved size and position of VirtualDJ's external video "
+            "window? A settings backup will be created first.",
+        ):
+            return
+        self._set_running(True)
+        def worker() -> None:
+            try:
+                if close_requested and not vdj_setup.request_virtualdj_close(self.layout):
+                    raise RuntimeError(
+                        "VirtualDJ did not close within 15 seconds. Close it manually and try again."
+                    )
+                backup = vdj_setup.reset_video_window_layout(
+                    home, self.layout, lambda line: self.events.put(("log", str(line))))
+                self.events.put(("success", ("video window layout reset", backup)))
+            except Exception as exc:
+                self.events.put(("error", str(exc)))
+            finally:
+                self.events.put(("done", None))
+        threading.Thread(target=worker, daemon=False, name="video-window-reset").start()
 
     def _run(self, action: str) -> None:
         home = self._valid_home()

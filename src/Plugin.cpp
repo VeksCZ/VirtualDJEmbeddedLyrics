@@ -30,6 +30,11 @@ constexpr PaletteEntry kPalette[] = {
     {L"Orange", 0x00248affu}, {L"Red", 0x004444f0u}, {L"Green", 0x006bd642u},
     {L"Cyan", 0x00e8d945u}, {L"Blue", 0x00ff834bu}, {L"Magenta", 0x00e851d9u}
 };
+constexpr PaletteEntry kBackgroundPalette[] = {
+    {L"Black", 0x00000000u}, {L"White", 0x00ffffffu}, {L"Gray", 0x00969696u},
+    {L"Red", 0x004444f0u}, {L"Green", 0x006bd642u}, {L"Blue", 0x00ff834bu},
+    {L"Yellow", 0x0000d2ffu}, {L"Orange", 0x00248affu}, {L"Magenta", 0x00e851d9u}
+};
 std::size_t DiscreteIndex(float value, std::size_t count) {
     return static_cast<std::size_t>(std::clamp(value, 0.0f, 1.0f) *
                                     static_cast<float>(count - 1) + 0.5f);
@@ -67,6 +72,8 @@ public:
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
             || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
             || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true))
+            || FAILED(DeclareParameterSwitch(&backgroundParameter_, 12, "Background", "Background", false))
+            || FAILED(DeclareParameterSlider(&backgroundColorParameter_, 13, "Background color", "BG color", 0.0f))
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
@@ -101,6 +108,11 @@ public:
         } else if (id == 2) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", TimedLineCount());
             return S_OK;
+        } else if (id == 13) {
+            const auto index = DiscreteIndex(backgroundColorParameter_, std::size(kBackgroundPalette));
+            const auto converted = WideCharToMultiByte(
+                CP_UTF8, 0, kBackgroundPalette[index].name, -1, output, outputSize, nullptr, nullptr);
+            return converted > 0 ? S_OK : E_FAIL;
         } else return E_NOTIMPL;
         std::snprintf(output, static_cast<std::size_t>(outputSize), "%d%%", percent);
         return S_OK;
@@ -185,7 +197,8 @@ public:
         }
         CheckTextChanges();
         if (lyrics_.empty()) {
-            if (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition()) ||
+            if (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition(),
+                                        backgroundParameter_ != 0, BackgroundColor()) ||
                 !DrawLyricsTexture()) {
                 Diagnostics::Error(L"Failed to render missing-lyrics indication");
             }
@@ -316,7 +329,8 @@ private:
         if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
                                   width, height, FontScale(), VerticalPosition(), subduedLines,
                                   TextColor(), HighlightColor(), ReadColor(),
-                                  FontFamily(), BackdropStyle(), BackdropStrength()))
+                                  FontFamily(), BackdropStyle(), BackdropStrength(),
+                                  backgroundParameter_ != 0, BackgroundColor()))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
 
@@ -338,6 +352,10 @@ private:
     std::uint32_t TextColor() const noexcept { return kPalette[PaletteIndex(textColorParameter_)].color; }
     std::uint32_t HighlightColor() const noexcept { return kPalette[PaletteIndex(highlightColorParameter_)].color; }
     std::uint32_t ReadColor() const noexcept { return kPalette[PaletteIndex(readColorParameter_)].color; }
+    std::uint32_t BackgroundColor() const noexcept {
+        return kBackgroundPalette[DiscreteIndex(backgroundColorParameter_,
+                                                 std::size(kBackgroundPalette))].color;
+    }
     int FontFamily() const noexcept {
         return static_cast<int>(DiscreteIndex(fontFamilyParameter_, std::size(kFontNames)));
     }
@@ -371,7 +389,8 @@ private:
         return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
                                     width, height, FontScale(), VerticalPosition(), {},
                                     TextColor(), HighlightColor(), ReadColor(),
-                                    FontFamily(), BackdropStyle(), BackdropStrength());
+                                    FontFamily(), BackdropStyle(), BackdropStrength(),
+                                    backgroundParameter_ != 0, BackgroundColor());
     }
     void AdvanceUntimedLine() {
         if (lyrics_.synchronized || lyrics_.lines.empty()) return;
@@ -548,6 +567,8 @@ private:
     MasterDeckSelector masterDeckSelector_;
     int useVolumeFadersParameter_{};
     int autoTagLrcParameter_{1};
+    int backgroundParameter_{};
+    float backgroundColorParameter_{};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {

@@ -167,6 +167,28 @@ class PackageLayoutTests(unittest.TestCase):
                 home / "Plugins64" / "VideoOverlay",
             )
 
+    def test_video_window_reset_changes_only_geometry_and_creates_backup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            (home / "MyLists").mkdir()
+            settings = home / "settings.xml"
+            settings.write_bytes(
+                b"<settings>\r\n"
+                b"  <videoWindowAlwaysOnTop>yes</videoWindowAlwaysOnTop>\r\n"
+                b"  <videoWindowPosition modified=\"yes\">10x20 800x600</videoWindowPosition>\r\n"
+                b"  <recordVideoResolution>1280x720</recordVideoResolution>\r\n"
+                b"</settings>\r\n"
+            )
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+                backup = vdj_setup.reset_video_window_layout(
+                    home, None, lambda _message: None)
+            self.assertIsNotNone(backup)
+            updated = settings.read_bytes()
+            self.assertNotIn(b"videoWindowPosition", updated)
+            self.assertIn(b"videoWindowAlwaysOnTop", updated)
+            self.assertIn(b"recordVideoResolution", updated)
+            self.assertIn(b"10x20 800x600", (backup / "settings.xml").read_bytes())
+
     def test_macos_install_uninstall_and_restore_preserve_bundle_contents(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

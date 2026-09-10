@@ -24,10 +24,13 @@ public:
                      std::uint32_t highlightColor = 0x0000d2ffu,
                      std::uint32_t readColor = 0x00969696u,
                      int fontFamily = 0, int backdropStyle = 0,
-                     int backdropStrength = 1);
+                     int backdropStrength = 1, bool backgroundEnabled = false,
+                     std::uint32_t backgroundColor = 0x00000000u);
 
     bool UpdateMessage(const std::wstring& message, int width, int height,
-                       float fontScale = 1.0f, float verticalPosition = 0.5f);
+                       float fontScale = 1.0f, float verticalPosition = 0.5f,
+                       bool backgroundEnabled = false,
+                       std::uint32_t backgroundColor = 0x00000000u);
     ID3D11ShaderResourceView* View() const noexcept { return view_.Get(); }
 
 private:

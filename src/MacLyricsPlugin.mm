@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,15 @@
 #endif
 
 namespace {
+struct BackgroundChoice { const char* name; CGFloat red, green, blue; };
+constexpr BackgroundChoice kBackgrounds[] = {
+    {"Black", 0.0, 0.0, 0.0}, {"White", 1.0, 1.0, 1.0},
+    {"Gray", 0.35, 0.35, 0.35}, {"Red", 0.85, 0.12, 0.12},
+    {"Green", 0.10, 0.55, 0.20}, {"Blue", 0.10, 0.25, 0.85},
+    {"Yellow", 0.95, 0.75, 0.0}, {"Orange", 1.0, 0.35, 0.05},
+    {"Magenta", 0.75, 0.10, 0.75},
+};
+
 NSString* ToNSString(const std::wstring& value) {
     if (value.empty()) return @"";
     return [[NSString alloc] initWithBytes:value.data()
@@ -41,12 +51,15 @@ public:
 
     bool Update(id<MTLDevice> device, const std::vector<std::wstring>& lines,
                 std::size_t activeLine, int width, int height,
-                float fontScale, float verticalPosition) {
+                float fontScale, float verticalPosition, bool backgroundEnabled,
+                std::size_t backgroundIndex) {
         if (!device || lines.empty() || activeLine >= lines.size() || width <= 0 || height <= 0)
             return false;
         std::wstring key = std::to_wstring(activeLine) + L":" + std::to_wstring(width) + L"x" +
                            std::to_wstring(height) + L":" + std::to_wstring(fontScale) + L":" +
-                           std::to_wstring(verticalPosition);
+                           std::to_wstring(verticalPosition) + L":" +
+                           std::to_wstring(backgroundEnabled) + L":" +
+                           std::to_wstring(backgroundIndex);
         for (const auto& line : lines) key += L"\n" + line;
         if (device_ == device && texture_ && key == cacheKey_) return true;
 
@@ -60,6 +73,15 @@ public:
                                           static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst)));
             CGColorSpaceRelease(colorSpace);
             if (!context) return false;
+            if (backgroundEnabled) {
+                const auto& background = kBackgrounds[
+                    std::min(backgroundIndex, std::size(kBackgrounds) - 1)];
+                CGContextSetRGBFillColor(
+                    context, background.red, background.green, background.blue, 1.0);
+                CGContextFillRect(
+                    context, CGRectMake(0, 0, static_cast<CGFloat>(width),
+                                        static_cast<CGFloat>(height)));
+            }
 
             NSGraphicsContext* graphics = [NSGraphicsContext graphicsContextWithCGContext:context flipped:YES];
             [NSGraphicsContext saveGraphicsState];
@@ -197,6 +219,9 @@ public:
             DeclareParameterButton(&previousLine_, 8, "Previous line", "Prev") != S_OK ||
             DeclareParameterSwitch(&autoTagLrc_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true) != S_OK)
             return -1;
+        if (DeclareParameterSwitch(&background_, 12, "Background", "Background", false) != S_OK ||
+            DeclareParameterSlider(&backgroundColor_, 13, "Background color", "BG color", 0.0f) != S_OK)
+            return -1;
         return S_OK;
     }
 
@@ -210,6 +235,14 @@ public:
             previousLine_ = 0;
             overlay_.Reset();
         }
+        return S_OK;
+    }
+
+    HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
+        if (id != 13 || !output || outputSize <= 0) return E_NOTIMPL;
+        const auto index = BackgroundIndex();
+        std::snprintf(output, static_cast<std::size_t>(outputSize), "%s",
+                      kBackgrounds[index].name);
         return S_OK;
     }
 
@@ -281,7 +314,8 @@ public:
         }
 
         if (!overlay_.Update(encoder.device, visible, visibleActive, width, height,
-                             FontScale(), VerticalPosition())) return S_FALSE;
+                             FontScale(), VerticalPosition(), background_ != 0,
+                             BackgroundIndex())) return S_FALSE;
         return overlay_.Draw(encoder) ? S_OK : S_FALSE;
     }
 
@@ -311,6 +345,11 @@ private:
     float VerticalPosition() const { return 0.1f + std::clamp(verticalPosition_, 0.0f, 1.0f) * 0.8f; }
     std::size_t PageSize() const { return 5 + static_cast<std::size_t>(std::clamp(pageLines_, 0.0f, 1.0f) * 7.0f + 0.5f); }
     std::size_t TimedLineCount() const { return 5 + static_cast<std::size_t>(std::clamp(timedLines_, 0.0f, 1.0f) * 7.0f + 0.5f); }
+    std::size_t BackgroundIndex() const {
+        return static_cast<std::size_t>(
+            std::clamp(backgroundColor_, 0.0f, 1.0f) *
+            static_cast<float>(std::size(kBackgrounds) - 1) + 0.5f);
+    }
 
     MetalTextOverlay overlay_;
     AsyncLyricsLoader loader_;
@@ -326,6 +365,8 @@ private:
     int nextLine_{};
     int previousLine_{};
     int autoTagLrc_{1};
+    int background_{};
+    float backgroundColor_{};
 };
 
 extern "C" VDJ_EXPORT HRESULT VDJ_API DllGetClassObject(
