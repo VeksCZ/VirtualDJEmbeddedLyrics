@@ -681,7 +681,8 @@ class App(tk.Tk):
         upper = value.upper()
         if "ERROR" in upper or "FAILED" in upper:
             style = "error"
-        elif any(word in upper for word in ("WARNING", "WARN", "SKIP", "DRY-RUN")):
+        elif any(word in upper for word in (
+                "WARNING", "WARN", "SKIP", "DRY-RUN", "MISSING")):
             style = "warning"
         elif any(word in upper for word in (
                 "OK", "WRITE", "SUCCESS", "VERIFIED", "CREATED", "RESTORED", "SUMMARY")):

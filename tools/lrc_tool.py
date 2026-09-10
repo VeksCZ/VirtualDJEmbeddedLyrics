@@ -209,6 +209,7 @@ class TidalClient:
         self.session_file = session_file.expanduser().resolve()
         self.persist_session = persist_session
         self.log = log
+        self.last_lyrics_error = ""
         self.session = tidalapi.Session()
         self._load_or_login()
 
@@ -322,10 +323,11 @@ class TidalClient:
         return best if best_score >= 0.72 else None
 
     def fetch_lrc(self, track) -> str | None:
+        self.last_lyrics_error = ""
         try:
             lyrics = track.lyrics()
         except Exception as exc:
-            self.log(f"[WARNING] TIDAL lyrics request failed: {exc}")
+            self.last_lyrics_error = str(exc)
             return None
         text = getattr(lyrics, "subtitles", None) or getattr(lyrics, "text", None)
         return str(text).strip() if text else None
@@ -466,6 +468,8 @@ def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, repo
                         lrc_text = tidal.fetch_lrc(track)
                         if not lrc_text:
                             status = "track found without lyrics"
+                            if tidal.last_lyrics_error:
+                                status += f" ({tidal.last_lyrics_error})"
 
             if not lrc_text and do_dedupe and existing_uslt:
                 lrc_text, ambiguous = choose_best_existing_uslt(existing_uslt)
@@ -475,7 +479,7 @@ def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, repo
             if not lrc_text:
                 status = status or ("TIDAL unavailable" if tidal_unavailable else "NOT FOUND")
                 rows.append([mp3_path, artist, title, isrc, status, "manual review required"])
-                log(f"[MISSING] {mp3_path.name}")
+                log(f"[MISSING] {mp3_path.name} <- {status}")
                 continue
 
             backup_path = backup_lrc(mp3_path, lrc_text, library_dir, backup_dir, dry_run)
