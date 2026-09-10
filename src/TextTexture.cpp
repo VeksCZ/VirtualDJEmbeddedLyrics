@@ -87,6 +87,12 @@ void FinalizeAlpha(void* pixels, std::size_t count) {
         values[i] = rgb | (alpha << 24);
     }
 }
+
+std::uint32_t DibColor(std::uint32_t colorRef) {
+    return ((colorRef & 0x000000ffu) << 16) |
+           (colorRef & 0x0000ff00u) |
+           ((colorRef & 0x00ff0000u) >> 16);
+}
 }
 
 bool TextTexture::Initialize(ID3D11Device* device) {
@@ -150,8 +156,8 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     if (!bitmap || !pixels) { DestroyCanvas(dc, bitmap, nullptr); return false; }
     const auto oldBitmap = SelectObject(dc, bitmap);
     if (!oldBitmap || oldBitmap == HGDI_ERROR) { DestroyCanvas(dc, bitmap, nullptr); return false; }
-    std::fill_n(static_cast<std::uint32_t*>(pixels), static_cast<std::size_t>(width) * height,
-                backgroundEnabled ? (0xff000000u | backgroundColor) : 0u);
+    std::fill_n(static_cast<std::uint32_t*>(pixels),
+                static_cast<std::size_t>(width) * height, 0u);
     SetBkMode(dc, TRANSPARENT);
     SetTextAlign(dc, TA_CENTER | TA_BASELINE);
 
@@ -215,13 +221,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         highlightY += spacing;
     }
 
-    if (backgroundEnabled) {
-        auto* values = static_cast<std::uint32_t*>(pixels);
-        for (std::size_t i = 0; i < static_cast<std::size_t>(width) * height; ++i)
-            values[i] |= 0xff000000u;
-    } else {
-        FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
-    }
+    FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
     auto* pixelValues = static_cast<std::uint32_t*>(pixels);
     const float topZero = static_cast<float>(anchor) - spacing * 5.25f;
     const float topOpaque = static_cast<float>(anchor) - spacing * 2.5f;
@@ -236,6 +236,21 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
             auto& pixel = pixelValues[static_cast<std::size_t>(row) * width + column];
             const auto alpha = static_cast<std::uint32_t>(((pixel >> 24) & 0xffu) * fade + 0.5f);
             pixel = (pixel & 0x00ffffffu) | (alpha << 24);
+        }
+    }
+    if (backgroundEnabled) {
+        const auto background = DibColor(backgroundColor);
+        const auto backgroundRed = (background >> 16) & 0xffu;
+        const auto backgroundGreen = (background >> 8) & 0xffu;
+        const auto backgroundBlue = background & 0xffu;
+        for (std::size_t index = 0; index < static_cast<std::size_t>(width) * height; ++index) {
+            const auto source = pixelValues[index];
+            const auto alpha = (source >> 24) & 0xffu;
+            const auto inverse = 255u - alpha;
+            const auto red = (((source >> 16) & 0xffu) * alpha + backgroundRed * inverse + 127u) / 255u;
+            const auto green = (((source >> 8) & 0xffu) * alpha + backgroundGreen * inverse + 127u) / 255u;
+            const auto blue = ((source & 0xffu) * alpha + backgroundBlue * inverse + 127u) / 255u;
+            pixelValues[index] = 0xff000000u | (red << 16) | (green << 8) | blue;
         }
     }
 
