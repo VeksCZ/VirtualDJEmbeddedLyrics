@@ -13,8 +13,11 @@
   only after a preferred same-name LRC was imported and verified.
 - Added a backed-up **Reset video window layout** action that removes only
   VirtualDJ's remembered external-video window geometry.
-- Split releases into dedicated **LRC Plugin Setup** and **LyricsTools**
-  downloads for every supported platform and architecture.
+- Unified plugin setup and all lyrics/library operations in one **LyricsTools**
+  application. Plugin installation and update is now the first tab.
+- Simplified release packages: Windows shows `LyricsTools.exe` at the root and
+  keeps support files in `_internal`; macOS keeps them inside `LyricsTools.app`.
+- Removed the separate LRC Plugin Setup application and downloads.
 - Added opt-in automatic updates with SHA-256 verification and safe extraction.
 - Added a local problem queue with CSV export.
 - Added an option to ask a running VirtualDJ instance to close normally before
@@ -33,11 +36,12 @@
 
 ## Installation
 
-- Windows: extract `LRC-Plugin-Setup-Windows-v{{VERSION}}.zip` and open
-  `LRCPluginSetup.exe`.
-- macOS: extract the matching `LRC-Plugin-Setup-macOS-AppleSilicon` or
-  `LRC-Plugin-Setup-macOS-Intel` ZIP, close VirtualDJ,
-  and open `LRCPluginSetup.app`.
+- Windows: extract `LyricsTools-Windows-v{{VERSION}}.zip` and open
+  `LyricsTools.exe`.
+- macOS: extract the matching `LyricsTools-macOS-AppleSilicon` or
+  `LyricsTools-macOS-Intel` ZIP and open `LyricsTools.app`.
+- In LyricsTools, use the first **Plugin** tab to install or update the VirtualDJ
+  plugin. The app offers to close VirtualDJ normally when required.
 
 Restart VirtualDJ and enable LRC Master under Video Overlays. LRC BlackOut
 remains optional.

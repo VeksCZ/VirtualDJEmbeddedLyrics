@@ -67,8 +67,6 @@ class GuiCommonTests(unittest.TestCase):
 
     def test_release_assets_are_selected_per_product_and_platform(self):
         release = {"assets": [
-            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip"},
-            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip.sha256"},
             {"name": "LyricsTools-Windows-v1.2.3.zip"},
             {"name": "LyricsTools-Windows-v1.2.3.zip.sha256"},
         ]}
@@ -77,10 +75,10 @@ class GuiCommonTests(unittest.TestCase):
         self.assertEqual(archive["name"], "LyricsTools-Windows-v1.2.3.zip")
         self.assertTrue(checksum["name"].endswith(".sha256"))
 
-    def test_separate_product_asset_is_required(self):
+    def test_wrong_product_asset_is_rejected(self):
         release = {"assets": [
-            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip"},
-            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip.sha256"},
+            {"name": "OtherTool-Windows-v1.2.3.zip"},
+            {"name": "OtherTool-Windows-v1.2.3.zip.sha256"},
         ]}
         with (mock.patch.object(gui_common.sys, "platform", "win32"),
               self.assertRaises(RuntimeError)):

@@ -26,7 +26,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("playlist_sync", "import", "mark", "tidal", "issues", "restore")
+TAB_NAMES = ("plugin", "playlist_sync", "import", "mark", "tidal", "issues", "restore")
 
 
 def parse_launch_arguments():
@@ -127,8 +127,9 @@ class App(tk.Tk):
         self.worker_running = False
         self.events = EventQueue()
         self.vdj_home_combos = []
+        self.setup_buttons = []
         self._build_ui()
-        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "playlist_sync"))
+        requested_tab = REQUESTED_TAB or str(settings.get("active_tab", "plugin"))
         if requested_tab in self.tabs and (self.opt_advanced.get() or requested_tab not in {"tidal", "restore"}):
             self.notebook.select(self.tabs[requested_tab])
         self._tab_changed()
@@ -201,6 +202,7 @@ class App(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
         self.tabs = {name: ttk.Frame(self.notebook, padding=10) for name in TAB_NAMES}
+        self.notebook.add(self.tabs["plugin"], text="Plugin")
         self.notebook.add(self.tabs["playlist_sync"], text="Playlists")
         self.notebook.add(self.tabs["import"], text="Local: Import")
         self.notebook.add(self.tabs["mark"], text="Local: Tags")
@@ -208,6 +210,43 @@ class App(tk.Tk):
         self.notebook.add(self.tabs["issues"], text="Problems")
         self.notebook.add(self.tabs["restore"], text="Recovery")
         self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
+
+        plugin_tab = self.tabs["plugin"]
+        self._description(
+            plugin_tab,
+            "Install or update LRC Master and LRC BlackOut in the selected VirtualDJ "
+            "home folder. Existing plugin files are backed up before every change.",
+        )
+        self._vdj_path_row(plugin_tab)
+        ttk.Label(
+            plugin_tab, textvariable=self.vdj_status, wraplength=790, justify="left"
+        ).pack(anchor="w", pady=(0, 8))
+        package_text = (
+            f"Included plugin version: {gui_common.packaged_version(SCRIPT_DIR)}"
+            if self.package_layout else f"Plugin payload unavailable: {self.package_error}"
+        )
+        ttk.Label(plugin_tab, text=package_text, wraplength=790, justify="left").pack(
+            anchor="w", pady=(0, 10))
+        setup_actions = ttk.Frame(plugin_tab)
+        setup_actions.pack(fill="x")
+        for text, command in (
+            ("Uninstall plugin", lambda: self._run_plugin_action("uninstall")),
+            ("Restore newest backup", lambda: self._run_plugin_action("restore")),
+            ("Reset video window layout", self._reset_video_window),
+        ):
+            button = ttk.Button(setup_actions, text=text, command=command)
+            button.pack(side="left", padx=(0, 8))
+            self.setup_buttons.append(button)
+        ttk.Label(
+            plugin_tab,
+            text=(
+                "VirtualDJ must be closed before plugin files or its saved video-window "
+                "layout are changed. If it is running, LyricsTools can ask it to close "
+                "normally and will never force-terminate it."
+            ),
+            wraplength=790,
+            justify="left",
+        ).pack(anchor="w", pady=(12, 0))
 
         import_tab = self.tabs["import"]
         self._folder_panel(import_tab)
@@ -553,6 +592,7 @@ class App(tk.Tk):
             return
         active_tab = self._active_tab_name()
         labels = {
+            "plugin": "Install / update plugin",
             "playlist_sync": "Preview / sync playlists",
             "import": "Import LRC / TXT",
             "mark": "Scan / mark lyrics tags",
@@ -563,6 +603,75 @@ class App(tk.Tk):
         label = labels.get(active_tab, "Run")
         state = "disabled" if self.worker_running else "normal"
         self.run_button.configure(text=label, state=state)
+        setup_state = "disabled" if self.worker_running or self.package_layout is None else "normal"
+        for button in getattr(self, "setup_buttons", []):
+            button.configure(state=setup_state)
+
+    def _confirm_virtualdj_close(self, purpose: str) -> bool | None:
+        if self.package_layout is None:
+            messagebox.showerror("Plugin payload unavailable", self.package_error)
+            return None
+        try:
+            running = vdj_setup.virtualdj_running(self.package_layout)
+        except Exception as exc:
+            messagebox.showerror("VirtualDJ status", str(exc))
+            return None
+        if not running:
+            return False
+        accepted = messagebox.askyesno(
+            "VirtualDJ is running",
+            "Save any current work first. VirtualDJ must be closed before "
+            f"{purpose}. Ask VirtualDJ to close normally now?",
+        )
+        return True if accepted else None
+
+    def _run_plugin_action(self, action: str) -> None:
+        home = self._validate_vdj_home(show_error=True)
+        if home is None or self.package_layout is None:
+            return
+        close_requested = self._confirm_virtualdj_close("plugin files are changed")
+        if close_requested is None:
+            return
+        label = {"install": "Install / update", "uninstall": "Uninstall",
+                 "restore": "Restore the newest backup"}[action]
+        if not messagebox.askyesno(
+            "Confirm plugin setup", f"{label} in:\n\n{home}?",
+        ):
+            return
+
+        def job() -> Path | None:
+            if close_requested and not vdj_setup.request_virtualdj_close(self.package_layout):
+                raise RuntimeError(
+                    "VirtualDJ did not close within 15 seconds. Close it manually and try again."
+                )
+            vdj_setup.run_action(self.package_layout, action, home, self.events.log)
+            return gui_common.newest_backup(home, "LRC Lyrics Backups")
+
+        self._start_worker(job, f"Plugin {action}")
+
+    def _reset_video_window(self) -> None:
+        home = self._validate_vdj_home(show_error=True)
+        if home is None or self.package_layout is None:
+            return
+        close_requested = self._confirm_virtualdj_close(
+            "the external video window layout is reset")
+        if close_requested is None:
+            return
+        if not messagebox.askyesno(
+            "Reset video window layout",
+            "Forget only the saved size and position of VirtualDJ's external video "
+            "window? A settings backup will be created first.",
+        ):
+            return
+
+        def job() -> Path | None:
+            if close_requested and not vdj_setup.request_virtualdj_close(self.package_layout):
+                raise RuntimeError(
+                    "VirtualDJ did not close within 15 seconds. Close it manually and try again."
+                )
+            return vdj_setup.reset_video_window_layout(home, self.package_layout, self.events.log)
+
+        self._start_worker(job, "Video window layout reset")
 
     def _log(self, message) -> None:
         value = str(message)
@@ -663,6 +772,7 @@ class App(tk.Tk):
                     self.last_operation.set(f"Last operation completed: {name}")
                     self.last_backup = backup
                     self.backup_button.configure(state="normal" if backup else "disabled")
+                    self.after(0, lambda: self._validate_vdj_home(show_error=False))
                 elif kind == "error":
                     self.last_operation.set(f"Last operation failed: {payload}")
                 elif kind == "issues":
@@ -740,6 +850,9 @@ class App(tk.Tk):
     def _run_current_tab(self) -> None:
         tab = self._active_tab_name()
         dry_run = self.opt_dryrun.get()
+        if tab == "plugin":
+            self._run_plugin_action("install")
+            return
         if tab == "issues":
             library = self._validated_library()
             if library is None:

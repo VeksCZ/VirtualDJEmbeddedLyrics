@@ -8,16 +8,17 @@ master video output. The project provides two Windows 64-bit video overlays:
 
 ## Download and install
 
-1. Download **LRC-Plugin-Setup** matching your system: `Windows`,
+1. Download **LyricsTools** matching your system: `Windows`,
    `macOS-AppleSilicon`, or `macOS-Intel`, from the
    [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
-2. Extract the complete ZIP. Do not run the installer from inside the ZIP preview.
-3. Close VirtualDJ completely.
-4. Open **LRCPluginSetup.exe** on Windows or **LRCPluginSetup.app** on macOS.
-5. Confirm the detected VirtualDJ folder and choose **Install / update**.
+2. Extract the complete ZIP. Do not run the application from inside the ZIP preview.
+3. Open **LyricsTools.exe** on Windows or **LyricsTools.app** on macOS.
+4. Select the first **Plugin** tab and confirm the detected VirtualDJ folder.
+5. Choose **Install / update plugin**. If VirtualDJ is running, LyricsTools can
+   ask it to close normally after you save your work.
 6. Start VirtualDJ again.
 
-The installer detects the active VirtualDJ home folder from the VirtualDJ
+LyricsTools detects the active VirtualDJ home folder from the VirtualDJ
 registry setting, the current `%LOCALAPPDATA%\VirtualDJ` location, or the legacy
 `Documents\VirtualDJ` location. If it cannot choose safely, it asks for the
 folder. In VirtualDJ, **Settings > Options > cog button** opens the active home
@@ -73,17 +74,16 @@ as synchronized lyrics.
 use the standard ID3 `Grouping` field for the portable markers
 `Lyrics: Synced` and `Lyrics: Unsynced`.
 
-## Included applications
+## Included application
 
-The release provides two completely separate no-console downloads:
+Each platform has one no-console **LyricsTools** download. Its first tab handles
+plugin installation, update, uninstall, recovery, and video-window reset. The
+remaining tabs provide music, lyrics, MyLists, Search DB, and problem-queue tools.
+On Windows, `LyricsTools.exe` is prominent at the package root and support files
+are contained in `_internal`. On macOS the support files are inside the app.
 
-- **LRC-Plugin-Setup** contains only the installer, plugin payload, uninstall,
-  and plugin recovery support.
-- **LyricsTools** contains only the music, lyrics, MyLists, Search DB, and
-  problem-queue application.
-
-Both applications include their runtime; end users do not need to install
-Python. LyricsTools opens in Simple mode and exposes TIDAL/normalization and
+LyricsTools includes its runtime; end users do not need to install Python. It
+opens in Simple mode and exposes TIDAL/normalization and
 restore tools after enabling **Advanced**. Its tabs cover:
 
 - fully mirroring a music directory tree and its tracks into an isolated
@@ -104,24 +104,22 @@ and verified. Plain or otherwise skipped TXT files are retained.
 Python is required only by the Windows plugin's optional **Record timing** helper,
 not by either packaged GUI application or normal lyrics display.
 
-On macOS, extract the complete ZIP and open **LRCPluginSetup.app** first. If
+On macOS, extract the complete ZIP and open **LyricsTools.app**. If
 Gatekeeper blocks a locally signed
 app on first launch, Control-click it, choose **Open**, and confirm once. The GUI
 detects both `~/Library/Application Support/VirtualDJ` and the legacy
 `~/Documents/VirtualDJ` home. Music on external drives is registered in that
 volume's `/Volumes/<name>/VirtualDJ/database.xml`.
 
-Each macOS Plugin Setup package contains universal LRC Master and LRC BlackOut
-`.bundle` plugins plus the installer native to the architecture named in the
-ZIP. LyricsTools is a separate architecture-specific download. The installer
-selects the proper plugin location automatically. LyricsTools,
-folder/MyLists synchronization, Search DB
+Each macOS package contains universal LRC Master and LRC BlackOut `.bundle`
+plugins inside the architecture-specific LyricsTools app. The Plugin tab selects
+the proper VirtualDJ plugin location automatically. Folder/MyLists synchronization, Search DB
 registration, and MP3 lyrics maintenance are available on both platforms.
 
-**LRCPluginSetup** validates the selected folder, shows a color-coded installation
+The **Plugin** tab validates the selected folder, shows a color-coded installation
 state, keeps replaced files in `LRC Lyrics Backups`, and never bypasses the check
 that VirtualDJ is closed. If VirtualDJ is running, it offers to request a normal
-shutdown and never force-kills it. Both applications can create a privacy-safe
+shutdown and never force-kills it. LyricsTools can create a privacy-safe
 diagnostic ZIP. Update checks run only when requested; an update can then be
 downloaded, SHA-256 verified, extracted, and launched automatically.
 
@@ -168,14 +166,15 @@ for a recursive MP3 scan.
 
 ## Update or uninstall
 
-To update, close VirtualDJ, extract the new release and open **LRCPluginSetup**.
-The operation is repeatable and keeps a backup of replaced files.
+To update the application, use the top-right settings menu or extract a newer
+LyricsTools release. To update the plugin, use its first **Plugin** tab. The
+operation is repeatable and keeps a backup of replaced files.
 
-To remove or restore the plugin, close VirtualDJ and use **LRCPluginSetup**. Only
+To remove or restore the plugin, use the **Plugin** tab. Only
 managed files are removed, and they are backed up first.
 
 If VirtualDJ has remembered an unwanted external-video window size or monitor,
-use **Reset video window layout** in LRCPluginSetup. It backs up `settings.xml`
+use **Reset video window layout** in the Plugin tab. It backs up `settings.xml`
 and forgets only the saved video-window geometry; VirtualDJ chooses its default
 again and can remember the new position for the current monitor arrangement.
 
@@ -184,7 +183,7 @@ again and can remember the new position for the current monitor arrangement.
 ### The overlays are not listed
 
 - Restart VirtualDJ after installation.
-- Open `LRCPluginSetup` and confirm the displayed VirtualDJ home path.
+- Open LyricsTools' **Plugin** tab and confirm the displayed VirtualDJ home path.
 - If asked for a path, open it using **Settings > Options > cog button** in
   VirtualDJ.
 

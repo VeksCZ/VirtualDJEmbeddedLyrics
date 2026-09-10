@@ -59,11 +59,14 @@ class PackageLayoutTests(unittest.TestCase):
             self._touch_files(scripts, ("detect-vdj-home.ps1",))
             (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
 
-            archive_path = root / "dist" / "LRC-Lyrics-VirtualDJ-Windows-v1.2.3.zip"
+            archive_path = root / "dist" / "LyricsTools-Windows-v1.2.3.zip"
             archive_path.parent.mkdir()
             with zipfile.ZipFile(archive_path, "w") as archive:
                 for name in vdj_setup.PAYLOAD_FILES:
-                    archive.writestr(f"Plugins/{name}", name.encode("utf-8"))
+                    archive.writestr(
+                        f"LyricsTools-Windows-v1.2.3/_internal/Plugins/{name}",
+                        name.encode("utf-8"),
+                    )
                 archive.writestr("README.md", b"must not be extracted")
 
             runtime = root / "runtime"

@@ -35,7 +35,5 @@ jobs:
         with:
           name: LRC-apps-macOS-${{ matrix.variant }}
           path: |
-            dist/LRC-Plugin-Setup-macOS-${{ matrix.variant }}-*.zip
-            dist/LRC-Plugin-Setup-macOS-${{ matrix.variant }}-*.zip.sha256
             dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip
             dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip.sha256

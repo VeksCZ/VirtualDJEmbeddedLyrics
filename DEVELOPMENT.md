@@ -1,7 +1,7 @@
 # Development
 
 This document is for contributors and source builds. End users should download
-the release ZIP and open `LRCPluginSetup` as described in the main README.
+the release ZIP and open `LyricsTools` as described in the main README.
 
 ## Requirements
 
@@ -21,11 +21,10 @@ py -m pip install -r requirements-build.txt
 ./build-release.ps1
 ```
 
-The script builds both supported DLLs and standalone GUI executables, then runs
+The script builds both supported DLLs and the standalone LyricsTools application, then runs
 C++ tests, Python tests and installer
 integration tests, then leaves only the publishable artifacts:
 
-- `dist/LRC-Plugin-Setup-Windows-v<VERSION>.zip[.sha256]`
 - `dist/LyricsTools-Windows-v<VERSION>.zip[.sha256]`
 
 The release version comes from the root `VERSION` file and is compiled into both
@@ -41,28 +40,25 @@ python3 -m pip install -r requirements-build.txt
 ./build-macos-tools-release.sh
 ```
 
-This creates separate `LRC-Plugin-Setup-macOS-<architecture>` and
-`LyricsTools-macOS-<architecture>` ZIPs. CI publishes both products for
-`AppleSilicon` and `Intel`; the applications are never mixed in one ZIP.
+This creates a `LyricsTools-macOS-<architecture>` ZIP. CI publishes one package
+for `AppleSilicon` and one for `Intel`.
 The macOS CI job builds
 universal Metal/CoreText plugin bundles, verifies both architectures, exported
 entry points, and code signatures, and tests the platform-neutral lyrics core.
 
 ## Local source-tree installation
 
-After a successful release build, close VirtualDJ and run the generated
-`LRCPluginSetup.exe`, confirm the detected home folder, and choose
-**Install / update**.
+After a successful release build, run the generated `LyricsTools.exe`, open its
+first Plugin tab, confirm the detected home folder, and choose Install / update.
 
-For command-line testing, extract the Plugin Setup ZIP and run its `Install.cmd`.
-The underlying script also accepts an explicit custom location:
+For command-line testing, the underlying source script accepts an explicit custom location:
 
 ```powershell
 ./install-plugin.ps1 -VirtualDJHome 'D:\VirtualDJ' -PayloadDirectory './Plugins' -NonInteractive
 ```
 
 Python implementation files live in `tools/`, and canonical installation scripts
-live in `installer/`. Release builds package both GUIs with their own runtime.
+live in `installer/`. Release builds hide installer resources inside LyricsTools.
 
 ## Tests
 

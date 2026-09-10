@@ -1,10 +1,10 @@
 # MP3 & Lyrics Tools
 
-This Windows and macOS suite provides a dedicated `LRCPluginSetup` application
-and a separate `LyricsTools` GUI for importing LRC/TXT sidecars,
+This Windows and macOS suite provides one `LyricsTools` GUI for installing the
+plugin, importing LRC/TXT sidecars,
 marking existing embedded lyrics, normalizing or retrieving lyrics, restoring
 structure-preserving backups, mirroring folders into VirtualDJ lists, and
-with plugin installation kept outside the music-maintenance application.
+and managing the complete workflow from one application.
 
 ## Requirements
 
@@ -20,8 +20,7 @@ python -m pip install --user -r requirements.txt
 
 ## Start the GUI
 
-- In a release, open `LRCPluginSetup.exe/.app` for plugin management and
-  `LyricsTools.exe/.app` for all music and playlist tools.
+- In a release, open `LyricsTools.exe/.app`; plugin management is its first tab.
 - In a source checkout, use `LyricsTools.cmd` or `LyricsTools.command`. On first
   launch, Control-click the unsigned app and choose **Open** if Gatekeeper asks.
 - Drag a music folder onto that launcher to select it immediately.
@@ -37,7 +36,7 @@ turning dry-run off.
 
 ## Applications and tabs
 
-### LRCPluginSetup
+### Plugin
 
 Finds or accepts the active VirtualDJ home folder, installs the proper plugin
 payload, and supports uninstall and newest-backup restore. The top panel reports
@@ -46,8 +45,6 @@ installer offers to ask it to close normally. VirtualDJ must be closed for
 changes. Installation and uninstall create timestamped snapshots under
 `LRC Lyrics Backups`. Update checking is network-silent until requested;
 downloads are matched to the application and platform and SHA-256 verified.
-
-### LyricsTools
 
 The shared top panel shows the same VirtualDJ path and plugin state. Areas are
 named **Playlists**, **Local lyrics**, **Online sources**, **Problem queue**, and

@@ -221,8 +221,14 @@ def _extract_payload_from_zip(
     destination = runtime_dir.expanduser().resolve() / version
     destination.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
+        members = [name.replace("\\", "/") for name in archive.namelist()]
         for name in PAYLOAD_FILES:
-            data = archive.read(f"Plugins/{name}")
+            suffixes = (f"/_internal/Plugins/{name}", f"/Plugins/{name}")
+            candidates = [member for member in members
+                          if any(("/" + member).endswith(suffix) for suffix in suffixes)]
+            if len(candidates) != 1:
+                raise KeyError(f"Release ZIP does not contain one plugin payload file: {name}")
+            data = archive.read(candidates[0])
             target = destination / name
             temporary = destination / f".{name}.{os.getpid()}.tmp"
             try:
@@ -283,8 +289,12 @@ def locate_package_layout(
         )
         payload = next((path for path in payload_candidates if _complete_payload(path)), None)
         if payload is None and sys.platform != "darwin":
-            release_zip = root / "dist" / f"LRC-Lyrics-VirtualDJ-Windows-v{version}.zip"
-            if release_zip.is_file():
+            release_zips = (
+                root / "dist" / f"LyricsTools-Windows-v{version}.zip",
+                root / "dist" / f"LRC-Lyrics-VirtualDJ-Windows-v{version}.zip",
+            )
+            release_zip = next((path for path in release_zips if path.is_file()), None)
+            if release_zip is not None:
                 try:
                     payload = _extract_payload_from_zip(release_zip, version, runtime_dir)
                 except (OSError, KeyError, zipfile.BadZipFile):

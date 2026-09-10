@@ -1,57 +1,24 @@
-LRC Lyrics for VirtualDJ {{VERSION}} - Windows 64-bit
-=====================================================
+LyricsTools {{VERSION}}
+=======================
 
-QUICK INSTALL
--------------
+QUICK START
+-----------
 
 1. Extract the complete ZIP.
-2. Close VirtualDJ completely.
-3. Double-click LRCPluginSetup.exe. If VirtualDJ is still running, the
-   installer can ask it to close normally after you confirm.
-4. Confirm the VirtualDJ folder and click Install / update.
-5. Start VirtualDJ.
-6. Enable LRC Master under Video Overlays. Enable LRC BlackOut only when a
-   solid black background is wanted.
+2. Open LyricsTools.exe on Windows or LyricsTools.app on macOS.
+3. Open the first Plugin tab.
+4. Confirm the detected VirtualDJ home folder and choose Install / update plugin.
+5. Start VirtualDJ and enable LRC Master under Video Overlays.
 
-The installer supports current AppData installations, legacy Documents
-installations and custom VirtualDJ HomeFolder locations. If it asks for the
-folder, open VirtualDJ and use Settings > Options > cog button to locate the
-active home folder, then close VirtualDJ and paste that path into the installer.
+No Python installation is required. On Windows, users normally interact only
+with LyricsTools.exe; plugin payload and setup resources are kept in _internal.
+On macOS all support resources are contained inside LyricsTools.app.
 
-No administrator access, build tools or Python are required for lyrics display.
-Replaced files are backed up inside the selected VirtualDJ home folder.
-
-BEHAVIOR
---------
-
-- LRC Master reads embedded SYLT, synchronized/unsynchronized TXXX and USLT,
-  plus same-name .lrc and .txt files.
-- Tracks without supported lyrics display ... in the master output.
-- Auto-tag #lrc adds #lrc to VirtualDJ User 1 without replacing existing data.
-- LRC BlackOut is an optional black background processed before later overlays.
-
-INCLUDED APPLICATIONS
----------------------
-
-This download contains LRCPluginSetup.exe and the plugin payload. LyricsTools
-is a separate download and provides tools to import LRC/TXT,
-mark existing lyrics in ID3 Grouping, retrieve or normalize lyrics with safe
-structured backups, and restore LRC sidecars.
-It can also mirror a music directory hierarchy directly into one isolated
-VirtualDJ MyLists root, so Serato crates are not required. The folder sync starts
-in preview mode, protects unrelated lists, and creates a backup before changes.
-Both applications display the detected VirtualDJ path and plugin status. They
-also provide opt-in verified updates and privacy-safe diagnostic ZIP files.
-LyricsTools starts in Simple mode; enable Advanced for TIDAL/normalization and
-restore tools.
-
-Preview mode is enabled on first use. Both applications include their runtime;
-Python is not required.
-
-UPDATE / REMOVE
----------------
-
-Close VirtualDJ and use LRCPluginSetup.exe to update, remove, or restore.
+The same application manages plugin installation, updates, uninstall, backup
+recovery, video-window reset, folder-to-MyLists synchronization, Search DB
+registration, local LRC/TXT import, lyrics tags, TIDAL retrieval, and problem
+reports. Changes to VirtualDJ or music files use previews, confirmations, and
+timestamped backups where applicable.
 
 Full documentation:
 https://github.com/VeksCZ/VirtualDJEmbeddedLyrics

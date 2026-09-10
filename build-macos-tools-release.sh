@@ -25,12 +25,18 @@ ctest --test-dir "$build_dir" -C Release --output-on-failure
 
 dist_dir="$project_root/dist"
 variant="${MACOS_VARIANT:-$(uname -m)}"
-setup_package_name="LRC-Plugin-Setup-macOS-$variant-v$version"
-lyrics_package_name="LyricsTools-macOS-$variant-v$version"
-stage_dir="$work_dir/stage"
-setup_package_dir="$stage_dir/$setup_package_name"
-lyrics_package_dir="$stage_dir/$lyrics_package_name"
-mkdir -p "$setup_package_dir/Tools" "$setup_package_dir/Plugins" "$lyrics_package_dir"
+package_name="LyricsTools-macOS-$variant-v$version"
+package_dir="$work_dir/stage/$package_name"
+mkdir -p "$package_dir"
+
+"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
+    --name LyricsTools --paths "$project_root/tools" \
+    --distpath "$work_dir/app-dist" --workpath "$work_dir/app-build" \
+    --specpath "$work_dir/app-spec" "$project_root/tools/lyrics_tools_gui.py"
+cp -R "$work_dir/app-dist/LyricsTools.app" "$package_dir/LyricsTools.app"
+app="$package_dir/LyricsTools.app"
+resources="$app/Contents/Resources/LRC"
+mkdir -p "$resources/Plugins"
 
 master_bundle="$(find "$build_dir" -type d -name 'LRCMaster.bundle' -print -quit)"
 blackout_bundle="$(find "$build_dir" -type d -name 'LRCBlackOut.bundle' -print -quit)"
@@ -42,47 +48,19 @@ fi
 /usr/bin/lipo "$blackout_bundle/Contents/MacOS/LRCBlackOut" -verify_arch arm64 x86_64
 /usr/bin/nm -gU "$master_bundle/Contents/MacOS/LRCMaster" | /usr/bin/grep -q ' _DllGetClassObject$'
 /usr/bin/nm -gU "$blackout_bundle/Contents/MacOS/LRCBlackOut" | /usr/bin/grep -q ' _DllGetClassObject$'
-cp -R "$master_bundle" "$setup_package_dir/Plugins/LRCMaster.bundle"
-cp -R "$blackout_bundle" "$setup_package_dir/Plugins/LRCBlackOut.bundle"
+cp -R "$master_bundle" "$resources/Plugins/LRCMaster.bundle"
+cp -R "$blackout_bundle" "$resources/Plugins/LRCBlackOut.bundle"
+cp "$project_root/VERSION" "$resources/VERSION"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 
-"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
-    --name LRCPluginSetup --paths "$project_root/tools" \
-    --distpath "$work_dir/setup-dist" --workpath "$work_dir/setup-build" \
-    --specpath "$work_dir/setup-spec" "$project_root/tools/plugin_setup_gui.py"
-cp -R "$work_dir/setup-dist/LRCPluginSetup.app" "$setup_package_dir/LRCPluginSetup.app"
-"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
-    --name LyricsTools --paths "$project_root/tools" \
-    --distpath "$work_dir/tools-dist" --workpath "$work_dir/tools-build" \
-    --specpath "$work_dir/tools-spec" "$project_root/tools/lyrics_tools_gui.py"
-cp -R "$work_dir/tools-dist/LyricsTools.app" "$lyrics_package_dir/LyricsTools.app"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$lyrics_package_dir/LyricsTools.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$setup_package_dir/LRCPluginSetup.app/Contents/Info.plist"
-for name in plugin_setup_gui.py gui_common.py vdj_setup.py; do
-    cp "$project_root/tools/$name" "$setup_package_dir/Tools/$name"
-done
-cp "$project_root/tools/README.md" "$setup_package_dir/Tools/README.md"
-cp "$project_root/README.md" "$setup_package_dir/README.md"
-cp "$project_root/VERSION" "$setup_package_dir/VERSION"
-cp "$project_root/VERSION" "$lyrics_package_dir/VERSION"
-printf '%s\n' "Open LyricsTools.app. Plugin installation is a separate download." > "$lyrics_package_dir/README.txt"
-
-# Ad-hoc signing preserves bundle integrity. Public notarization can replace this
-# when an Apple Developer ID certificate is configured by the release runner.
-/usr/bin/codesign --force --deep --sign - "$setup_package_dir/Plugins/LRCMaster.bundle"
-/usr/bin/codesign --force --deep --sign - "$setup_package_dir/Plugins/LRCBlackOut.bundle"
-/usr/bin/codesign --force --deep --sign - "$lyrics_package_dir/LyricsTools.app"
-/usr/bin/codesign --force --deep --sign - "$setup_package_dir/LRCPluginSetup.app"
-/usr/bin/codesign --verify --deep --strict "$setup_package_dir/Plugins/LRCMaster.bundle"
-/usr/bin/codesign --verify --deep --strict "$setup_package_dir/Plugins/LRCBlackOut.bundle"
-/usr/bin/codesign --verify --deep --strict "$lyrics_package_dir/LyricsTools.app"
-/usr/bin/codesign --verify --deep --strict "$setup_package_dir/LRCPluginSetup.app"
+/usr/bin/codesign --force --deep --sign - "$app"
+/usr/bin/codesign --verify --deep --strict "$app"
+printf '%s\n' "Open LyricsTools.app. The first tab installs or updates the VirtualDJ plugin." > "$package_dir/README.txt"
 
 mkdir -p "$dist_dir"
-for package_dir in "$setup_package_dir" "$lyrics_package_dir"; do
-    zip_path="$dist_dir/$(basename "$package_dir").zip"
-    rm -f "$zip_path" "$zip_path.sha256"
-    /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$package_dir" "$zip_path"
-    hash="$(/usr/bin/shasum -a 256 "$zip_path" | awk '{print toupper($1)}')"
-    printf '%s  %s\n' "$hash" "$(basename "$zip_path")" > "$zip_path.sha256"
-    printf 'Release ZIP: %s\nSHA-256: %s\n' "$zip_path" "$hash"
-done
+zip_path="$dist_dir/$package_name.zip"
+rm -f "$zip_path" "$zip_path.sha256"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$package_dir" "$zip_path"
+hash="$(/usr/bin/shasum -a 256 "$zip_path" | awk '{print toupper($1)}')"
+printf '%s  %s\n' "$hash" "$(basename "$zip_path")" > "$zip_path.sha256"
+printf 'Release ZIP: %s\nSHA-256: %s\n' "$zip_path" "$hash"

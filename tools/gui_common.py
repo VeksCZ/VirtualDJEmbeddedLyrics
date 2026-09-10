@@ -33,12 +33,13 @@ def packaged_version(source_dir: Path) -> str:
 
 
 def package_tools_dir(source_dir: Path) -> Path:
-    """Return the packaged Tools directory from source or a frozen app."""
+    """Return the internal resource directory from source or a frozen app."""
     if not getattr(sys, "frozen", False):
         return source_dir.resolve()
     executable = Path(sys.executable).resolve()
-    package_root = executable.parents[3] if sys.platform == "darwin" else executable.parent
-    return package_root / "Tools"
+    if sys.platform == "darwin":
+        return executable.parents[1] / "Resources" / "LRC" / "Tools"
+    return executable.parent / "_internal" / "Tools"
 
 
 def version_tuple(value: str) -> tuple[int, ...]:

@@ -31,16 +31,11 @@ try {
         $source = Join-Path $PayloadDirectory $name
         Assert-True ((Get-FileHash -LiteralPath $installed).Hash -eq (Get-FileHash -LiteralPath $source).Hash) "$name hash differs"
     }
-    Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LRCPluginSetup.exe') -PathType Leaf) 'standalone plugin setup is missing'
-    $toolsDirectory = Join-Path $PackageDirectory 'Tools'
-    $duplicateLaunchers = @(Get-ChildItem -LiteralPath $toolsDirectory -File | Where-Object {
-        $_.Extension -in @('.cmd', '.bat', '.vbs')
-    })
-    Assert-True ($duplicateLaunchers.Count -eq 0) 'Tools contains a duplicate launcher'
     foreach ($name in @(
-        'plugin_setup_gui.py', 'gui_common.py', 'vdj_setup.py', 'requirements.txt', 'README.md'
+        'install-plugin.ps1', 'uninstall-plugin.ps1', 'restore-backup.ps1',
+        'installer-common.ps1', 'detect-vdj-home.ps1', 'VERSION'
     )) {
-        Assert-True (Test-Path -LiteralPath (Join-Path $toolsDirectory $name) -PathType Leaf) "Tools/$name is missing"
+        Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory $name) -PathType Leaf) "internal/$name is missing"
     }
 
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $VirtualDJTestHome 'Plugins64\VideoEffect\LRC Deck FX.dll'))) 'legacy Deck FX remains'
