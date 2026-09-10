@@ -55,6 +55,13 @@ LRC Master reads, in priority order:
 Timestamped content found in TXT or nominally unsynchronized fields is displayed
 as synchronized lyrics.
 
+LyricsTools writes new synchronized lyrics as one standard ID3v2 `SYLT` frame
+and new plain lyrics as one standard `USLT` frame. When it rewrites lyrics, it
+removes the older duplicate custom TXXX lyric frames. The plugin continues to
+read those legacy fields for existing libraries. A standard SYLT frame retains
+each lyric line and its millisecond timestamp, so it can later be exported back
+to an LRC file; nonstandard LRC metadata may not be recoverable.
+
 ## LRC Master controls
 
 - **Font size**, **Timed lines**, **Untimed lines** and **Vertical position**

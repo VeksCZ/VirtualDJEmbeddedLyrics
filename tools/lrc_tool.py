@@ -386,14 +386,17 @@ def embed_lyrics(mp3_path: Path, lrc_text: str, write_sylt: bool, dry_run: bool,
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
         tags = ID3()
+    for frame in list(tags.getall("TXXX")):
+        if frame.desc.upper() in {"SYNCEDLYRICS", "UNSYNCEDLYRICS", "LYRICS", "USLT"}:
+            tags.delall(frame.HashKey)
+    pairs = parse_lrc(lrc_text) if write_sylt else []
     tags.delall("USLT")
-    tags.add(USLT(encoding=Encoding.UTF8, lang=lang, desc="", text=lrc_text))
-    tags.delall("SYLT")  # Never retain synchronized lyrics for an older USLT payload.
-    if write_sylt:
-        pairs = parse_lrc(lrc_text)
-        if pairs:
-            tags.add(SYLT(encoding=Encoding.UTF8, lang=lang, format=2, type=1, desc="",
-                          text=[(text, milliseconds) for milliseconds, text in pairs]))
+    tags.delall("SYLT")
+    if pairs:
+        tags.add(SYLT(encoding=Encoding.UTF8, lang=lang, format=2, type=1, desc="",
+                      text=[(text, milliseconds) for milliseconds, text in pairs]))
+    else:
+        tags.add(USLT(encoding=Encoding.UTF8, lang=lang, desc="", text=lrc_text))
     tags.save(mp3_path)
     return lang
 

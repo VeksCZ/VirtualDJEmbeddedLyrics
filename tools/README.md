@@ -87,8 +87,9 @@ root order, and Search DB if replacement fails.
 ### Import LRC / TXT
 
 Imports same-name sidecars using the existing verified converter. Timed LRC/TXT
-is written to SYLT and `SYNCEDLYRICS`; plain TXT is written to USLT and
-`UNSYNCEDLYRICS`. Optional deletion happens only after the destination tags have
+is written to one standard `SYLT` frame; plain TXT is written to one standard
+`USLT` frame. Obsolete custom TXXX lyric duplicates are removed when lyrics are
+rewritten. Optional deletion happens only after the destination tag has
 been reopened and verified. A separate option deletes a lower-priority timed TXT
 only when a same-name LRC was imported and verified; plain and unverified skipped
 TXT files remain untouched. A real run also writes `#sylt` or `#uslt` to the

@@ -52,7 +52,7 @@ class BatchLrcImportTests(unittest.TestCase):
             self.assertTrue(lrc.exists())
             self.assertFalse(ID3(mp3).getall("SYLT"))
 
-    def test_dual_tag_write_verifies_before_deleting_lrc(self):
+    def test_sylt_write_verifies_before_deleting_lrc(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mp3 = root / "song.mp3"
@@ -69,14 +69,9 @@ class BatchLrcImportTests(unittest.TestCase):
             self.assertFalse(lrc.exists())
             tags = ID3(mp3)
             self.assertEqual(len(tags.getall("SYLT")), 1)
-            synced = [
-                frame for frame in tags.getall("TXXX")
-                if frame.desc == "SYNCEDLYRICS"
-            ]
-            self.assertEqual(len(synced), 1)
+            self.assertFalse(tags.getall("USLT"))
+            self.assertFalse(tags.getall("TXXX"))
             self.assertEqual(tags.getall("TIT1")[0].text, ["Lyrics: Synced"])
-            self.assertTrue(synced[0].text[0].startswith(
-                "[re:VirtualDJ Embedded Lyrics - imported from LRC]"))
 
     def test_existing_synced_tags_are_skipped_and_lrc_is_kept(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -97,7 +92,7 @@ class BatchLrcImportTests(unittest.TestCase):
 
 
 class BatchTxtImportTests(unittest.TestCase):
-    def test_txt_writes_and_verifies_both_unsynchronized_tags(self):
+    def test_txt_writes_and_verifies_standard_uslt(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mp3 = root / "song.mp3"
@@ -109,22 +104,16 @@ class BatchTxtImportTests(unittest.TestCase):
                 mp3, None, txt, "und", overwrite=False)
 
             self.assertTrue(changed)
-            self.assertIn("USLT + UNSYNCEDLYRICS", message)
+            self.assertIn("USLT from TXT", message)
             self.assertIn("verified", message)
             tags = ID3(mp3)
             self.assertEqual(
                 tags.getall("USLT")[0].text.replace("\r\n", "\n"),
                 "First\nSecond",
             )
-            unsynced = [
-                frame for frame in tags.getall("TXXX")
-                if frame.desc == "UNSYNCEDLYRICS"
-            ]
             self.assertEqual(tags.getall("TIT1")[0].text, ["Lyrics: Unsynced"])
-            self.assertEqual(
-                unsynced[0].text[0].replace("\r\n", "\n"),
-                "First\nSecond",
-            )
+            self.assertFalse(tags.getall("SYLT"))
+            self.assertFalse(tags.getall("TXXX"))
 
     def test_existing_unsynchronized_tag_keeps_txt_without_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,10 +150,7 @@ class TimedTxtImportTests(unittest.TestCase):
                 tags.getall("SYLT")[0].text,
                 [("First", 1200), ("Second", 2500)],
             )
-            self.assertEqual(len([
-                frame for frame in tags.getall("TXXX")
-                if frame.desc == "SYNCEDLYRICS"
-            ]), 1)
+            self.assertFalse(tags.getall("TXXX"))
             self.assertEqual(tags.getall("USLT"), [])
             self.assertEqual([
                 frame for frame in tags.getall("TXXX")
@@ -351,7 +337,7 @@ class MarkLyricsGroupingTests(unittest.TestCase):
 
 
 class TimingWriterTests(unittest.TestCase):
-    def test_writes_both_synced_frames_and_refuses_overwrite(self):
+    def test_writes_standard_sylt_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mp3 = root / "song.mp3"
@@ -368,13 +354,8 @@ class TimingWriterTests(unittest.TestCase):
                 tags.getall("SYLT")[0].desc,
                 "Manually timed in VirtualDJ Embedded Lyrics",
             )
-            synced = [
-                frame for frame in tags.getall("TXXX")
-                if frame.desc == "SYNCEDLYRICS"
-            ]
-            self.assertEqual(len(synced), 1)
-            self.assertTrue(str(synced[0].text[0]).startswith(
-                "[re:VirtualDJ Embedded Lyrics - manual timing]"))
+            self.assertFalse(tags.getall("TXXX"))
+            self.assertFalse(tags.getall("USLT"))
             self.assertFalse(timing.exists())
 
             second = root / "second.timing"

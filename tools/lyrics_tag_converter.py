@@ -151,6 +151,14 @@ def embedded_lyrics_kind(tags) -> str | None:
     return "Unsynced" if has_unsynced else None
 
 
+def remove_legacy_lyrics_txxx(tags) -> None:
+    """Remove only obsolete custom lyric duplicates; keep unrelated TXXX frames."""
+    descriptions = {"SYNCEDLYRICS", "UNSYNCEDLYRICS", "LYRICS", "USLT"}
+    for frame in list(tags.getall("TXXX")):
+        if frame.desc.upper() in descriptions:
+            tags.delall(frame.HashKey)
+
+
 def set_grouping_lyrics_marker(tags, kind: str) -> bool:
     """Put a VirtualDJ-visible marker in ID3 Grouping (TIT1), preserving user text."""
     marker = f"Lyrics: {kind}"
@@ -292,28 +300,26 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             if (tags.getall("SYLT") or synced_txxx) and not overwrite:
                 messages.append("synchronized lyrics exist (skipped)")
             else:
-                if overwrite:
-                    tags.delall("SYLT")
-                    tags.delall("TXXX:SYNCEDLYRICS")
+                tags.delall("SYLT")
+                tags.delall("USLT")
+                remove_legacy_lyrics_txxx(tags)
                 descriptor = "Imported from LRC by VirtualDJ Embedded Lyrics"
                 tags.add(SYLT(encoding=Encoding.UTF16, lang=language, format=2, type=1,
                               desc=descriptor,
                               text=[(line.text, line.time_ms) for line in timed_lines]))
-                formatted = ["[re:VirtualDJ Embedded Lyrics - imported from LRC]"]
-                for line in timed_lines:
-                    minutes, remainder = divmod(line.time_ms, 60000)
-                    seconds, millis = divmod(remainder, 1000)
-                    formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{line.text}")
-                tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS",
-                              text=["\n".join(formatted)]))
                 changed = True
                 lrc_written = True
-                messages.append(f"SYLT + SYNCEDLYRICS {len(timed_lines)} lines")
+                messages.append(f"SYLT {len(timed_lines)} lines")
     if txt_path:
         txt_content = decode_text_file(txt_path)
         txt_timed_lines = parse_timestamped_text(txt_content)
-        if txt_timed_lines and lrc_path:
-            messages.append("timed TXT ignored because LRC has priority")
+        synchronized_available = bool(tags.getall("SYLT")) or any(
+            frame.desc.upper() == "SYNCEDLYRICS"
+            and any(str(value).strip() for value in frame.text)
+            for frame in tags.getall("TXXX")
+        )
+        if lrc_path and synchronized_available:
+            messages.append("TXT ignored because LRC/synchronized lyrics have priority")
         elif txt_timed_lines:
             synced_txxx = [frame for frame in tags.getall("TXXX")
                            if frame.desc.upper() == "SYNCEDLYRICS"
@@ -321,24 +327,17 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             if (tags.getall("SYLT") or synced_txxx) and not overwrite:
                 messages.append("synchronized lyrics exist (timed TXT skipped)")
             else:
-                if overwrite:
-                    tags.delall("SYLT")
-                    tags.delall("TXXX:SYNCEDLYRICS")
+                tags.delall("SYLT")
+                tags.delall("USLT")
+                remove_legacy_lyrics_txxx(tags)
                 descriptor = "Imported from timed TXT by VirtualDJ Embedded Lyrics"
                 tags.add(SYLT(encoding=Encoding.UTF16, lang=language, format=2, type=1,
                               desc=descriptor,
                               text=[(line.text, line.time_ms) for line in txt_timed_lines]))
-                formatted = ["[re:VirtualDJ Embedded Lyrics - imported from timed TXT]"]
-                for line in txt_timed_lines:
-                    minutes, remainder = divmod(line.time_ms, 60000)
-                    seconds, millis = divmod(remainder, 1000)
-                    formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{line.text}")
-                tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS",
-                              text=["\n".join(formatted)]))
                 changed = True
                 txt_written = True
                 txt_written_synced = True
-                messages.append(f"SYLT + SYNCEDLYRICS from timed TXT {len(txt_timed_lines)} lines")
+                messages.append(f"SYLT from timed TXT {len(txt_timed_lines)} lines")
         else:
             plain_text = sanitize_untimed_text(txt_content)
             matching_uslt = [frame for frame in tags.getall("USLT") if frame.lang == language]
@@ -350,16 +349,14 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
             elif (matching_uslt or matching_txxx) and not overwrite:
                 messages.append("unsynchronized lyrics exist (skipped)")
             else:
-                if overwrite:
-                    tags.delall("USLT")
-                    tags.delall("TXXX:UNSYNCEDLYRICS")
+                tags.delall("USLT")
+                tags.delall("SYLT")
+                remove_legacy_lyrics_txxx(tags)
                 tags.add(USLT(encoding=Encoding.UTF16, lang=language,
                               desc="Imported from TXT", text=plain_text))
-                tags.add(TXXX(encoding=Encoding.UTF16, desc="UNSYNCEDLYRICS",
-                              text=[plain_text]))
                 changed = True
                 txt_written = True
-                messages.append("USLT + UNSYNCEDLYRICS from TXT")
+                messages.append("USLT from TXT")
     kind = embedded_lyrics_kind(tags)
     if kind and set_grouping_lyrics_marker(tags, kind):
         changed = True
@@ -371,22 +368,16 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
         verify = ID3(mp3_path)
         if lrc_written:
             has_sylt = bool(verify.getall("SYLT"))
-            has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
-                           for frame in verify.getall("TXXX"))
-            if not has_sylt or not has_txxx:
+            if not has_sylt or verify.getall("USLT"):
                 raise RuntimeError("synchronized lyrics verification failed")
         if txt_written_synced:
             has_sylt = bool(verify.getall("SYLT"))
-            has_txxx = any(frame.desc.upper() == "SYNCEDLYRICS" and frame.text
-                           for frame in verify.getall("TXXX"))
-            if not has_sylt or not has_txxx:
+            if not has_sylt or verify.getall("USLT"):
                 raise RuntimeError("timed TXT lyrics verification failed")
         elif txt_written:
             has_uslt = any(frame.lang == language and frame.text.strip()
                            for frame in verify.getall("USLT"))
-            has_unsynced_txxx = any(frame.desc.upper() == "UNSYNCEDLYRICS" and frame.text
-                                    for frame in verify.getall("TXXX"))
-            if not has_uslt or not has_unsynced_txxx:
+            if not has_uslt or verify.getall("SYLT"):
                 raise RuntimeError("unsynchronized lyrics verification failed")
         messages.append("verified")
         if lrc_written and (delete_lrc or delete_sidecars):
@@ -428,17 +419,13 @@ def write_recording(mp3_path: Path, timing_path: Path) -> int:
     descriptor = "Manually timed in VirtualDJ Embedded Lyrics"
     tags.add(SYLT(encoding=Encoding.UTF16, lang="und", format=2, type=1,
                   desc=descriptor, text=entries))
-    formatted = ["[re:VirtualDJ Embedded Lyrics - manual timing]"]
-    for text, milliseconds in entries:
-        minutes, remainder = divmod(milliseconds, 60000)
-        seconds, millis = divmod(remainder, 1000)
-        formatted.append(f"[{minutes:02d}:{seconds:02d}.{millis:03d}]{text}")
-    tags.add(TXXX(encoding=Encoding.UTF16, desc="SYNCEDLYRICS", text=["\n".join(formatted)]))
+    tags.delall("USLT")
+    remove_legacy_lyrics_txxx(tags)
     set_grouping_lyrics_marker(tags, "Synced")
     version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
     tags.save(mp3_path, v2_version=version)
     verify = ID3(mp3_path)
-    if not verify.getall("SYLT") or not any(frame.desc.upper() == "SYNCEDLYRICS" for frame in verify.getall("TXXX")):
+    if not verify.getall("SYLT") or verify.getall("USLT"):
         return 5
     timing_path.unlink(missing_ok=True)
     return 0
@@ -448,8 +435,8 @@ def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "--write-recording":
         return write_recording(Path(sys.argv[2]), Path(sys.argv[3]))
     parser = argparse.ArgumentParser(
-        description=("Find same-name MP3/LRC/TXT files; write LRC to SYLT + "
-                     "SYNCEDLYRICS and TXT to USLT + UNSYNCEDLYRICS."))
+        description=("Find same-name MP3/LRC/TXT files; write timed lyrics to "
+                     "standard SYLT and plain lyrics to standard USLT."))
     parser.add_argument(
         "root", nargs="?", type=Path, default=Path(__file__).resolve().parent,
         help="MP3, LRC, TXT, or library directory; default: the script's own directory",
@@ -457,7 +444,7 @@ def main() -> int:
     parser.add_argument("--write", action="store_true", help="Modify MP3 files (default is dry-run)")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing target lyrics frames")
     parser.add_argument("--delete-lrc", action="store_true",
-                        help="Delete LRC only after both synchronized tags are verified")
+                        help="Delete LRC only after the SYLT frame is verified")
     parser.add_argument("--delete-sidecars", action="store_true",
                         help="Delete each LRC/TXT only after its own tags are written and verified")
     parser.add_argument("--language", default="und", help="Three-letter ID3 language code (default: und)")

@@ -2,6 +2,9 @@
 
 ## Highlights
 
+- Standardized new MP3 lyrics storage on one ID3v2 `SYLT` frame for timed lyrics
+  or one `USLT` frame for plain lyrics. Legacy custom TXXX duplicates remain
+  readable but are removed when LyricsTools rewrites a track.
 - Added an optional solid background to LRC Master's Advanced settings, with
   black and additional color choices; transparency remains the default and the
   top/bottom fade now remains active over solid backgrounds.
