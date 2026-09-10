@@ -1,3 +1,4 @@
+import json
 import sys
 import tempfile
 import unittest
@@ -24,15 +25,12 @@ class PackageLayoutTests(unittest.TestCase):
             root = Path(temporary)
             tools = root / "Tools"
             tools.mkdir()
-            self._touch_files(root, tuple(vdj_setup.INSTALLER_FILES.values()))
-            self._touch_files(root, ("detect-vdj-home.ps1",))
             self._touch_files(root / "Plugins", vdj_setup.PAYLOAD_FILES)
             (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
 
             layout = vdj_setup.locate_package_layout(tools)
 
             self.assertEqual(layout.root, root.resolve())
-            self.assertEqual(layout.scripts, root.resolve())
             self.assertEqual(layout.payload, (root / "Plugins").resolve())
             self.assertEqual(layout.version, "1.2.3")
 
@@ -41,8 +39,6 @@ class PackageLayoutTests(unittest.TestCase):
             root = Path(temporary)
             tools = root / "Tools"
             tools.mkdir()
-            self._touch_files(root, tuple(vdj_setup.INSTALLER_FILES.values()))
-            self._touch_files(root, ("detect-vdj-home.ps1",))
             self._touch_files(root / "Plugins", vdj_setup.PAYLOAD_FILES[:-1])
 
             with self.assertRaises(FileNotFoundError):
@@ -54,9 +50,6 @@ class PackageLayoutTests(unittest.TestCase):
             root = Path(temporary)
             tools = root / "tools"
             tools.mkdir()
-            scripts = root / "installer"
-            self._touch_files(scripts, tuple(vdj_setup.INSTALLER_FILES.values()))
-            self._touch_files(scripts, ("detect-vdj-home.ps1",))
             (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
 
             archive_path = root / "dist" / "LyricsTools-Windows-v1.2.3.zip"
@@ -100,34 +93,12 @@ class PackageLayoutTests(unittest.TestCase):
 
             self.assertIn("legacy installation", vdj_setup.installed_status(home))
 
-    @mock.patch.object(vdj_setup, "_powershell", return_value="powershell.exe")
-    @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell installer")
-    def test_install_command_passes_home_and_payload_without_shell(self, _mock_ps):
-        root = Path("C:/Release")
-        layout = vdj_setup.PackageLayout(
-            root=root,
-            scripts=root,
-            payload=root / "Plugins",
-            detector=root / "detect-vdj-home.ps1",
-            version="1.2.3",
-        )
-
-        command = vdj_setup.build_action_command(
-            layout, "install", Path("D:/Custom VirtualDJ Home"))
-
-        self.assertIn("D:\\Custom VirtualDJ Home", str(Path("D:/Custom VirtualDJ Home")))
-        self.assertEqual(command[-2:], ["-PayloadDirectory", str(root / "Plugins")])
-        self.assertIn("-NonInteractive", command)
-        self.assertNotIn("-SkipProcessCheck", command)
-
     @mock.patch.object(
         vdj_setup, "query_virtualdj", return_value={"VirtualDJRunning": True})
     def test_playlist_changes_are_rejected_while_virtualdj_runs(self, _mock_query):
         layout = vdj_setup.PackageLayout(
             root=Path("C:/Release"),
-            scripts=Path("C:/Release"),
             payload=Path("C:/Release/Plugins"),
-            detector=Path("C:/Release/detect-vdj-home.ps1"),
             version="1.2.3",
         )
         with self.assertRaises(RuntimeError):
@@ -203,8 +174,7 @@ class PackageLayoutTests(unittest.TestCase):
                 executable.parent.mkdir(parents=True)
                 executable.write_bytes(f"new-{name}".encode())
             layout = vdj_setup.PackageLayout(
-                root=root, scripts=root, payload=payload,
-                detector=root / "unused.ps1", version="1.2.3")
+                root=root, payload=payload, version="1.2.3")
 
             with (mock.patch.object(vdj_setup.sys, "platform", "darwin"),
                   mock.patch.object(vdj_setup.platform, "machine", return_value="arm64"),
@@ -222,6 +192,41 @@ class PackageLayoutTests(unittest.TestCase):
                 self.assertFalse(any((overlay / name).exists() for name in vdj_setup.MAC_PAYLOAD_FILES))
                 vdj_setup.run_action(layout, "restore", home, lambda _message: None)
                 self.assertTrue(all((overlay / name).is_dir() for name in vdj_setup.MAC_PAYLOAD_FILES))
+
+    @unittest.skipUnless(sys.platform == "win32", "Native Windows plugin installation")
+    def test_windows_install_cleans_legacy_files_and_uninstalls_safely(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / "VirtualDJ"
+            payload = root / "Plugins"
+            (home / "MyLists").mkdir(parents=True)
+            self._touch_files(payload, vdj_setup.WINDOWS_PAYLOAD_FILES)
+            for name in vdj_setup.WINDOWS_PAYLOAD_FILES:
+                (payload / name).write_bytes(f"new-{name}".encode())
+            settings = home / "settings.xml"
+            settings.write_bytes(
+                b"<settings><videoAudioOnlyVisualisation>LRC Deck"
+                b"</videoAudioOnlyVisualisation></settings>"
+            )
+            legacy = home / "Plugins64" / "VideoEffect" / "LRC Deck.dll"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_bytes(b"legacy")
+            layout = vdj_setup.PackageLayout(root=root, payload=payload, version="1.2.3")
+
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+                vdj_setup.run_action(layout, "install", home, lambda _message: None)
+                overlay = home / "Plugins64" / "VideoOverlay"
+                self.assertTrue(all((overlay / name).is_file()
+                                    for name in vdj_setup.WINDOWS_PAYLOAD_FILES))
+                self.assertFalse(legacy.exists())
+                self.assertIn(b">None<", settings.read_bytes())
+                manifest = json.loads(
+                    (home / "LRC Lyrics Installation.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["Version"], "1.2.3")
+
+                vdj_setup.run_action(layout, "uninstall", home, lambda _message: None)
+                self.assertFalse(any((overlay / name).exists()
+                                     for name in vdj_setup.WINDOWS_PAYLOAD_FILES))
 
 
 if __name__ == "__main__":

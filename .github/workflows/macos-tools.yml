@@ -29,7 +29,7 @@ jobs:
       - run: cmake -S . -B build-macos -DBUILD_TESTING=ON
       - run: cmake --build build-macos
       - run: ctest --test-dir build-macos --output-on-failure
-      - run: bash -n LyricsTools.command macos/LyricsTools.app/Contents/MacOS/LyricsTools build-macos-tools-release.sh
+      - run: bash -n build-macos-tools-release.sh
       - run: ./build-macos-tools-release.sh
       - uses: actions/upload-artifact@v4
         with:

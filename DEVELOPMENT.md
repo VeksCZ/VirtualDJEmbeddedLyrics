@@ -21,9 +21,9 @@ py -m pip install -r requirements-build.txt
 ./build-release.ps1
 ```
 
-The script builds both supported DLLs and the standalone LyricsTools application, then runs
-C++ tests, Python tests and installer
-integration tests, then leaves only the publishable artifacts:
+The script builds both supported DLLs and the standalone LyricsTools application,
+runs C++ and Python tests (including native installer integration tests), then
+leaves only the publishable artifacts:
 
 - `dist/LyricsTools-Windows-v<VERSION>.zip[.sha256]`
 
@@ -51,21 +51,21 @@ entry points, and code signatures, and tests the platform-neutral lyrics core.
 After a successful release build, run the generated `LyricsTools.exe`, open its
 first Plugin tab, confirm the detected home folder, and choose Install / update.
 
-For command-line testing, the underlying source script accepts an explicit custom location:
+For source debugging, launch the same application directly:
 
 ```powershell
-./install-plugin.ps1 -VirtualDJHome 'D:\VirtualDJ' -PayloadDirectory './Plugins' -NonInteractive
+python tools/lyrics_tools_gui.py
 ```
 
-Python implementation files live in `tools/`, and canonical installation scripts
-live in `installer/`. Release builds hide installer resources inside LyricsTools.
+Python implementation files live in `tools/`. Plugin discovery, installation,
+backup, rollback, uninstall, and restore are implemented natively in the shared
+Python application on both Windows and macOS.
 
 ## Tests
 
-Parser and renderer tests are registered with CTest. Python tests use unittest.
-`tests/InstallerTests.ps1` creates an isolated VirtualDJ home folder under the
-Windows temporary directory and verifies installation, legacy cleanup, backup,
-repeat installation, settings migration, file hashes, uninstall and rollback.
+Parser and renderer tests are registered with CTest. Python tests use unittest
+and create isolated temporary VirtualDJ folders to verify installation, legacy
+cleanup, backup, settings migration, uninstall, and recovery behavior.
 
 ## Release checklist
 

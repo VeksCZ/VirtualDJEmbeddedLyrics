@@ -1,9 +1,9 @@
-"""Safe bridge from the Python GUI to the verified PowerShell installer."""
+"""Native VirtualDJ discovery, plugin installation, and recovery helpers."""
 
 from __future__ import annotations
 
+import hashlib
 import json
-import locale
 import os
 import platform
 import re
@@ -30,27 +30,13 @@ MAC_PAYLOAD_FILES = (
     "LRCBlackOut.bundle",
 )
 PAYLOAD_FILES = MAC_PAYLOAD_FILES if sys.platform == "darwin" else WINDOWS_PAYLOAD_FILES
-INSTALLER_FILES = {
-    "install": "install-plugin.ps1",
-    "uninstall": "uninstall-plugin.ps1",
-    "restore": "restore-backup.ps1",
-}
 
 
 @dataclass(frozen=True)
 class PackageLayout:
     root: Path
-    scripts: Path
     payload: Path
-    detector: Path
     version: str
-
-    def action_script(self, action: str) -> Path:
-        try:
-            name = INSTALLER_FILES[action]
-        except KeyError as exc:
-            raise ValueError(f"Unsupported setup action: {action}") from exc
-        return self.scripts / name
 
 
 def _complete_payload(path: Path) -> bool:
@@ -248,11 +234,11 @@ def locate_package_layout(
     *,
     runtime_dir: Path | None = None,
 ) -> PackageLayout:
-    """Locate installer scripts and the matching plugin payload.
+    """Locate the plugin payload shipped beside or built for LyricsTools.
 
-    Release packages keep installers at their root. The source tree keeps the
-    canonical scripts in ``installer`` and extracts the matching built release
-    payload into the local runtime directory when necessary.
+    Release packages keep payload files in their private resources. A source
+    checkout extracts only those files from its matching built release ZIP when
+    necessary.
     """
 
     script_dir = script_dir.expanduser().resolve()
@@ -262,25 +248,17 @@ def locate_package_layout(
     if sys.platform == "darwin" and _complete_payload(release_payload):
         return PackageLayout(
             root=root,
-            scripts=root,
             payload=release_payload,
-            detector=root / "detect-vdj-home.ps1",
             version=_read_version(root),
         )
-    if (all((root / name).is_file() for name in INSTALLER_FILES.values())
-            and (root / "detect-vdj-home.ps1").is_file()
-            and _complete_payload(release_payload)):
+    if _complete_payload(release_payload):
         return PackageLayout(
             root=root,
-            scripts=root,
             payload=release_payload,
-            detector=root / "detect-vdj-home.ps1",
             version=_read_version(root),
         )
 
-    source_scripts = root / "installer"
-    if (all((source_scripts / name).is_file() for name in INSTALLER_FILES.values())
-            and (source_scripts / "detect-vdj-home.ps1").is_file()):
+    if (root / "VERSION").is_file():
         version = _read_version(root)
         payload_candidates = (
             root / "dist" / f"LRC-Lyrics-VirtualDJ-Windows-v{version}" / "Plugins",
@@ -302,9 +280,7 @@ def locate_package_layout(
         if payload is not None:
             return PackageLayout(
                 root=root,
-                scripts=source_scripts,
                 payload=payload,
-                detector=source_scripts / "detect-vdj-home.ps1",
                 version=version,
             )
 
@@ -314,70 +290,15 @@ def locate_package_layout(
             "Use the complete macOS release package or build it on macOS."
         )
     raise FileNotFoundError(
-        "The complete installer payload was not found. Extract the complete "
-        "release ZIP, or run build-release.ps1 before using setup from source."
+        "The complete plugin payload was not found. Extract the complete "
+        "LyricsTools ZIP, or run build-release.ps1 before using setup from source."
     )
-
-
-def _powershell() -> str:
-    executable = shutil.which("powershell.exe") or shutil.which("powershell")
-    if executable is None:
-        raise FileNotFoundError("Windows PowerShell was not found.")
-    return executable
-
-
-def _base_command(script: Path) -> list[str]:
-    return [
-        _powershell(),
-        "-NoLogo",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script),
-    ]
-
-
-def _decode(data: bytes) -> str:
-    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return data.decode("utf-16")
-    if data and data.count(b"\x00") > len(data) // 4:
-        return data.decode("utf-16-le", errors="replace")
-    for encoding in ("utf-8-sig", locale.getpreferredencoding(False), "cp1252"):
-        try:
-            return data.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return data.decode("utf-8", errors="replace")
 
 
 def query_virtualdj(layout: PackageLayout | None = None, explicit_path: str = "") -> dict:
     if sys.platform == "darwin":
         return _query_virtualdj_mac(explicit_path)
-    if layout is None:
-        return _query_virtualdj_windows(explicit_path)
-    command = _base_command(layout.detector)
-    if explicit_path.strip():
-        command.extend(("-ExplicitPath", explicit_path.strip()))
-    completed = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        timeout=15,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    output = _decode(completed.stdout).strip().lstrip("\ufeff")
-    if completed.returncode != 0:
-        raise RuntimeError(output or "VirtualDJ folder detection failed.")
-    for line in reversed(output.splitlines()):
-        try:
-            result = json.loads(line.strip().lstrip("\ufeff"))
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if isinstance(result, dict):
-            return result
-    raise RuntimeError("VirtualDJ folder detection returned an invalid response.")
+    return _query_virtualdj_windows(explicit_path)
 
 
 def installed_status(virtualdj_home: Path) -> str:
@@ -418,21 +339,62 @@ def virtualdj_running(layout: PackageLayout | None = None) -> bool:
     return bool(query_virtualdj(layout).get("VirtualDJRunning"))
 
 
+def _windows_virtualdj_pids() -> set[int]:
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq virtualdj.exe", "/FO", "CSV", "/NH"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace",
+            check=False, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    result: set[int] = set()
+    for line in completed.stdout.splitlines():
+        fields = [field.strip().strip('"') for field in line.split(",")]
+        if len(fields) >= 2 and fields[0].casefold() == "virtualdj.exe":
+            try:
+                result.add(int(fields[1]))
+            except ValueError:
+                pass
+    return result
+
+
+def _request_windows_virtualdj_close() -> None:
+    pids = _windows_virtualdj_pids()
+    if not pids:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        @callback_type
+        def close_window(hwnd, _lparam):
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            if process_id.value in pids and user32.IsWindowVisible(hwnd):
+                user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+            return True
+
+        user32.EnumWindows(close_window, 0)
+    except (AttributeError, OSError):
+        return
+
+
 def request_virtualdj_close(layout: PackageLayout | None = None, timeout: float = 15.0) -> bool:
     """Ask VirtualDJ to close normally and wait; never force-terminate it."""
     if not virtualdj_running(layout):
         return True
     if sys.platform == "darwin":
-        command = ["osascript", "-e", 'tell application "VirtualDJ" to quit']
+        subprocess.run(
+            ["osascript", "-e", 'tell application "VirtualDJ" to quit'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=10,
+        )
     else:
-        command = [
-            _powershell(), "-NoLogo", "-NoProfile", "-Command",
-            "Get-Process -Name virtualdj -ErrorAction SilentlyContinue | ForEach-Object { [void]$_.CloseMainWindow() }",
-        ]
-    subprocess.run(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-        timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
+        _request_windows_virtualdj_close()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not virtualdj_running(layout):
@@ -480,16 +442,6 @@ def reset_video_window_layout(
     return backup
 
 
-def build_action_command(layout: PackageLayout, action: str, virtualdj_home: Path) -> list[str]:
-    if sys.platform == "darwin":
-        raise RuntimeError("macOS setup actions run directly and do not use PowerShell.")
-    command = _base_command(layout.action_script(action))
-    command.extend(("-VirtualDJHome", str(virtualdj_home), "-NonInteractive"))
-    if action == "install":
-        command.extend(("-PayloadDirectory", str(layout.payload)))
-    return command
-
-
 def run_action(
     layout: PackageLayout,
     action: str,
@@ -499,23 +451,7 @@ def run_action(
     if sys.platform == "darwin":
         _run_action_mac(layout, action, virtualdj_home, log)
         return
-    command = build_action_command(layout, action, virtualdj_home)
-    log(f"VirtualDJ home: {virtualdj_home}")
-    log(f"Package version: {layout.version}")
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    assert process.stdout is not None
-    for raw_line in iter(process.stdout.readline, b""):
-        line = _decode(raw_line).rstrip("\r\n")
-        if line:
-            log(line)
-    return_code = process.wait()
-    if return_code:
-        raise RuntimeError(f"VirtualDJ setup failed with exit code {return_code}.")
+    _run_action_windows(layout, action, virtualdj_home, log)
 
 
 def _copy_item(source: Path, destination: Path) -> None:
@@ -551,6 +487,179 @@ def _atomic_json(path: Path, value: dict) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _remove_item(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _restore_tree(backup: Path, virtualdj_home: Path) -> int:
+    backup_root = backup.resolve()
+    home = virtualdj_home.resolve()
+    try:
+        backup_root.relative_to((home / "LRC Lyrics Backups").resolve())
+    except ValueError as exc:
+        raise RuntimeError("Refusing to restore a backup outside the backup folder.") from exc
+    restored = 0
+    for source in backup.rglob("*"):
+        if not source.is_file():
+            continue
+        destination = home / source.relative_to(backup)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.restoring"
+        shutil.copy2(source, temporary)
+        if _sha256(source) != _sha256(temporary):
+            temporary.unlink(missing_ok=True)
+            raise OSError(f"Backup verification failed: {source}")
+        os.replace(temporary, destination)
+        restored += 1
+    return restored
+
+
+def _new_backup(virtualdj_home: Path, action: str) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    backup = virtualdj_home / "LRC Lyrics Backups" / f"{timestamp}-before-{action}"
+    backup.mkdir(parents=True)
+    return backup
+
+
+def _copy_verified_file(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        raise FileNotFoundError(f"Plugin payload file is missing: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.installing"
+    try:
+        shutil.copy2(source, temporary)
+        if _sha256(source) != _sha256(temporary):
+            raise OSError(f"Plugin file verification failed: {source.name}")
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _windows_legacy_paths(virtualdj_home: Path) -> list[Path]:
+    plugins = virtualdj_home / "Plugins64"
+    result: list[Path] = []
+    common = (
+        "EmbeddedLyricsDeck.dll", "EmbeddedLyricsMaster.dll", "Blackout.dll",
+        "LRC Deck Basic.dll", "LRC Master Basic.dll", "EmbeddedLyricsTagWriter.py",
+    )
+    for folder in ("VideoEffect", "VideoOverlay", "Visualisations", "VideoSource"):
+        result.extend(plugins / folder / name for name in common)
+    result.extend((plugins / "VideoOverlay" / name) for name in (
+        "LRC Master.dll", "LRC BlackOut.dll",
+    ))
+    result.extend((plugins / "VideoEffect" / name) for name in (
+        "LRC Deck.dll", "LRC Master.dll", "LRC BlackOut.dll", "LRC Deck FX.dll",
+        "EmbeddedLyricsDeck.ini", "EmbeddedLyricsMaster.ini", "LRC Deck.ini",
+        "LRC Deck_2.ini", "LRC Deck FX.ini", "LRC Master.ini",
+    ))
+    result.extend((plugins / "VideoSource" / name) for name in ("LRC Deck.dll",))
+    result.extend((plugins / "Visualisations" / name) for name in (
+        "LRC Deck.dll", "LRC Deck.ini", "LRC Deck_2.ini",
+    ))
+    return list(dict.fromkeys(result))
+
+
+def _run_action_windows(
+    layout: PackageLayout,
+    action: str,
+    virtualdj_home: Path,
+    log: Callable[[str], None],
+) -> None:
+    if action not in {"install", "uninstall", "restore"}:
+        raise ValueError(f"Unsupported setup action: {action}")
+    virtualdj_home = virtualdj_home.expanduser().resolve()
+    if not is_virtualdj_home(virtualdj_home):
+        raise ValueError(f"The selected folder is not a VirtualDJ home folder: {virtualdj_home}")
+    assert_virtualdj_closed(layout)
+    backups_root = virtualdj_home / "LRC Lyrics Backups"
+
+    if action == "restore":
+        candidates = sorted(
+            (path for path in backups_root.iterdir() if path.is_dir()),
+            key=lambda path: path.name, reverse=True,
+        ) if backups_root.is_dir() else []
+        if not candidates:
+            raise FileNotFoundError("No LRC Lyrics backup is available.")
+        restored = _restore_tree(candidates[0], virtualdj_home)
+        if not restored:
+            raise FileNotFoundError("The newest LRC Lyrics backup is empty.")
+        log(f"Restored the newest backup: {candidates[0]}")
+        return
+
+    overlay = plugin_directory(virtualdj_home)
+    managed = [overlay / name for name in WINDOWS_PAYLOAD_FILES]
+    manifest = virtualdj_home / "LRC Lyrics Installation.json"
+    legacy = _windows_legacy_paths(virtualdj_home)
+    uninstall_paths = list(dict.fromkeys(managed + [
+        overlay / "LRC Master.dll", overlay / "LRC BlackOut.dll", manifest,
+    ]))
+    affected = uninstall_paths if action == "uninstall" else list(
+        dict.fromkeys(managed + legacy + [manifest]))
+    if action == "uninstall" and not any(path.exists() for path in uninstall_paths):
+        log("LRC Lyrics is already uninstalled.")
+        return
+
+    backup = _new_backup(virtualdj_home, action)
+    for path in affected:
+        _backup_item(path, virtualdj_home, backup)
+
+    settings = virtualdj_home / "settings.xml"
+    original_settings: bytes | None = None
+    if action == "install" and settings.is_file():
+        original_settings = settings.read_bytes()
+        updated = re.sub(
+            rb"(<videoAudioOnlyVisualisation>)LRC Deck(</videoAudioOnlyVisualisation>)",
+            rb"\1None\2", original_settings,
+        )
+        if updated != original_settings:
+            _backup_item(settings, virtualdj_home, backup)
+            temporary = settings.parent / f".{settings.name}.{uuid.uuid4().hex}.updating"
+            try:
+                temporary.write_bytes(updated)
+                os.replace(temporary, settings)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    if action == "uninstall":
+        for path in uninstall_paths:
+            _remove_item(path)
+        log(f"LRC Lyrics was uninstalled. Backup: {backup}")
+        return
+
+    installed: list[Path] = []
+    try:
+        for path in legacy:
+            _remove_item(path)
+        for name, destination in zip(WINDOWS_PAYLOAD_FILES, managed):
+            _copy_verified_file(layout.payload / name, destination)
+            installed.append(destination)
+        _atomic_json(manifest, {
+            "Version": layout.version,
+            "InstalledAt": datetime.now().astimezone().isoformat(),
+            "VirtualDJHome": str(virtualdj_home),
+            "Files": [str(path.relative_to(virtualdj_home)) for path in managed],
+        })
+    except Exception:
+        for path in installed:
+            _remove_item(path)
+        manifest.unlink(missing_ok=True)
+        _restore_tree(backup, virtualdj_home)
+        raise
+    log(f"LRC Lyrics {layout.version} was installed into: {overlay}")
+    log(f"Backup: {backup}")
 
 
 def _run_action_mac(

@@ -31,8 +31,10 @@
 - Added **LyricsTools.app**, which opens the unified GUI without a Terminal
   window and supports lyrics maintenance, managed MyLists synchronization, and
   add-only Search DB registration on macOS.
-- Kept the Windows package and workflow unchanged apart from an explicit
-  `Windows` label in its filename.
+- Replaced the separate Windows PowerShell/CMD installer stack with the same
+  native Python installation engine used by the packaged LyricsTools GUI. The
+  release now contains only the application, a short README, version metadata,
+  and the three required plugin payload files.
 
 ## Installation
 

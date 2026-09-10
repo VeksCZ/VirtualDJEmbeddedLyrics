@@ -71,12 +71,6 @@ Copy-Item -LiteralPath (Join-Path $AppDist 'LyricsTools.exe') -Destination $Pack
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
-foreach ($name in @(
-    'install-plugin.ps1', 'uninstall-plugin.ps1', 'restore-backup.ps1',
-    'installer-common.ps1', 'detect-vdj-home.ps1'
-)) {
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot "installer\$name") -Destination $InternalDirectory
-}
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $InternalDirectory
 
 $readme = @"
@@ -88,8 +82,6 @@ All support files are kept in _internal; users normally do not need to open it.
 "@
 [System.IO.File]::WriteAllText((Join-Path $PackageDirectory 'README.txt'), $readme, [System.Text.UTF8Encoding]::new($false))
 
-& (Join-Path $ProjectRoot 'tests\InstallerTests.ps1') -PackageDirectory $InternalDirectory
-if ($LASTEXITCODE -ne 0) { throw 'Installer integration tests failed.' }
 if (-not (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe'))) {
     throw 'LyricsTools.exe is missing from the package root.'
 }

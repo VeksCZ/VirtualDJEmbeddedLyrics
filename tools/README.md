@@ -21,11 +21,9 @@ python -m pip install --user -r requirements.txt
 ## Start the GUI
 
 - In a release, open `LyricsTools.exe/.app`; plugin management is its first tab.
-- In a source checkout, use `LyricsTools.cmd` or `LyricsTools.command`. On first
-  launch, Control-click the unsigned app and choose **Open** if Gatekeeper asks.
-- Drag a music folder onto that launcher to select it immediately.
-- From an Explorer address bar, enter its full path while the desired music
-  folder is open.
+- In a source checkout, contributors can run `python tools/lyrics_tools_gui.py`.
+  End users should use the self-contained release application, which does not
+  require Python or a command window.
 
 When a folder is supplied to a launcher, both the music library and its default
 `_lrc_backup` folder are selected together. Saved settings never redirect a new
@@ -168,23 +166,6 @@ Installer payload files used by a source checkout are stored separately under
 
 Treat `tidal_session.json` as a password. Do not share or commit it. Delete it to
 force a fresh TIDAL login.
-
-## Command line
-
-Embed or normalize without contacting TIDAL:
-
-```powershell
-python tools\lrc_tool.py "D:\Music" "D:\Music\_lrc_backup" --no-tidal --dry-run
-```
-
-Restore sidecars in preview mode:
-
-```powershell
-python tools\restore_lrc.py "D:\Music" "D:\Music\_lrc_backup" --dry-run
-```
-
-Remove `--dry-run` only after checking the output. Use `--help` to see all
-options.
 
 ## Limitations
 
