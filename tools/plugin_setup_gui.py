@@ -140,11 +140,29 @@ class App(tk.Tk):
         home = self._valid_home()
         if home is None or self.layout is None:
             return
-        if not messagebox.askyesno("Confirm setup", f"Close VirtualDJ, then {action} the plugin in:\n\n{home}"):
+        try:
+            running = vdj_setup.virtualdj_running(self.layout)
+        except Exception as exc:
+            messagebox.showerror("VirtualDJ status", str(exc))
+            return
+        close_requested = False
+        if running:
+            close_requested = messagebox.askyesno(
+                "VirtualDJ is running",
+                "VirtualDJ must be closed before plugin files can be changed.\n\n"
+                "Save any current work first. Ask VirtualDJ to close now?",
+            )
+            if not close_requested:
+                return
+        if not messagebox.askyesno("Confirm setup", f"{action.title()} the plugin in:\n\n{home}"):
             return
         self._set_running(True)
         def worker() -> None:
             try:
+                if close_requested and not vdj_setup.request_virtualdj_close(self.layout):
+                    raise RuntimeError(
+                        "VirtualDJ did not close within 15 seconds. Close it manually and try again."
+                    )
                 vdj_setup.run_action(self.layout, action, home, lambda line: self.events.put(("log", str(line))))
                 backup = gui_common.newest_backup(home, "LRC Lyrics Backups")
                 self.events.put(("success", (action, backup)))
@@ -163,11 +181,28 @@ class App(tk.Tk):
                     self._append(f"[ERROR] {payload}")
                     self.last_operation.set(f"Last operation failed: {payload}")
                     self._set_state("error", "Setup failed")
+                elif kind == "update_error":
+                    self._append(f"[ERROR] {payload}")
+                    self.last_operation.set(str(payload))
                 elif kind == "success":
                     action, self.last_backup = payload
                     self.last_operation.set(f"Last operation completed: {action}")
                     self.backup_button.configure(state="normal" if self.last_backup else "disabled")
                     self._detect()
+                elif kind == "update":
+                    release, latest, available = payload
+                    if available:
+                        if messagebox.askyesno(
+                            "Update available",
+                            f"LRC Plugin Setup {latest} is available.\n\n"
+                            "Download, verify and launch it now?",
+                        ):
+                            self.after(0, lambda r=release, v=latest: self._download_update(r, v))
+                    else:
+                        messagebox.showinfo("No update", f"Version {APP_VERSION} is current.")
+                elif kind == "update_ready":
+                    self._append(f"Verified update launched: {payload}")
+                    self.last_operation.set("The verified updated Plugin Setup was launched.")
                 elif kind == "done": self._set_running(False)
         except queue.Empty:
             pass
@@ -177,14 +212,35 @@ class App(tk.Tk):
         if self.last_backup: gui_common.open_path(self.last_backup)
 
     def _check_updates(self) -> None:
-        try:
-            latest, url, available = gui_common.check_latest_version(APP_VERSION)
-            message = f"Version {latest} is available." if available else f"Version {APP_VERSION} is current."
-            if messagebox.askyesno("Release check", message + "\n\nOpen the releases page?"):
-                import webbrowser
-                webbrowser.open(url)
-        except Exception as exc:
-            messagebox.showerror("Release check failed", str(exc))
+        if self.running:
+            return
+        self._set_running(True)
+        self._append("Checking GitHub for a new Plugin Setup release...")
+        def worker() -> None:
+            try:
+                release = gui_common.latest_release()
+                latest = str(release.get("tag_name") or "").removeprefix("v")
+                available = gui_common.version_tuple(latest) > gui_common.version_tuple(APP_VERSION)
+                self.events.put(("update", (release, latest, available)))
+            except Exception as exc:
+                self.events.put(("update_error", f"Update check failed: {exc}"))
+            finally:
+                self.events.put(("done", None))
+        threading.Thread(target=worker, daemon=False, name="plugin-update-check").start()
+
+    def _download_update(self, release: dict, latest: str) -> None:
+        self._set_running(True)
+        self._append(f"Downloading and verifying LRC Plugin Setup {latest}...")
+        def worker() -> None:
+            try:
+                package = gui_common.download_update(release, "LRC-Plugin-Setup")
+                target = gui_common.launch_updated_app(package, "LRCPluginSetup")
+                self.events.put(("update_ready", str(target)))
+            except Exception as exc:
+                self.events.put(("update_error", f"Update failed: {exc}"))
+            finally:
+                self.events.put(("done", None))
+        threading.Thread(target=worker, daemon=False, name="plugin-update-download").start()
 
     def _diagnostics(self) -> None:
         path = filedialog.asksaveasfilename(defaultextension=".zip", initialfile=f"LRC-Plugin-Setup-diagnostics-{APP_VERSION}.zip", filetypes=[("ZIP archive", "*.zip")])

@@ -33,7 +33,9 @@ jobs:
       - run: ./build-macos-tools-release.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LyricsTools-macOS-${{ matrix.variant }}
+          name: LRC-apps-macOS-${{ matrix.variant }}
           path: |
-            dist/LRC-Lyrics-VirtualDJ-macOS-${{ matrix.variant }}-*.zip
-            dist/LRC-Lyrics-VirtualDJ-macOS-${{ matrix.variant }}-*.zip.sha256
+            dist/LRC-Plugin-Setup-macOS-${{ matrix.variant }}-*.zip
+            dist/LRC-Plugin-Setup-macOS-${{ matrix.variant }}-*.zip.sha256
+            dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip
+            dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip.sha256

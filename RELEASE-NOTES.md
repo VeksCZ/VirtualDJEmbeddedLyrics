@@ -2,6 +2,12 @@
 
 ## Highlights
 
+- Split releases into dedicated **LRC Plugin Setup** and **LyricsTools**
+  downloads for every supported platform and architecture.
+- Added opt-in automatic updates with SHA-256 verification and safe extraction.
+- Added a local problem queue with CSV export.
+- Added an option to ask a running VirtualDJ instance to close normally before
+  installation; the installer never force-terminates it.
 - Added native Metal builds of LRC Master and LRC BlackOut for macOS.
 - Added clearly named macOS packages for Apple Silicon and Intel. Both contain
   universal VirtualDJ plugin bundles; the standalone GUI runtime matches the
@@ -16,9 +22,10 @@
 
 ## Installation
 
-- Windows: extract `LRC-Lyrics-VirtualDJ-Windows-v{{VERSION}}.zip`, close
-  VirtualDJ, and run `Install.cmd`.
-- macOS: extract the `macOS-AppleSilicon` or `macOS-Intel` ZIP, close VirtualDJ,
+- Windows: extract `LRC-Plugin-Setup-Windows-v{{VERSION}}.zip` and open
+  `LRCPluginSetup.exe`.
+- macOS: extract the matching `LRC-Plugin-Setup-macOS-AppleSilicon` or
+  `LRC-Plugin-Setup-macOS-Intel` ZIP, close VirtualDJ,
   and open `LRCPluginSetup.app`.
 
 Restart VirtualDJ and enable LRC Master under Video Overlays. LRC BlackOut

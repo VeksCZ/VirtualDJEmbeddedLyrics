@@ -13,6 +13,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import lrc_tool
+import lyrics_issues
 import lyrics_tag_converter
 import restore_lrc
 import vdj_playlist_sync
@@ -25,7 +26,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("playlist_sync", "import", "mark", "tidal", "restore")
+TAB_NAMES = ("playlist_sync", "import", "mark", "tidal", "issues", "restore")
 
 
 def parse_launch_arguments():
@@ -86,6 +87,7 @@ class App(tk.Tk):
         self.opt_advanced = tk.BooleanVar(value=bool(settings.get("opt_advanced", False)))
         self.last_operation = tk.StringVar(value="No operation has been run in this session.")
         self.last_backup: Path | None = None
+        self.issue_results: list[lyrics_issues.LyricsIssue] = []
         default_list_root = f"Folder Sync - {initial_library.name or 'Music'}"
         self.playlist_root_name = tk.StringVar(
             value=str(
@@ -195,11 +197,12 @@ class App(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
         self.tabs = {name: ttk.Frame(self.notebook, padding=10) for name in TAB_NAMES}
-        self.notebook.add(self.tabs["playlist_sync"], text="Sync folders to VDJ")
-        self.notebook.add(self.tabs["import"], text="Import LRC / TXT")
-        self.notebook.add(self.tabs["mark"], text="Mark existing lyrics")
-        self.notebook.add(self.tabs["tidal"], text="TIDAL / normalize")
-        self.notebook.add(self.tabs["restore"], text="Restore sidecars")
+        self.notebook.add(self.tabs["playlist_sync"], text="Playlists")
+        self.notebook.add(self.tabs["import"], text="Local: Import")
+        self.notebook.add(self.tabs["mark"], text="Local: Tags")
+        self.notebook.add(self.tabs["tidal"], text="Online")
+        self.notebook.add(self.tabs["issues"], text="Problems")
+        self.notebook.add(self.tabs["restore"], text="Recovery")
         self.notebook.bind("<<NotebookTabChanged>>", self._tab_changed)
 
         import_tab = self.tabs["import"]
@@ -232,6 +235,28 @@ class App(tk.Tk):
             "Lyrics: Synced or Lyrics: Unsynced. Unrelated Grouping values are preserved.",
         )
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
+
+        issues_tab = self.tabs["issues"]
+        self._folder_panel(issues_tab)
+        self._description(
+            issues_tab,
+            "Scan locally for missing lyrics, invalid LRC files, unreadable tags and "
+            "sidecars without a matching MP3. No filenames are sent online.",
+        )
+        issue_actions = ttk.Frame(issues_tab)
+        issue_actions.pack(fill="x", pady=(0, 6))
+        self.issue_summary = ttk.Label(issue_actions, text="No problem scan has been run.")
+        self.issue_summary.pack(side="left")
+        ttk.Button(issue_actions, text="Export CSV...", command=self._export_issues).pack(side="right")
+        columns = ("problem", "file", "detail")
+        self.issue_tree = ttk.Treeview(issues_tab, columns=columns, show="headings", height=10)
+        self.issue_tree.heading("problem", text="Problem")
+        self.issue_tree.heading("file", text="File")
+        self.issue_tree.heading("detail", text="Detail")
+        self.issue_tree.column("problem", width=145, stretch=False)
+        self.issue_tree.column("file", width=250)
+        self.issue_tree.column("detail", width=350)
+        self.issue_tree.pack(fill="both", expand=True)
 
         tidal_tab = self.tabs["tidal"]
         self._folder_panel(tidal_tab, include_backup=True)
@@ -409,8 +434,8 @@ class App(tk.Tk):
         if selected:
             self.vdj_home.set(str(selected))
             self.vdj_status.set(str(selected))
-            version = self.package_layout.version if self.package_layout else "0.0.0"
-            level, text = gui_common.plugin_state(Path(str(selected)), version, vdj_setup)
+            level, text = gui_common.plugin_state(
+                Path(str(selected)), gui_common.packaged_version(SCRIPT_DIR), vdj_setup)
             self.vdj_installation_status.set(text)
             self.header_state.configure(bg={"ok": "#167a3f", "warning": "#b56500", "error": "#b42318"}[level])
         elif candidate_paths:
@@ -450,14 +475,17 @@ class App(tk.Tk):
         selected = Path(str(result.get("Selected") or value)).expanduser().resolve()
         self.vdj_home.set(str(selected))
         self.vdj_status.set(str(selected))
-        version = self.package_layout.version if self.package_layout else "0.0.0"
-        level, text = gui_common.plugin_state(selected, version, vdj_setup)
+        level, text = gui_common.plugin_state(
+            selected, gui_common.packaged_version(SCRIPT_DIR), vdj_setup)
         self.vdj_installation_status.set(text)
         self.header_state.configure(bg={"ok": "#167a3f", "warning": "#b56500", "error": "#b42318"}[level])
         return selected
 
     def _toggle_advanced(self) -> None:
-        advanced_tabs = (("tidal", "TIDAL / normalize"), ("restore", "Restore sidecars"))
+        advanced_tabs = (
+            ("tidal", "Online"),
+            ("restore", "Recovery"),
+        )
         visible = {self.notebook.tab(tab_id, "text") for tab_id in self.notebook.tabs()}
         if self.opt_advanced.get():
             for name, title in advanced_tabs:
@@ -485,7 +513,11 @@ class App(tk.Tk):
         if not hasattr(self, "run_button"):
             return
         active_tab = self._active_tab_name()
-        label = "Preview / sync folders" if active_tab == "playlist_sync" else "Run selected tool"
+        labels = {
+            "playlist_sync": "Preview / sync folders",
+            "issues": "Scan for problems",
+        }
+        label = labels.get(active_tab, "Run selected tool")
         state = "disabled" if self.worker_running else "normal"
         self.run_button.configure(text=label, state=state)
 
@@ -500,18 +532,55 @@ class App(tk.Tk):
             gui_common.open_path(self.last_backup)
 
     def _check_updates(self) -> None:
-        current = self.package_layout.version if self.package_layout else "0.0.0"
-        try:
-            latest, url, available = gui_common.check_latest_version(current)
-            text = f"Version {latest} is available." if available else f"Version {current} is current."
-            if messagebox.askyesno("Release check", text + "\n\nOpen the releases page?"):
-                import webbrowser
-                webbrowser.open(url)
-        except Exception as exc:
-            messagebox.showerror("Release check failed", str(exc))
+        if self.worker_running:
+            return
+        current = gui_common.packaged_version(SCRIPT_DIR)
+        self.worker_running = True
+        self._update_run_button()
+        self._log("Checking GitHub for a new LyricsTools release...")
+        def worker() -> None:
+            try:
+                release = gui_common.latest_release()
+                latest = str(release.get("tag_name") or "").removeprefix("v")
+                available = gui_common.version_tuple(latest) > gui_common.version_tuple(current)
+                self.events.queue.put(("update", (release, latest, available, current)))
+            except Exception as exc:
+                self.events.queue.put(("error", f"Update check failed: {exc}"))
+            finally:
+                self.events.done()
+        threading.Thread(target=worker, daemon=False, name="lyrics-update-check").start()
+
+    def _download_update(self, release: dict, latest: str) -> None:
+        self.worker_running = True
+        self._update_run_button()
+        self._log(f"Downloading and verifying LyricsTools {latest}...")
+        def worker() -> None:
+            try:
+                package = gui_common.download_update(release, "LyricsTools")
+                target = gui_common.launch_updated_app(package, "LyricsTools")
+                self.events.queue.put(("update_ready", str(target)))
+            except Exception as exc:
+                self.events.queue.put(("error", f"Update failed: {exc}"))
+            finally:
+                self.events.done()
+        threading.Thread(target=worker, daemon=False, name="lyrics-update-download").start()
+
+    def _export_issues(self) -> None:
+        if not self.issue_results:
+            messagebox.showinfo("Problem queue", "Run a problem scan first.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv", initialfile="lyrics-problems.csv",
+            filetypes=[("CSV report", "*.csv")],
+        )
+        if path:
+            report = lyrics_issues.write_report(
+                Path(path), self.issue_results, Path(self.library_dir.get()))
+            self.last_operation.set(f"Problem report created: {report.name}")
+            gui_common.open_path(report)
 
     def _create_diagnostics(self) -> None:
-        current = self.package_layout.version if self.package_layout else "unknown"
+        current = gui_common.packaged_version(SCRIPT_DIR)
         path = filedialog.asksaveasfilename(
             defaultextension=".zip",
             initialfile=f"LyricsTools-diagnostics-{current}.zip",
@@ -542,6 +611,30 @@ class App(tk.Tk):
                     self.backup_button.configure(state="normal" if backup else "disabled")
                 elif kind == "error":
                     self.last_operation.set(f"Last operation failed: {payload}")
+                elif kind == "issues":
+                    self.issue_results = payload
+                    self.issue_tree.delete(*self.issue_tree.get_children())
+                    root = Path(self.library_dir.get()).expanduser().resolve()
+                    for issue in payload:
+                        try:
+                            display = issue.path.resolve().relative_to(root)
+                        except ValueError:
+                            display = issue.path.name
+                        self.issue_tree.insert("", "end", values=(issue.kind, str(display), issue.detail))
+                    self.issue_summary.configure(text=f"{len(payload)} item(s) need attention.")
+                elif kind == "update":
+                    release, latest, available, current = payload
+                    if available:
+                        if messagebox.askyesno(
+                            "Update available",
+                            f"LyricsTools {latest} is available.\n\nDownload, verify and launch it now?",
+                        ):
+                            self.after(0, lambda r=release, v=latest: self._download_update(r, v))
+                    else:
+                        messagebox.showinfo("No update", f"Version {current} is current.")
+                elif kind == "update_ready":
+                    self._log(f"Verified update launched: {payload}")
+                    self.last_operation.set("The verified updated LyricsTools was launched.")
                 elif kind == "done":
                     self.worker_running = False
                     self._update_run_button()
@@ -593,6 +686,15 @@ class App(tk.Tk):
     def _run_current_tab(self) -> None:
         tab = self._active_tab_name()
         dry_run = self.opt_dryrun.get()
+        if tab == "issues":
+            library = self._validated_library()
+            if library is None:
+                return
+            def job() -> None:
+                issues = lyrics_issues.scan_library(library, self.events.log)
+                self.events.queue.put(("issues", issues))
+            self._start_worker(job, "Problem scan")
+            return
         if tab == "playlist_sync":
             library = self._validated_library()
             virtualdj_home = self._validate_vdj_home(show_error=True)

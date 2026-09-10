@@ -8,8 +8,8 @@ master video output. The project provides two Windows 64-bit video overlays:
 
 ## Download and install
 
-1. Download the asset matching your system: `Windows`, `macOS-AppleSilicon`, or
-   `macOS-Intel`, from the
+1. Download **LRC-Plugin-Setup** matching your system: `Windows`,
+   `macOS-AppleSilicon`, or `macOS-Intel`, from the
    [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
 2. Extract the complete ZIP. Do not run the installer from inside the ZIP preview.
 3. Close VirtualDJ completely.
@@ -72,10 +72,12 @@ use the standard ID3 `Grouping` field for the portable markers
 
 ## Included applications
 
-Both release packages contain two separate no-console applications:
+The release provides two completely separate no-console downloads:
 
-- **LRCPluginSetup** installs, updates, removes, or restores the VirtualDJ plugin.
-- **LyricsTools** manages music files, lyrics, MyLists, and Search DB.
+- **LRC-Plugin-Setup** contains only the installer, plugin payload, uninstall,
+  and plugin recovery support.
+- **LyricsTools** contains only the music, lyrics, MyLists, Search DB, and
+  problem-queue application.
 
 Both applications include their runtime; end users do not need to install
 Python. LyricsTools opens in Simple mode and exposes TIDAL/normalization and
@@ -87,6 +89,8 @@ restore tools after enabling **Advanced**. Its tabs cover:
 - scanning existing embedded lyrics and writing the portable Grouping marker;
 - downloading or normalizing lyrics with structure-preserving LRC backups;
 - restoring LRC sidecars from those backups.
+- finding missing lyrics, invalid LRC, unreadable tags, and unmatched sidecars
+  in a local problem queue with CSV export.
 
 Start **LyricsTools** and choose a folder. Preview mode is enabled on first use.
 Source LRC/TXT files are deleted
@@ -102,16 +106,19 @@ detects both `~/Library/Application Support/VirtualDJ` and the legacy
 `~/Documents/VirtualDJ` home. Music on external drives is registered in that
 volume's `/Volumes/<name>/VirtualDJ/database.xml`.
 
-Each macOS package contains universal LRC Master and LRC BlackOut `.bundle`
-plugins plus GUI applications native to the architecture named in the ZIP. The
-installer selects the proper plugin location automatically. LyricsTools,
+Each macOS Plugin Setup package contains universal LRC Master and LRC BlackOut
+`.bundle` plugins plus the installer native to the architecture named in the
+ZIP. LyricsTools is a separate architecture-specific download. The installer
+selects the proper plugin location automatically. LyricsTools,
 folder/MyLists synchronization, Search DB
 registration, and MP3 lyrics maintenance are available on both platforms.
 
 **LRCPluginSetup** validates the selected folder, shows a color-coded installation
 state, keeps replaced files in `LRC Lyrics Backups`, and never bypasses the check
-that VirtualDJ is closed. Both applications can create a privacy-safe diagnostic
-ZIP and check GitHub for updates only when the user presses the relevant button.
+that VirtualDJ is closed. If VirtualDJ is running, it offers to request a normal
+shutdown and never force-kills it. Both applications can create a privacy-safe
+diagnostic ZIP. Update checks run only when requested; an update can then be
+downloaded, SHA-256 verified, extracted, and launched automatically.
 
 The **Sync folders to VDJ** tab is a one-way, full mirror. It rebuilds only the
 named managed root: new files appear, and playlist references to files or folders

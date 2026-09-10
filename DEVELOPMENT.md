@@ -25,8 +25,8 @@ The script builds both supported DLLs and standalone GUI executables, then runs
 C++ tests, Python tests and installer
 integration tests, then leaves only the publishable artifacts:
 
-- `dist/LRC-Lyrics-VirtualDJ-Windows-v<VERSION>.zip`
-- `dist/LRC-Lyrics-VirtualDJ-Windows-v<VERSION>.zip.sha256`
+- `dist/LRC-Plugin-Setup-Windows-v<VERSION>.zip[.sha256]`
+- `dist/LyricsTools-Windows-v<VERSION>.zip[.sha256]`
 
 The release version comes from the root `VERSION` file and is compiled into both
 plugins. Normal packages contain only LRC Master and LRC BlackOut. Temporary
@@ -41,9 +41,10 @@ python3 -m pip install -r requirements-build.txt
 ./build-macos-tools-release.sh
 ```
 
-This creates `dist/LRC-Lyrics-VirtualDJ-macOS-<architecture>-v<VERSION>.zip`.
-CI publishes separate `AppleSilicon` and `Intel` packages containing standalone
-`LyricsTools.app` and `LRCPluginSetup.app`. The macOS CI job builds
+This creates separate `LRC-Plugin-Setup-macOS-<architecture>` and
+`LyricsTools-macOS-<architecture>` ZIPs. CI publishes both products for
+`AppleSilicon` and `Intel`; the applications are never mixed in one ZIP.
+The macOS CI job builds
 universal Metal/CoreText plugin bundles, verifies both architectures, exported
 entry points, and code signatures, and tests the platform-neutral lyrics core.
 
@@ -53,7 +54,7 @@ After a successful release build, close VirtualDJ and run the generated
 `LRCPluginSetup.exe`, confirm the detected home folder, and choose
 **Install / update**.
 
-For command-line testing, extract the release ZIP and run its `Install.cmd`.
+For command-line testing, extract the Plugin Setup ZIP and run its `Install.cmd`.
 The underlying script also accepts an explicit custom location:
 
 ```powershell

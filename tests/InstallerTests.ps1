@@ -31,7 +31,6 @@ try {
         $source = Join-Path $PayloadDirectory $name
         Assert-True ((Get-FileHash -LiteralPath $installed).Hash -eq (Get-FileHash -LiteralPath $source).Hash) "$name hash differs"
     }
-    Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe') -PathType Leaf) 'standalone LyricsTools app is missing'
     Assert-True (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LRCPluginSetup.exe') -PathType Leaf) 'standalone plugin setup is missing'
     $toolsDirectory = Join-Path $PackageDirectory 'Tools'
     $duplicateLaunchers = @(Get-ChildItem -LiteralPath $toolsDirectory -File | Where-Object {
@@ -39,9 +38,7 @@ try {
     })
     Assert-True ($duplicateLaunchers.Count -eq 0) 'Tools contains a duplicate launcher'
     foreach ($name in @(
-        'lyrics_tools_gui.py', 'plugin_setup_gui.py', 'gui_common.py',
-        'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py', 'vdj_setup.py',
-        'vdj_playlist_sync.py', 'requirements.txt', 'README.md'
+        'plugin_setup_gui.py', 'gui_common.py', 'vdj_setup.py', 'requirements.txt', 'README.md'
     )) {
         Assert-True (Test-Path -LiteralPath (Join-Path $toolsDirectory $name) -PathType Leaf) "Tools/$name is missing"
     }

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -91,6 +92,72 @@ def _mac_candidates() -> list[dict[str, object]]:
         seen.add(key)
         result.append({"Path": key, "Source": source, "Preferred": preferred})
     return result
+
+
+def _windows_candidates() -> list[dict[str, object]]:
+    locations: list[tuple[Path, str, bool]] = []
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\VirtualDJ") as key:
+            value, _kind = winreg.QueryValueEx(key, "HomeFolder")
+        if value:
+            locations.append((Path(str(value)), "VirtualDJ registry HomeFolder", True))
+    except (ImportError, OSError):
+        pass
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        locations.append((Path(local) / "VirtualDJ", "current Windows default", False))
+    documents = Path.home() / "Documents"
+    locations.append((documents / "VirtualDJ", "legacy Documents location", False))
+    result = []
+    seen = set()
+    for path, source, preferred in locations:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            continue
+        key = str(resolved).casefold()
+        if key in seen or not is_virtualdj_home(resolved):
+            continue
+        seen.add(key)
+        result.append({"Path": str(resolved), "Source": source, "Preferred": preferred})
+    return result
+
+
+def _windows_virtualdj_running() -> bool:
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq virtualdj.exe", "/NH"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return b"virtualdj.exe" in completed.stdout.lower()
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _query_virtualdj_windows(explicit_path: str = "") -> dict:
+    candidates = _windows_candidates()
+    if explicit_path.strip():
+        selected = Path(explicit_path.strip()).expanduser().resolve()
+        valid = is_virtualdj_home(selected)
+        return {
+            "Valid": valid, "Selected": str(selected) if valid else None,
+            "Candidates": candidates,
+            "Message": ("The selected VirtualDJ home folder is valid." if valid else
+                        "The selected folder is not a VirtualDJ home folder."),
+            "VirtualDJRunning": _windows_virtualdj_running(),
+        }
+    preferred = next((item for item in candidates if item["Preferred"]), None)
+    selected_item = preferred or (candidates[0] if len(candidates) == 1 else None)
+    return {
+        "Valid": selected_item is not None,
+        "Selected": selected_item["Path"] if selected_item else None,
+        "Candidates": candidates,
+        "Message": ("VirtualDJ home folder detected." if selected_item else
+                    "Choose the active VirtualDJ home folder manually."),
+        "VirtualDJRunning": _windows_virtualdj_running(),
+    }
 
 
 def _mac_virtualdj_running() -> bool:
@@ -277,7 +344,7 @@ def query_virtualdj(layout: PackageLayout | None = None, explicit_path: str = ""
     if sys.platform == "darwin":
         return _query_virtualdj_mac(explicit_path)
     if layout is None:
-        raise FileNotFoundError("The Windows VirtualDJ detector is unavailable.")
+        return _query_virtualdj_windows(explicit_path)
     command = _base_command(layout.detector)
     if explicit_path.strip():
         command.extend(("-ExplicitPath", explicit_path.strip()))
@@ -334,6 +401,33 @@ def assert_virtualdj_closed(layout: PackageLayout | None = None) -> None:
         raise RuntimeError(
             "VirtualDJ is running. Close VirtualDJ completely before changing MyLists."
         )
+
+
+def virtualdj_running(layout: PackageLayout | None = None) -> bool:
+    return bool(query_virtualdj(layout).get("VirtualDJRunning"))
+
+
+def request_virtualdj_close(layout: PackageLayout | None = None, timeout: float = 15.0) -> bool:
+    """Ask VirtualDJ to close normally and wait; never force-terminate it."""
+    if not virtualdj_running(layout):
+        return True
+    if sys.platform == "darwin":
+        command = ["osascript", "-e", 'tell application "VirtualDJ" to quit']
+    else:
+        command = [
+            _powershell(), "-NoLogo", "-NoProfile", "-Command",
+            "Get-Process -Name virtualdj -ErrorAction SilentlyContinue | ForEach-Object { [void]$_.CloseMainWindow() }",
+        ]
+    subprocess.run(
+        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not virtualdj_running(layout):
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def build_action_command(layout: PackageLayout, action: str, virtualdj_home: Path) -> list[str]:

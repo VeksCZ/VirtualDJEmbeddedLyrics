@@ -10,13 +10,15 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION value: $Versi
 
 $BuildDirectory = Join-Path $ProjectRoot 'build-release'
 $DistRoot = Join-Path $ProjectRoot 'dist'
-$PackageName = "LRC-Lyrics-VirtualDJ-Windows-v$Version"
-$PackageDirectory = Join-Path $DistRoot $PackageName
-$PluginsDirectory = Join-Path $PackageDirectory 'Plugins'
-$ToolsDirectory = Join-Path $PackageDirectory 'Tools'
+$SetupPackageName = "LRC-Plugin-Setup-Windows-v$Version"
+$LyricsPackageName = "LyricsTools-Windows-v$Version"
+$SetupPackageDirectory = Join-Path $DistRoot $SetupPackageName
+$LyricsPackageDirectory = Join-Path $DistRoot $LyricsPackageName
+$PluginsDirectory = Join-Path $SetupPackageDirectory 'Plugins'
+$ToolsDirectory = Join-Path $SetupPackageDirectory 'Tools'
 $InstallerSource = Join-Path $ProjectRoot 'installer'
-$ZipPath = Join-Path $DistRoot "$PackageName.zip"
-$ChecksumPath = "$ZipPath.sha256"
+$SetupZipPath = Join-Path $DistRoot "$SetupPackageName.zip"
+$LyricsZipPath = Join-Path $DistRoot "$LyricsPackageName.zip"
 
 function Assert-ChildPath {
     param([Parameter(Mandatory)][string]$Child, [Parameter(Mandatory)][string]$Parent)
@@ -53,15 +55,15 @@ if ($LASTEXITCODE -ne 0) { throw 'C++ tests failed.' }
 if ($LASTEXITCODE -ne 0) { throw 'Python tests failed.' }
 
 New-Item -ItemType Directory -Force -Path $DistRoot | Out-Null
-Assert-ChildPath -Child $PackageDirectory -Parent $DistRoot
-if (Test-Path -LiteralPath $PackageDirectory) {
-    Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
+foreach ($directory in @($SetupPackageDirectory, $LyricsPackageDirectory)) {
+    Assert-ChildPath -Child $directory -Parent $DistRoot
+    if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
 }
-foreach ($artifact in @($ZipPath, $ChecksumPath)) {
+foreach ($artifact in @($SetupZipPath, "$SetupZipPath.sha256", $LyricsZipPath, "$LyricsZipPath.sha256")) {
     Assert-ChildPath -Child $artifact -Parent $DistRoot
     if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
 }
-New-Item -ItemType Directory -Force -Path $PluginsDirectory, $ToolsDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $PluginsDirectory, $ToolsDirectory, $LyricsPackageDirectory | Out-Null
 
 $SetupBuild = Join-Path $BuildDirectory 'plugin-setup-build'
 $SetupDist = Join-Path $BuildDirectory 'plugin-setup-dist'
@@ -70,13 +72,13 @@ $SetupSpec = Join-Path $BuildDirectory 'plugin-setup-spec'
     --paths (Join-Path $ProjectRoot 'tools') --distpath $SetupDist --workpath $SetupBuild `
     --specpath $SetupSpec (Join-Path $ProjectRoot 'tools\plugin_setup_gui.py')
 if ($LASTEXITCODE -ne 0) { throw 'Standalone plugin setup build failed.' }
-Copy-Item -LiteralPath (Join-Path $SetupDist 'LRCPluginSetup.exe') -Destination $PackageDirectory
+Copy-Item -LiteralPath (Join-Path $SetupDist 'LRCPluginSetup.exe') -Destination $SetupPackageDirectory
 & $PythonCommand -m PyInstaller --noconfirm --clean --onefile --windowed --name LyricsTools `
     --paths (Join-Path $ProjectRoot 'tools') --distpath $SetupDist `
     --workpath (Join-Path $BuildDirectory 'lyrics-tools-build') --specpath $SetupSpec `
     (Join-Path $ProjectRoot 'tools\lyrics_tools_gui.py')
 if ($LASTEXITCODE -ne 0) { throw 'Standalone LyricsTools build failed.' }
-Copy-Item -LiteralPath (Join-Path $SetupDist 'LyricsTools.exe') -Destination $PackageDirectory
+Copy-Item -LiteralPath (Join-Path $SetupDist 'LyricsTools.exe') -Destination $LyricsPackageDirectory
 
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
@@ -87,13 +89,12 @@ foreach ($name in @(
     'install-plugin.ps1', 'uninstall-plugin.ps1', 'restore-backup.ps1',
     'installer-common.ps1', 'detect-vdj-home.ps1'
 )) {
-    Copy-Item -LiteralPath (Join-Path $InstallerSource $name) -Destination $PackageDirectory
+    Copy-Item -LiteralPath (Join-Path $InstallerSource $name) -Destination $SetupPackageDirectory
 }
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $PackageDirectory
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $SetupPackageDirectory
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $LyricsPackageDirectory
 $toolFiles = @(
-    'lyrics_tag_converter.py', 'lrc_tool.py', 'restore_lrc.py',
-    'lyrics_tools_gui.py', 'plugin_setup_gui.py', 'gui_common.py',
-    'vdj_setup.py', 'vdj_playlist_sync.py'
+    'plugin_setup_gui.py', 'gui_common.py', 'vdj_setup.py'
 )
 foreach ($name in $toolFiles) {
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "tools\$name") -Destination $ToolsDirectory
@@ -102,26 +103,43 @@ Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\README.md') -Destination (
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'requirements.txt') -Destination $ToolsDirectory
 
 $offlineReadme = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'RELEASE-README.txt') -Raw).Replace('{{VERSION}}', $Version)
-[System.IO.File]::WriteAllText((Join-Path $PackageDirectory 'README.txt'), $offlineReadme, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $SetupPackageDirectory 'README.txt'), $offlineReadme, [System.Text.UTF8Encoding]::new($false))
+$lyricsReadme = @"
+LyricsTools $Version
+
+Open LyricsTools.exe. This standalone application does not require Python.
+It manages VirtualDJ playlists, local LRC/TXT files, embedded lyrics, online
+lyrics sources, backups, and the local problem queue. It does not install the
+VirtualDJ plugin; download the separate LRC Plugin Setup package for that.
+"@
+[System.IO.File]::WriteAllText((Join-Path $LyricsPackageDirectory 'README.txt'), $lyricsReadme, [System.Text.UTF8Encoding]::new($false))
 $releaseNotes = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'RELEASE-NOTES.md') -Raw).Replace('{{VERSION}}', $Version)
-[System.IO.File]::WriteAllText((Join-Path $PackageDirectory 'RELEASE-NOTES.md'), $releaseNotes, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $SetupPackageDirectory 'RELEASE-NOTES.md'), $releaseNotes, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $LyricsPackageDirectory 'RELEASE-NOTES.md'), $releaseNotes, [System.Text.UTF8Encoding]::new($false))
 
 if (Test-Path -LiteralPath (Join-Path $PluginsDirectory 'LRCDeck.dll')) {
     throw 'The supported release package must not contain LRCDeck.dll.'
 }
 
-& (Join-Path $ProjectRoot 'tests\InstallerTests.ps1') -PackageDirectory $PackageDirectory
+& (Join-Path $ProjectRoot 'tests\InstallerTests.ps1') -PackageDirectory $SetupPackageDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Installer integration tests failed.' }
+if (Test-Path -LiteralPath (Join-Path $SetupPackageDirectory 'LyricsTools.exe')) { throw 'Setup package contains LyricsTools.' }
+if (Test-Path -LiteralPath (Join-Path $LyricsPackageDirectory 'LRCPluginSetup.exe')) { throw 'LyricsTools package contains Plugin Setup.' }
 
-Compress-Archive -Path (Join-Path $PackageDirectory '*') -DestinationPath $ZipPath -CompressionLevel Optimal
-$hash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash
-[System.IO.File]::WriteAllText($ChecksumPath, "$hash  $([System.IO.Path]::GetFileName($ZipPath))`r`n", [System.Text.UTF8Encoding]::new($false))
+foreach ($item in @(
+    @{ Directory = $SetupPackageDirectory; Zip = $SetupZipPath },
+    @{ Directory = $LyricsPackageDirectory; Zip = $LyricsZipPath }
+)) {
+    Compress-Archive -Path $item.Directory -DestinationPath $item.Zip -CompressionLevel Optimal
+    $hash = (Get-FileHash -LiteralPath $item.Zip -Algorithm SHA256).Hash
+    [System.IO.File]::WriteAllText("$($item.Zip).sha256", "$hash  $([System.IO.Path]::GetFileName($item.Zip))`r`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Host "Release ZIP: $($item.Zip)" -ForegroundColor Green
+    Write-Host "SHA-256:     $hash"
+}
 
-Assert-ChildPath -Child $PackageDirectory -Parent $DistRoot
-Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
+foreach ($directory in @($SetupPackageDirectory, $LyricsPackageDirectory)) {
+    Assert-ChildPath -Child $directory -Parent $DistRoot
+    Remove-Item -LiteralPath $directory -Recurse -Force
+}
 Assert-ChildPath -Child $BuildDirectory -Parent $ProjectRoot
 Remove-Item -LiteralPath $BuildDirectory -Recurse -Force
-
-Write-Host ''
-Write-Host "Release ZIP:     $ZipPath" -ForegroundColor Green
-Write-Host "SHA-256:         $hash"

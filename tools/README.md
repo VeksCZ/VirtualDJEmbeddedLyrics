@@ -41,14 +41,18 @@ turning dry-run off.
 
 Finds or accepts the active VirtualDJ home folder, installs the proper plugin
 payload, and supports uninstall and newest-backup restore. The top panel reports
-the path and a green, orange, or red plugin state. VirtualDJ must be closed for
+the path and a green, orange, or red plugin state. If VirtualDJ is running, the
+installer offers to ask it to close normally. VirtualDJ must be closed for
 changes. Installation and uninstall create timestamped snapshots under
-`LRC Lyrics Backups`. Update checking is network-silent until requested.
+`LRC Lyrics Backups`. Update checking is network-silent until requested;
+downloads are matched to the application and platform and SHA-256 verified.
 
 ### LyricsTools
 
-The shared top panel shows the same VirtualDJ path and plugin state. Simple mode
-contains the common synchronization and tag tools. **Advanced** reveals
+The shared top panel shows the same VirtualDJ path and plugin state. Areas are
+named **Playlists**, **Local lyrics**, **Online sources**, **Problem queue**, and
+**Recovery**. Simple mode contains common synchronization, local tag tools, and
+the problem queue. **Advanced** reveals
 TIDAL/normalization and sidecar restore. The footer shows the last operation and
 links to its backup when one was created. Diagnostic ZIPs exclude music, tags,
 credentials, and absolute user paths.
@@ -129,6 +133,12 @@ deleted only after both backup and tag writes succeed.
 The restore tab uses structured backups. It can also read backups made by the
 older flat format, but only when the matching MP3 basename is unique throughout
 the library. Ambiguous legacy backups are skipped.
+
+### Problem queue
+
+Scans locally for MP3 files without lyrics, invalid LRC files, unreadable tags,
+and LRC/TXT sidecars without a matching MP3. Results are not sent online and can
+be exported with paths relative to the selected library.
 
 In a source checkout, a successful release build leaves only a ZIP and checksum.
 The GUI extracts only the three verified plugin payload files from that ZIP into

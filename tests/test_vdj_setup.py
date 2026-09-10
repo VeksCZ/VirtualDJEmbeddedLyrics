@@ -142,6 +142,16 @@ class PackageLayoutTests(unittest.TestCase):
             self.assertEqual(Path(result["Selected"]), home.resolve())
             self.assertFalse(result["VirtualDJRunning"])
 
+    def test_native_windows_home_validation_does_not_require_installer_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            (home / "MyLists").mkdir()
+            with (mock.patch.object(vdj_setup.sys, "platform", "win32"),
+                  mock.patch.object(vdj_setup, "_windows_virtualdj_running", return_value=False)):
+                result = vdj_setup.query_virtualdj(None, str(home))
+            self.assertTrue(result["Valid"])
+            self.assertEqual(Path(result["Selected"]), home.resolve())
+
     def test_macos_plugin_directory_supports_apple_silicon_and_intel(self):
         home = Path("/Users/dj/Library/Application Support/VirtualDJ")
         with (mock.patch.object(vdj_setup.sys, "platform", "darwin"),

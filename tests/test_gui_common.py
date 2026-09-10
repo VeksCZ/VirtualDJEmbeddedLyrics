@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 TOOL_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -63,6 +64,27 @@ class GuiCommonTests(unittest.TestCase):
                 '{"Version":"2.0.0"}', encoding="utf-8")
             level, _text = gui_common.plugin_state(home, "2.0.0", FakeSetup)
             self.assertEqual(level, "ok")
+
+    def test_release_assets_are_selected_per_product_and_platform(self):
+        release = {"assets": [
+            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip"},
+            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip.sha256"},
+            {"name": "LyricsTools-Windows-v1.2.3.zip"},
+            {"name": "LyricsTools-Windows-v1.2.3.zip.sha256"},
+        ]}
+        with mock.patch.object(gui_common.sys, "platform", "win32"):
+            archive, checksum = gui_common.select_release_assets(release, "LyricsTools")
+        self.assertEqual(archive["name"], "LyricsTools-Windows-v1.2.3.zip")
+        self.assertTrue(checksum["name"].endswith(".sha256"))
+
+    def test_separate_product_asset_is_required(self):
+        release = {"assets": [
+            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip"},
+            {"name": "LRC-Plugin-Setup-Windows-v1.2.3.zip.sha256"},
+        ]}
+        with (mock.patch.object(gui_common.sys, "platform", "win32"),
+              self.assertRaises(RuntimeError)):
+            gui_common.select_release_assets(release, "LyricsTools")
 
 
 if __name__ == "__main__":

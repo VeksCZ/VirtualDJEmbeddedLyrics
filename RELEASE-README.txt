@@ -6,7 +6,8 @@ QUICK INSTALL
 
 1. Extract the complete ZIP.
 2. Close VirtualDJ completely.
-3. Double-click LRCPluginSetup.exe.
+3. Double-click LRCPluginSetup.exe. If VirtualDJ is still running, the
+   installer can ask it to close normally after you confirm.
 4. Confirm the VirtualDJ folder and click Install / update.
 5. Start VirtualDJ.
 6. Enable LRC Master under Video Overlays. Enable LRC BlackOut only when a
@@ -32,15 +33,15 @@ BEHAVIOR
 INCLUDED APPLICATIONS
 ---------------------
 
-LRCPluginSetup.exe handles plugin installation, update, removal and backup
-restore. LyricsTools.exe provides tabs to import LRC/TXT,
+This download contains LRCPluginSetup.exe and the plugin payload. LyricsTools
+is a separate download and provides tools to import LRC/TXT,
 mark existing lyrics in ID3 Grouping, retrieve or normalize lyrics with safe
 structured backups, and restore LRC sidecars.
 It can also mirror a music directory hierarchy directly into one isolated
 VirtualDJ MyLists root, so Serato crates are not required. The folder sync starts
 in preview mode, protects unrelated lists, and creates a backup before changes.
 Both applications display the detected VirtualDJ path and plugin status. They
-also provide on-demand update checks and privacy-safe diagnostic ZIP files.
+also provide opt-in verified updates and privacy-safe diagnostic ZIP files.
 LyricsTools starts in Simple mode; enable Advanced for TIDAL/normalization and
 restore tools.
 
