@@ -320,11 +320,12 @@ class App(tk.Tk):
         self._folder_panel(tidal_tab, include_backup=True)
         self._description(
             tidal_tab,
-            "Prefer local LRC sidecars, optionally retrieve missing lyrics from TIDAL, "
+            "Prefer local LRC sidecars, optionally retrieve missing lyrics from TIDAL "
+            "and then LRCLIB, "
             "normalize USLT frames, back up lyrics before editing MP3 tags, and update "
             "VirtualDJ User 1 markers after a real run.",
         )
-        ttk.Checkbutton(tidal_tab, text="Download missing lyrics from TIDAL (browser login required)",
+        ttk.Checkbutton(tidal_tab, text="Download missing lyrics online (TIDAL first, then LRCLIB)",
                         variable=self.opt_tidal).pack(anchor="w", pady=3)
         ttk.Checkbutton(tidal_tab, text="Normalize existing USLT frames when no better source is found",
                         variable=self.opt_dedupe).pack(anchor="w", pady=3)

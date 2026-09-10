@@ -18,6 +18,10 @@ import os
 import re
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
@@ -333,6 +337,89 @@ class TidalClient:
         return str(text).strip() if text else None
 
 
+class LrclibClient:
+    """Small rate-limited LRCLIB reader used only after TIDAL misses."""
+
+    API_ROOT = "https://lrclib.net/api"
+    USER_AGENT = "VirtualDJEmbeddedLyrics/0.8.0 (https://github.com/VeksCZ/VirtualDJEmbeddedLyrics)"
+
+    def __init__(self):
+        self.last_error = ""
+        self.last_request = 0.0
+
+    def _get_json(self, endpoint: str, parameters: dict[str, object]):
+        delay = 0.3 - (time.monotonic() - self.last_request)
+        if delay > 0:
+            time.sleep(delay)
+        url = f"{self.API_ROOT}/{endpoint}?{urllib.parse.urlencode(parameters)}"
+        request = urllib.request.Request(
+            url, headers={"Accept": "application/json", "User-Agent": self.USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            self.last_error = f"HTTP {exc.code}"
+            return None
+        except (OSError, ValueError) as exc:
+            self.last_error = str(exc)
+            return None
+        finally:
+            self.last_request = time.monotonic()
+
+    @staticmethod
+    def _lyrics(record) -> tuple[str | None, str]:
+        if not isinstance(record, dict) or record.get("instrumental"):
+            return None, ""
+        synced = str(record.get("syncedLyrics") or "").strip()
+        if synced:
+            return synced, "LRCLIB synced"
+        plain = str(record.get("plainLyrics") or "").strip()
+        return (plain, "LRCLIB plain") if plain else (None, "")
+
+    def find_lyrics(self, artist: str | None, title: str | None,
+                    duration: float | None, tolerance: float) -> tuple[str | None, str]:
+        self.last_error = ""
+        if not artist or not title:
+            return None, ""
+        parameters: dict[str, object] = {"artist_name": artist, "track_name": title}
+        if duration and 1 <= duration <= 3600:
+            parameters["duration"] = int(round(duration))
+        exact = self._get_json("get", parameters)
+        lyrics, status = self._lyrics(exact)
+        if lyrics:
+            return lyrics, status
+
+        results = self._get_json(
+            "search", {"artist_name": artist, "track_name": title})
+        if not isinstance(results, list):
+            return None, ""
+        target_title = normalize_title(title)
+        target_artist = normalize_artist(artist)
+        ranked = []
+        for record in results:
+            if not isinstance(record, dict):
+                continue
+            record_duration = record.get("duration")
+            if duration and record_duration:
+                try:
+                    if abs(float(record_duration) - duration) > tolerance:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            title_score = similarity(target_title, normalize_title(record.get("trackName")))
+            artist_score = similarity(target_artist, normalize_artist(record.get("artistName")))
+            score = title_score * 0.7 + artist_score * 0.3
+            if title_score >= 0.65 and artist_score >= 0.5:
+                ranked.append((score, record))
+        for _score, record in sorted(ranked, key=lambda item: item[0], reverse=True):
+            lyrics, status = self._lyrics(record)
+            if lyrics:
+                return lyrics, status + " search"
+        return None, ""
+
+
 def read_existing_uslt(mp3_path: Path):
     try:
         tags = ID3(mp3_path)
@@ -435,6 +522,7 @@ def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, repo
     log("")
 
     tidal = None
+    lrclib = LrclibClient() if do_tidal else None
     tidal_unavailable: str | None = None
     rows: list[list[object]] = []
     resolved_count = 0
@@ -470,6 +558,19 @@ def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, repo
                             status = "track found without lyrics"
                             if tidal.last_lyrics_error:
                                 status += f" ({tidal.last_lyrics_error})"
+
+            if not lrc_text and lrclib is not None:
+                lrclib_text, lrclib_status = lrclib.find_lyrics(
+                    artist, title, duration, duration_tolerance)
+                if lrclib_text:
+                    lrc_text, status = lrclib_text, lrclib_status
+                elif lrclib.last_error:
+                    suffix = f"LRCLIB unavailable ({lrclib.last_error})"
+                    status = f"{status}; {suffix}" if status else suffix
+                elif status:
+                    status += "; LRCLIB not found"
+                else:
+                    status = "LRCLIB not found"
 
             if not lrc_text and do_dedupe and existing_uslt:
                 lrc_text, ambiguous = choose_best_existing_uslt(existing_uslt)

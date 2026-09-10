@@ -113,6 +113,8 @@ restore tools after enabling **Advanced**. Its tabs cover:
   in a local problem queue with CSV export.
 
 Start **LyricsTools** and choose a folder. Preview mode is enabled on first use.
+Online lookup checks TIDAL first and uses LRCLIB only when TIDAL does not return
+lyrics. LRCLIB synchronized lyrics are preferred over its plain lyrics.
 Source LRC/TXT files are deleted only after successful verification and only
 when you explicitly enable deletion. A separate conservative option can remove
 a timed TXT that was ignored because a same-name LRC was successfully imported

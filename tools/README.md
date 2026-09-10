@@ -114,7 +114,11 @@ For each MP3, the tool tries:
 1. A same-name `.lrc` sidecar next to the MP3.
 2. TIDAL lookup using the MP3's ISRC (`TSRC`) tag.
 3. TIDAL search using artist, title, and duration.
-4. Existing embedded USLT frames, when normalization is enabled.
+4. LRCLIB exact lookup, followed by a conservatively matched LRCLIB search.
+5. Existing embedded USLT frames, when normalization is enabled.
+
+LRCLIB is queried sequentially with a short delay between requests. TIDAL always
+has priority; LRCLIB prefers synchronized lyrics and falls back to plain lyrics.
 
 The selected text is stored as USLT. When timestamps are present and the SYLT
 option is enabled, a synchronized SYLT frame is also created. Obsolete SYLT

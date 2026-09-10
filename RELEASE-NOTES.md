@@ -2,6 +2,8 @@
 
 ## Highlights
 
+- Added rate-limited LRCLIB exact and search lookup as a fallback after TIDAL.
+  TIDAL remains the preferred online source.
 - Standardized new MP3 lyrics storage on one ID3v2 `SYLT` frame for timed lyrics
   or one `USLT` frame for plain lyrics. Legacy custom TXXX duplicates remain
   readable; Mark existing lyrics can convert and remove them across a library.
