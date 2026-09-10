@@ -211,6 +211,7 @@ def mark_existing_mp3(root: Path, write: bool, log: Callable[[object], None] = p
 
 def import_sidecars(root: Path, *, write: bool = False, overwrite: bool = False,
                     delete_lrc: bool = False, delete_sidecars: bool = False,
+                    delete_redundant_txt: bool = False,
                     language: str = "und", log: Callable[[object], None] = print
                     ) -> tuple[int, int, int, int]:
     """Preview or import same-name LRC/TXT files and return summary counts."""
@@ -233,7 +234,8 @@ def import_sidecars(root: Path, *, write: bool = False, overwrite: bool = False,
             continue
         try:
             message, did_change = write_frames(
-                mp3_path, lrc_path, txt_path, language, overwrite, delete_lrc, delete_sidecars
+                mp3_path, lrc_path, txt_path, language, overwrite, delete_lrc,
+                delete_sidecars, delete_redundant_txt
             )
             changed += int(did_change)
             log(f"WRITE    {mp3_path}: {message}")
@@ -247,7 +249,8 @@ def import_sidecars(root: Path, *, write: bool = False, overwrite: bool = False,
 
 def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
                  language: str, overwrite: bool, delete_lrc: bool = False,
-                 delete_sidecars: bool = False) -> tuple[str, bool]:
+                 delete_sidecars: bool = False,
+                 delete_redundant_txt: bool = False) -> tuple[str, bool]:
     Encoding, ID3, ID3NoHeaderError, SYLT, _, TXXX, USLT = load_mutagen()
     try:
         tags = ID3(mp3_path)
@@ -372,6 +375,12 @@ def write_frames(mp3_path: Path, lrc_path: Path | None, txt_path: Path | None,
         if txt_written and delete_sidecars:
             txt_path.unlink()
             messages.append("TXT deleted")
+        elif (delete_redundant_txt and txt_path and txt_timed_lines
+              and lrc_written and txt_path.exists()):
+            # Only this case is provably redundant: a timed TXT lost to a
+            # same-name LRC which has just been written and verified.
+            txt_path.unlink()
+            messages.append("redundant timed TXT deleted after verified LRC import")
     return "; ".join(messages), changed
 
 

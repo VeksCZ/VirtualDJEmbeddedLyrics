@@ -58,15 +58,16 @@ as synchronized lyrics.
 
 - **Font size**, **Timed lines**, **Untimed lines** and **Vertical position**
   control the layout.
-- **Background** keeps the overlay transparent when off. Turn it on and choose
-  **Background color** for black or another solid color without LRC BlackOut.
-- **Advanced** opens presets, font selection, outline/shadow options and colors.
+- **Advanced** opens presets, font selection, outline/shadow options, colors,
+  and the optional solid video background. The top/bottom lyrics fade remains
+  active with either a transparent or solid background.
 - **Next** and **Prev** move through plain untimed lyrics.
 - **Edit TXT** creates or opens the current track's same-name TXT file.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
   after the track has been unloaded from all decks.
-- **Auto-tag #lrc** adds `#lrc` to VirtualDJ **User 1** after lyrics have been
-  verified. Existing User 1 content is preserved.
+- **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `#uslt` for plain
+  untimed lyrics to VirtualDJ **User 1** after lyrics have been loaded. It also
+  replaces the older `#lrc` marker and preserves unrelated User 1 content.
 
 `User 1` is stored in the VirtualDJ database, not in the MP3. The optional tools
 use the standard ID3 `Grouping` field for the portable markers
@@ -95,8 +96,10 @@ restore tools after enabling **Advanced**. Its tabs cover:
   in a local problem queue with CSV export.
 
 Start **LyricsTools** and choose a folder. Preview mode is enabled on first use.
-Source LRC/TXT files are deleted
-only after successful verification and only when you explicitly enable deletion.
+Source LRC/TXT files are deleted only after successful verification and only
+when you explicitly enable deletion. A separate conservative option can remove
+a timed TXT that was ignored because a same-name LRC was successfully imported
+and verified. Plain or otherwise skipped TXT files are retained.
 
 Python is required only by the Windows plugin's optional **Record timing** helper,
 not by either packaged GUI application or normal lyrics display.
@@ -137,16 +140,26 @@ not required to run the VirtualDJ plugins.
 
 ## VirtualDJScript helpers
 
-Add `#lrc` for the track loaded on the current deck when VirtualDJ detects lyrics:
+The plugin automatically distinguishes loaded lyrics in VirtualDJ User 1:
+
+- `#sylt` means synchronized lyrics and automatic line progression.
+- `#uslt` means untimed lyrics and manual page/line control.
+
+VirtualDJ's microphone icon is not evidence that a same-name LRC exists next to
+the audio file. It can also reflect embedded MP3 lyrics or lyrics already known
+to VirtualDJ's database/cache.
+
+Add a generic marker for the track loaded on the current deck when VirtualDJ
+detects any lyrics (useful only if the plugin has not loaded it yet):
 
 ```text
-has_lyrics ? get_loaded_song 'User 1' & param_contains '#lrc' ? nothing : loaded_song_hashtag 'user 1' '#lrc' : nothing
+has_lyrics ? get_loaded_song 'User 1' & param_contains '#lyrics' ? nothing : loaded_song_hashtag 'user 1' '#lyrics' : nothing
 ```
 
 After **Reload Tags**, copy the portable Grouping marker for the browsed track:
 
 ```text
-get_browsed_song 'Grouping' & param_contains 'Lyrics:' ? get_browsed_song 'User 1' & param_contains '#lrc' ? nothing : browsed_song_hashtag 'user 1' '#lrc' : nothing
+get_browsed_song 'Grouping' & param_contains 'Lyrics: Synced' ? get_browsed_song 'User 1' & param_contains '#sylt' ? nothing : browsed_song_hashtag 'user 1' '#sylt' : get_browsed_song 'Grouping' & param_contains 'Lyrics: Unsynced' ? get_browsed_song 'User 1' & param_contains '#uslt' ? nothing : browsed_song_hashtag 'user 1' '#uslt' : nothing
 ```
 
 VDJScript handles one loaded or browsed track here; it does not iterate through

@@ -52,10 +52,12 @@ downloads are matched to the application and platform and SHA-256 verified.
 The shared top panel shows the same VirtualDJ path and plugin state. Areas are
 named **Playlists**, **Local lyrics**, **Online sources**, **Problem queue**, and
 **Recovery**. Simple mode contains common synchronization, local tag tools, and
-the problem queue. **Advanced** reveals
-TIDAL/normalization and sidecar restore. The footer shows the last operation and
-links to its backup when one was created. Diagnostic ZIPs exclude music, tags,
-credentials, and absolute user paths.
+the problem queue. The top-right settings button reveals Advanced mode,
+TIDAL/normalization and sidecar restore, update checking, and diagnostics. The
+footer shows the last operation, links to its backup when one was created, and
+names the exact action for the active tab. Activity messages use distinct colors
+for successful work, warnings/skips, and errors. Diagnostic ZIPs exclude music,
+tags, credentials, and absolute user paths.
 
 ### Sync folders to VDJ
 
@@ -92,7 +94,9 @@ root order, and Search DB if replacement fails.
 Imports same-name sidecars using the existing verified converter. Timed LRC/TXT
 is written to SYLT and `SYNCEDLYRICS`; plain TXT is written to USLT and
 `UNSYNCEDLYRICS`. Optional deletion happens only after the destination tags have
-been reopened and verified.
+been reopened and verified. A separate option deletes a lower-priority timed TXT
+only when a same-name LRC was imported and verified; plain and unverified skipped
+TXT files remain untouched.
 
 ### Mark existing lyrics
 

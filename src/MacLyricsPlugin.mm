@@ -145,6 +145,26 @@ public:
             }
 
             [NSGraphicsContext restoreGraphicsState];
+            const CGFloat anchor = static_cast<CGFloat>(height) *
+                                   std::clamp(verticalPosition, 0.1f, 0.9f);
+            const CGFloat spacing = std::max<CGFloat>(fontSize * 1.2, 1.0);
+            const CGFloat topZero = anchor - spacing * 5.25;
+            const CGFloat topOpaque = anchor - spacing * 2.5;
+            const CGFloat bottomOpaque = anchor + spacing * 2.5;
+            const CGFloat bottomZero = anchor + spacing * 4.0;
+            for (int row = 0; row < height; ++row) {
+                CGFloat fade = 1.0;
+                if (row < topOpaque)
+                    fade = std::clamp((row - topZero) / (topOpaque - topZero), 0.0, 1.0);
+                else if (row > bottomOpaque)
+                    fade = std::clamp((bottomZero - row) / (bottomZero - bottomOpaque), 0.0, 1.0);
+                if (fade >= 0.999) continue;
+                for (int column = 0; column < width; ++column) {
+                    auto& alpha = pixels[static_cast<std::size_t>(row) * rowBytes +
+                                         static_cast<std::size_t>(column) * 4 + 3];
+                    alpha = static_cast<std::uint8_t>(alpha * fade + 0.5);
+                }
+            }
             CGContextRelease(context);
 
             MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
@@ -210,6 +230,7 @@ private:
 class MacLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
+        LoadAdvancedSettings();
         if (DeclareParameterSlider(&fontSize_, 1, "Font size", "Size", 1.0f / 3.0f) != S_OK ||
             DeclareParameterSlider(&timedLines_, 2, "Timed lines", "Timed lines", 2.0f / 7.0f) != S_OK ||
             DeclareParameterSlider(&pageLines_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f) != S_OK ||
@@ -217,10 +238,8 @@ public:
             DeclareParameterSwitch(&useVolumeFaders_, 5, "Upfaders", "Upfaders", false) != S_OK ||
             DeclareParameterButton(&nextLine_, 7, "Next line", "Next") != S_OK ||
             DeclareParameterButton(&previousLine_, 8, "Previous line", "Prev") != S_OK ||
-            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true) != S_OK)
-            return -1;
-        if (DeclareParameterSwitch(&background_, 12, "Background", "Background", false) != S_OK ||
-            DeclareParameterSlider(&backgroundColor_, 13, "Background color", "BG color", 0.0f) != S_OK)
+            DeclareParameterButton(&advanced_, 10, "Advanced settings", "Advanced") != S_OK ||
+            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #sylt/#uslt to User 1", "Auto-tag lyrics", true) != S_OK)
             return -1;
         return S_OK;
     }
@@ -234,16 +253,15 @@ public:
             if (!lyrics_.synchronized && activeLine_ > 0) --activeLine_;
             previousLine_ = 0;
             overlay_.Reset();
+        } else if (id == 10 && advanced_) {
+            OpenAdvancedDialog();
+            advanced_ = 0;
         }
         return S_OK;
     }
 
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
-        if (id != 13 || !output || outputSize <= 0) return E_NOTIMPL;
-        const auto index = BackgroundIndex();
-        std::snprintf(output, static_cast<std::size_t>(outputSize), "%s",
-                      kBackgrounds[index].name);
-        return S_OK;
+        return E_NOTIMPL;
     }
 
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
@@ -283,7 +301,7 @@ public:
         if (auto completed = loader_.Poll(); completed && completed->path == loadedPath_) {
             lyrics_ = std::move(completed->result.document);
             overlay_.Reset();
-            if (!lyrics_.empty() && autoTagLrc_) EnsureLrcHashtag(deck);
+            if (!lyrics_.empty() && autoTagLrc_) EnsureLyricsHashtag(deck);
         }
 
         std::vector<std::wstring> visible;
@@ -320,6 +338,63 @@ public:
     }
 
 private:
+    void OpenAdvancedDialog() {
+        @autoreleasepool {
+            NSAlert* alert = [[NSAlert alloc] init];
+            alert.messageText = @"LRC advanced settings";
+            alert.informativeText = @"Choose an optional solid video background. The lyrics fade remains active.";
+            [alert addButtonWithTitle:@"Apply"];
+            [alert addButtonWithTitle:@"Cancel"];
+
+            NSView* accessory = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 310, 70)];
+            NSButton* enabled = [[NSButton alloc] initWithFrame:NSMakeRect(0, 42, 310, 24)];
+            enabled.buttonType = NSSwitchButton;
+            enabled.title = @"Use solid background";
+            enabled.state = background_ ? NSControlStateValueOn : NSControlStateValueOff;
+            [accessory addSubview:enabled];
+
+            NSTextField* label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 7, 70, 24)];
+            label.stringValue = @"Color:";
+            label.bezeled = NO;
+            label.drawsBackground = NO;
+            label.editable = NO;
+            label.selectable = NO;
+            [accessory addSubview:label];
+            NSPopUpButton* colors = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(68, 4, 220, 28)];
+            for (const auto& choice : kBackgrounds)
+                [colors addItemWithTitle:[NSString stringWithUTF8String:choice.name]];
+            [colors selectItemAtIndex:BackgroundIndex()];
+            [accessory addSubview:colors];
+            alert.accessoryView = accessory;
+
+            if ([alert runModal] == NSAlertFirstButtonReturn) {
+                background_ = enabled.state == NSControlStateValueOn ? 1 : 0;
+                backgroundColor_ = static_cast<float>(colors.indexOfSelectedItem) /
+                                   static_cast<float>(std::size(kBackgrounds) - 1);
+                overlay_.Reset();
+                SaveAdvancedSettings();
+            }
+        }
+    }
+
+    void LoadAdvancedSettings() {
+        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+        background_ = [defaults boolForKey:@"VirtualDJEmbeddedLyrics.BackgroundEnabled"] ? 1 : 0;
+        const NSInteger index = std::clamp<NSInteger>(
+            [defaults integerForKey:@"VirtualDJEmbeddedLyrics.BackgroundColor"],
+            0, static_cast<NSInteger>(std::size(kBackgrounds) - 1));
+        backgroundColor_ = static_cast<float>(index) /
+                           static_cast<float>(std::size(kBackgrounds) - 1);
+    }
+
+    void SaveAdvancedSettings() const {
+        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+        [defaults setBool:background_ != 0
+                   forKey:@"VirtualDJEmbeddedLyrics.BackgroundEnabled"];
+        [defaults setInteger:static_cast<NSInteger>(BackgroundIndex())
+                      forKey:@"VirtualDJEmbeddedLyrics.BackgroundColor"];
+    }
+
     int VisibleVideoDeck() {
         double balance = 0.0, left = 1.0, right = 2.0;
         GetInfo("get_leftdeck", &left);
@@ -329,15 +404,23 @@ private:
         return selector_.Select(balance, static_cast<int>(left), static_cast<int>(right));
     }
 
-    void EnsureLrcHashtag(int deck) {
+    void EnsureLyricsHashtag(int deck) {
         char command[256]{}, user1[4096]{};
         std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'user 1'", deck);
         if (GetStringInfo(command, user1, sizeof(user1)) != S_OK) return;
         std::string value{user1};
         std::transform(value.begin(), value.end(), value.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (value.find("#lrc") != std::string::npos) return;
-        std::snprintf(command, sizeof(command), "deck %d loaded_song_hashtag 'user 1' '#lrc'", deck);
+        const char* wanted = lyrics_.synchronized ? "#sylt" : "#uslt";
+        for (const char* obsolete : {"#lrc", lyrics_.synchronized ? "#uslt" : "#sylt"}) {
+            if (value.find(obsolete) == std::string::npos) continue;
+            std::snprintf(command, sizeof(command),
+                          "deck %d loaded_song_hashtag 'user 1' '%s'", deck, obsolete);
+            SendCommand(command);
+        }
+        if (value.find(wanted) != std::string::npos) return;
+        std::snprintf(command, sizeof(command),
+                      "deck %d loaded_song_hashtag 'user 1' '%s'", deck, wanted);
         SendCommand(command);
     }
 
@@ -364,6 +447,7 @@ private:
     int useVolumeFaders_{};
     int nextLine_{};
     int previousLine_{};
+    int advanced_{};
     int autoTagLrc_{1};
     int background_{};
     float backgroundColor_{};

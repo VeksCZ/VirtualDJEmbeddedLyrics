@@ -227,7 +227,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     const float topOpaque = static_cast<float>(anchor) - spacing * 2.5f;
     const float bottomOpaque = static_cast<float>(anchor) + spacing * 2.5f;
     const float bottomZero = static_cast<float>(anchor) + spacing * 4.0f;
-    for (int row = 0; !backgroundEnabled && row < height; ++row) {
+    for (int row = 0; row < height; ++row) {
         float fade = 1.0f;
         if (row < topOpaque) fade = std::clamp((row - topZero) / (topOpaque - topZero), 0.0f, 1.0f);
         else if (row > bottomOpaque) fade = std::clamp((bottomZero - row) / (bottomZero - bottomOpaque), 0.0f, 1.0f);

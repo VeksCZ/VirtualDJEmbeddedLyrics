@@ -245,6 +245,25 @@ class SidecarDeletionTests(unittest.TestCase):
             self.assertIn("Grouping: Lyrics: Unsynced", message)
             self.assertTrue(txt.exists())
 
+    def test_explicitly_deletes_redundant_timed_txt_after_verified_lrc(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mp3 = root / "song.mp3"
+            lrc = root / "song.lrc"
+            txt = root / "song.txt"
+            ID3().save(mp3, v2_version=3)
+            lrc.write_text("[00:01.00]Preferred", encoding="utf-8")
+            txt.write_text("[00:02.00]Lower priority", encoding="utf-8")
+
+            message, changed = converter.write_frames(
+                mp3, lrc, txt, "und", False,
+                delete_redundant_txt=True)
+
+            self.assertTrue(changed)
+            self.assertTrue(lrc.exists())
+            self.assertFalse(txt.exists())
+            self.assertIn("redundant timed TXT deleted", message)
+
 
 class MarkLyricsGroupingTests(unittest.TestCase):
     def test_marks_synced_and_preserves_existing_grouping(self):

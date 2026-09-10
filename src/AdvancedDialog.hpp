@@ -10,6 +10,8 @@ struct AdvancedAppearanceSettings {
     int textColor{};
     int highlightColor{1};
     int readColor{2};
+    bool backgroundEnabled{};
+    int backgroundColor{};
 };
 
 bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings);

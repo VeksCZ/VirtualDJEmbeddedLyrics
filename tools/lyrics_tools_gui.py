@@ -103,6 +103,8 @@ class App(tk.Tk):
             value=bool(settings.get("opt_import_overwrite", False)))
         self.opt_delete_sidecars = tk.BooleanVar(
             value=bool(settings.get("opt_delete_sidecars", False)))
+        self.opt_delete_redundant_txt = tk.BooleanVar(
+            value=bool(settings.get("opt_delete_redundant_txt", False)))
         self.opt_language = tk.StringVar(value=str(settings.get("opt_language", "und")))
         self.opt_tidal = tk.BooleanVar(value=bool(settings.get("opt_tidal", False)))
         self.opt_dedupe = tk.BooleanVar(value=bool(settings.get("opt_dedupe", True)))
@@ -147,6 +149,7 @@ class App(tk.Tk):
             "opt_dryrun": self.opt_dryrun.get(),
             "opt_import_overwrite": self.opt_import_overwrite.get(),
             "opt_delete_sidecars": self.opt_delete_sidecars.get(),
+            "opt_delete_redundant_txt": self.opt_delete_redundant_txt.get(),
             "opt_language": self.opt_language.get(),
             "opt_tidal": self.opt_tidal.get(),
             "opt_dedupe": self.opt_dedupe.get(),
@@ -192,7 +195,8 @@ class App(tk.Tk):
         tk.Label(header, textvariable=self.vdj_status, bg="#eaf2f8", anchor="w").grid(row=0, column=1, sticky="ew", padx=10)
         self.header_state = tk.Label(header, textvariable=self.vdj_installation_status, bg="#3b536b", fg="white", padx=9, pady=4)
         self.header_state.grid(row=0, column=2)
-        ttk.Checkbutton(header, text="Advanced", variable=self.opt_advanced, command=self._toggle_advanced).grid(row=0, column=3, padx=(10, 0))
+        ttk.Button(header, text="⚙", width=3, command=self._show_settings).grid(
+            row=0, column=3, padx=(10, 0))
 
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
@@ -218,6 +222,11 @@ class App(tk.Tk):
             import_tab,
             text="Delete successfully imported LRC/TXT sidecars after verification",
             variable=self.opt_delete_sidecars,
+        ).pack(anchor="w", pady=3)
+        ttk.Checkbutton(
+            import_tab,
+            text="Also delete redundant timed TXT after a same-name LRC was imported and verified",
+            variable=self.opt_delete_redundant_txt,
         ).pack(anchor="w", pady=3)
         language_row = ttk.Frame(import_tab)
         language_row.pack(anchor="w", pady=3)
@@ -249,14 +258,22 @@ class App(tk.Tk):
         self.issue_summary.pack(side="left")
         ttk.Button(issue_actions, text="Export CSV...", command=self._export_issues).pack(side="right")
         columns = ("problem", "file", "detail")
-        self.issue_tree = ttk.Treeview(issues_tab, columns=columns, show="headings", height=10)
+        issue_list = ttk.Frame(issues_tab)
+        issue_list.pack(fill="both", expand=True)
+        issue_list.columnconfigure(0, weight=1)
+        issue_list.rowconfigure(0, weight=1)
+        self.issue_tree = ttk.Treeview(issue_list, columns=columns, show="headings", height=10)
         self.issue_tree.heading("problem", text="Problem")
         self.issue_tree.heading("file", text="File")
         self.issue_tree.heading("detail", text="Detail")
         self.issue_tree.column("problem", width=145, stretch=False)
         self.issue_tree.column("file", width=250)
         self.issue_tree.column("detail", width=350)
-        self.issue_tree.pack(fill="both", expand=True)
+        self.issue_tree.grid(row=0, column=0, sticky="nsew")
+        issue_scrollbar = ttk.Scrollbar(
+            issue_list, orient="vertical", command=self.issue_tree.yview)
+        issue_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.issue_tree.configure(yscrollcommand=issue_scrollbar.set)
 
         tidal_tab = self.tabs["tidal"]
         self._folder_panel(tidal_tab, include_backup=True)
@@ -343,6 +360,10 @@ class App(tk.Tk):
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         self.log_text = tk.Text(log_frame, wrap="word", state="disabled")
+        self.log_text.tag_configure("success", foreground="#166534")
+        self.log_text.tag_configure("warning", foreground="#1d4ed8")
+        self.log_text.tag_configure("error", foreground="#b91c1c")
+        self.log_text.tag_configure("neutral", foreground="#334155")
         self.log_text.grid(row=0, column=0, sticky="nsew")
         scrollbar = ttk.Scrollbar(log_frame, command=self.log_text.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -353,10 +374,8 @@ class App(tk.Tk):
         ttk.Label(actions, textvariable=self.last_operation).pack(side="left")
         self.backup_button = ttk.Button(actions, text="Open backup", state="disabled", command=self._open_last_backup)
         self.backup_button.pack(side="left", padx=6)
-        ttk.Button(actions, text="Diagnostics…", command=self._create_diagnostics).pack(side="right", padx=(6, 0))
-        ttk.Button(actions, text="Check updates", command=self._check_updates).pack(side="right", padx=(6, 0))
         self.run_button = ttk.Button(
-            actions, text="Run selected tool", command=self._run_current_tab)
+            actions, text="Run", command=self._run_current_tab)
         self.run_button.pack(side="right")
         self._toggle_advanced()
         self._update_run_button()
@@ -499,6 +518,26 @@ class App(tk.Tk):
                     pass
         self._update_run_button()
 
+    def _show_settings(self) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("LyricsTools settings")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        body = ttk.Frame(dialog, padding=14)
+        body.pack(fill="both", expand=True)
+        ttk.Checkbutton(
+            body, text="Advanced mode", variable=self.opt_advanced,
+            command=self._toggle_advanced,
+        ).pack(anchor="w", pady=(0, 12))
+        ttk.Separator(body).pack(fill="x", pady=(0, 12))
+        ttk.Button(body, text="Check for updates", command=self._check_updates).pack(
+            fill="x", pady=3)
+        ttk.Button(body, text="Create diagnostic ZIP…", command=self._create_diagnostics).pack(
+            fill="x", pady=3)
+        ttk.Button(body, text="Close", command=dialog.destroy).pack(
+            anchor="e", pady=(14, 0))
+        dialog.grab_set()
+
     def _active_tab_name(self) -> str:
         selected = self.notebook.select()
         return next(
@@ -514,16 +553,31 @@ class App(tk.Tk):
             return
         active_tab = self._active_tab_name()
         labels = {
-            "playlist_sync": "Preview / sync folders",
+            "playlist_sync": "Preview / sync playlists",
+            "import": "Import LRC / TXT",
+            "mark": "Scan / mark lyrics tags",
+            "tidal": "Download / normalize lyrics",
             "issues": "Scan for problems",
+            "restore": "Restore LRC sidecars",
         }
-        label = labels.get(active_tab, "Run selected tool")
+        label = labels.get(active_tab, "Run")
         state = "disabled" if self.worker_running else "normal"
         self.run_button.configure(text=label, state=state)
 
     def _log(self, message) -> None:
+        value = str(message)
+        upper = value.upper()
+        if "ERROR" in upper or "FAILED" in upper:
+            style = "error"
+        elif any(word in upper for word in ("WARNING", "WARN", "SKIP", "DRY-RUN")):
+            style = "warning"
+        elif any(word in upper for word in (
+                "OK", "WRITE", "SUCCESS", "VERIFIED", "CREATED", "RESTORED", "SUMMARY")):
+            style = "success"
+        else:
+            style = "neutral"
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", str(message) + "\n")
+        self.log_text.insert("end", value + "\n", style)
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
@@ -774,6 +828,7 @@ class App(tk.Tk):
                 return
             overwrite = self.opt_import_overwrite.get()
             delete_sidecars = self.opt_delete_sidecars.get()
+            delete_redundant_txt = self.opt_delete_redundant_txt.get()
 
             def job() -> None:
                 lyrics_tag_converter.import_sidecars(
@@ -781,6 +836,7 @@ class App(tk.Tk):
                     write=not dry_run,
                     overwrite=overwrite,
                     delete_sidecars=delete_sidecars,
+                    delete_redundant_txt=delete_redundant_txt,
                     language=language,
                     log=self.events.log,
                 )

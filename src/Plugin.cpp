@@ -71,9 +71,7 @@ public:
             FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
             || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
-            || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #lrc to User 1", "Auto-tag #lrc", true))
-            || FAILED(DeclareParameterSwitch(&backgroundParameter_, 12, "Background", "Background", false))
-            || FAILED(DeclareParameterSlider(&backgroundColorParameter_, 13, "Background color", "BG color", 0.0f))
+            || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #sylt/#uslt to User 1", "Auto-tag lyrics", true))
             || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
@@ -108,11 +106,6 @@ public:
         } else if (id == 2) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%zu", TimedLineCount());
             return S_OK;
-        } else if (id == 13) {
-            const auto index = DiscreteIndex(backgroundColorParameter_, std::size(kBackgroundPalette));
-            const auto converted = WideCharToMultiByte(
-                CP_UTF8, 0, kBackgroundPalette[index].name, -1, output, outputSize, nullptr, nullptr);
-            return converted > 0 ? S_OK : E_FAIL;
         } else return E_NOTIMPL;
         std::snprintf(output, static_cast<std::size_t>(outputSize), "%d%%", percent);
         return S_OK;
@@ -192,7 +185,7 @@ public:
                 Diagnostics::Error(L"No lyrics found for: " + loadedPath_.wstring() + L"; " + completed->result.error);
             } else {
                 Diagnostics::Info(L"Lyrics loaded: " + loadedPath_.wstring());
-                if (autoTagLrcParameter_) EnsureLrcHashtag(deck);
+                if (autoTagLrcParameter_) EnsureLyricsHashtag(deck);
             }
         }
         CheckTextChanges();
@@ -225,7 +218,7 @@ private:
         return renderer_.Draw(texture_.View());
     }
 
-    void EnsureLrcHashtag(int deck) {
+    void EnsureLyricsHashtag(int deck) {
         char command[256]{};
         char user1[4096]{};
         std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'user 1'", deck);
@@ -238,15 +231,19 @@ private:
             return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A'))
                                                : static_cast<char>(value);
         });
-        if (current.find("#lrc") != std::string::npos) return;
-
-        std::snprintf(command, sizeof(command),
-                      "deck %d loaded_song_hashtag 'user 1' '#lrc'", deck);
-        if (FAILED(SendCommand(command))) {
-            Diagnostics::Error(L"VirtualDJ failed to add #lrc to User 1");
-        } else {
-            Diagnostics::Info(L"Added #lrc to VirtualDJ User 1");
+        const char* wanted = lyrics_.synchronized ? "#sylt" : "#uslt";
+        for (const char* obsolete : {"#lrc", lyrics_.synchronized ? "#uslt" : "#sylt"}) {
+            if (current.find(obsolete) == std::string::npos) continue;
+            std::snprintf(command, sizeof(command),
+                          "deck %d loaded_song_hashtag 'user 1' '%s'", deck, obsolete);
+            SendCommand(command);
         }
+        if (current.find(wanted) != std::string::npos) return;
+        std::snprintf(command, sizeof(command),
+                      "deck %d loaded_song_hashtag 'user 1' '%s'", deck, wanted);
+        if (FAILED(SendCommand(command))) Diagnostics::Error(L"VirtualDJ failed to tag lyrics type");
+        else Diagnostics::Info(lyrics_.synchronized ? L"Added #sylt to VirtualDJ User 1"
+                                                     : L"Added #uslt to VirtualDJ User 1");
     }
 
     int VisibleVideoDeck() {
@@ -477,7 +474,9 @@ private:
             FontFamily(), BackdropStyle(), BackdropStrength(),
             static_cast<int>(PaletteIndex(textColorParameter_)),
             static_cast<int>(PaletteIndex(highlightColorParameter_)),
-            static_cast<int>(PaletteIndex(readColorParameter_))};
+            static_cast<int>(PaletteIndex(readColorParameter_)),
+            backgroundParameter_ != 0,
+            static_cast<int>(DiscreteIndex(backgroundColorParameter_, std::size(kBackgroundPalette)))};
         if (!ShowAdvancedAppearanceDialog(GetForegroundWindow(), settings)) return;
         fontFamilyParameter_ = static_cast<float>(settings.font) /
                                static_cast<float>(std::size(kFontNames) - 1);
@@ -491,6 +490,9 @@ private:
                                    static_cast<float>(std::size(kPalette) - 1);
         readColorParameter_ = static_cast<float>(settings.readColor) /
                               static_cast<float>(std::size(kPalette) - 1);
+        backgroundParameter_ = settings.backgroundEnabled ? 1 : 0;
+        backgroundColorParameter_ = static_cast<float>(settings.backgroundColor) /
+                                    static_cast<float>(std::size(kBackgroundPalette) - 1);
         texture_.Reset();
         SaveAdvancedSettings();
     }
@@ -507,6 +509,8 @@ private:
         textColorParameter_ = static_cast<float>(value(L"TextColor", 0, 8)) / 8.0f;
         highlightColorParameter_ = static_cast<float>(value(L"HighlightColor", 1, 8)) / 8.0f;
         readColorParameter_ = static_cast<float>(value(L"ReadColor", 2, 8)) / 8.0f;
+        backgroundParameter_ = value(L"BackgroundEnabled", 0, 1);
+        backgroundColorParameter_ = static_cast<float>(value(L"BackgroundColor", 0, 8)) / 8.0f;
     }
 
     void SaveAdvancedSettings() const {
@@ -521,6 +525,9 @@ private:
         write(L"TextColor", PaletteIndex(textColorParameter_));
         write(L"HighlightColor", PaletteIndex(highlightColorParameter_));
         write(L"ReadColor", PaletteIndex(readColorParameter_));
+        write(L"BackgroundEnabled", backgroundParameter_ != 0 ? 1u : 0u);
+        write(L"BackgroundColor", DiscreteIndex(backgroundColorParameter_,
+                                                  std::size(kBackgroundPalette)));
     }
 
     void OpenTextEditor() {

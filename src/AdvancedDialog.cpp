@@ -13,6 +13,8 @@ constexpr int kStrength = 103;
 constexpr int kTextColor = 104;
 constexpr int kHighlightColor = 105;
 constexpr int kReadColor = 106;
+constexpr int kBackgroundEnabled = 107;
+constexpr int kBackgroundColor = 108;
 
 constexpr const wchar_t* kFonts[] = {L"Arial", L"Segoe UI", L"Verdana", L"Tahoma", L"Trebuchet", L"Calibri"};
 constexpr const wchar_t* kBackdrops[] = {L"Outline", L"Shadow", L"Outline + Shadow"};
@@ -62,6 +64,9 @@ void SetSelections(HWND window, const AdvancedAppearanceSettings& value) {
     SendDlgItemMessageW(window, kTextColor, CB_SETCURSEL, value.textColor, 0);
     SendDlgItemMessageW(window, kHighlightColor, CB_SETCURSEL, value.highlightColor, 0);
     SendDlgItemMessageW(window, kReadColor, CB_SETCURSEL, value.readColor, 0);
+    CheckDlgButton(window, kBackgroundEnabled,
+                   value.backgroundEnabled ? BST_CHECKED : BST_UNCHECKED);
+    SendDlgItemMessageW(window, kBackgroundColor, CB_SETCURSEL, value.backgroundColor, 0);
     InvalidateRect(window, nullptr, FALSE);
 }
 
@@ -96,8 +101,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP, 116, 219, 232, 190, kHighlightColor);
         AddControl(window, L"STATIC", L"Read", 0, 28, 251, 82, 20);
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP, 116, 248, 232, 190, kReadColor);
-        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 202, 294, 78, 27, IDOK);
-        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 288, 294, 78, 27, IDCANCEL);
+        AddControl(window, L"BUTTON", L"Background", BS_GROUPBOX, 12, 288, 354, 82);
+        AddControl(window, L"BUTTON", L"Use solid background", BS_AUTOCHECKBOX | WS_TABSTOP,
+                   28, 311, 166, 22, kBackgroundEnabled);
+        AddControl(window, L"STATIC", L"Color", 0, 28, 341, 82, 20);
+        AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP,
+                   116, 338, 232, 190, kBackgroundColor);
+        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 202, 386, 78, 27, IDOK);
+        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 288, 386, 78, 27, IDCANCEL);
         const wchar_t* presets[] = {L"Default", L"Photos", L"Clean", L"Custom"};
         FillCombo(window, kPreset, presets, 4, 3);
         FillCombo(window, kFont, kFonts, static_cast<int>(std::size(kFonts)), state->working.font);
@@ -106,11 +117,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         FillColorCombo(window, kTextColor, state->working.textColor);
         FillColorCombo(window, kHighlightColor, state->working.highlightColor);
         FillColorCombo(window, kReadColor, state->working.readColor);
+        CheckDlgButton(window, kBackgroundEnabled,
+                       state->working.backgroundEnabled ? BST_CHECKED : BST_UNCHECKED);
+        FillColorCombo(window, kBackgroundColor, state->working.backgroundColor);
         return 0;
     }
     case WM_DRAWITEM: {
         const auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
-        if (item->CtlID < kTextColor || item->CtlID > kReadColor || item->itemID == static_cast<UINT>(-1)) break;
+        if ((item->CtlID < kTextColor || item->CtlID > kReadColor) &&
+            item->CtlID != kBackgroundColor) break;
+        if (item->itemID == static_cast<UINT>(-1)) break;
         const auto index = std::min<std::size_t>(item->itemID, std::size(kColors) - 1);
         FillRect(item->hDC, &item->rcItem, GetSysColorBrush((item->itemState & ODS_SELECTED) ? COLOR_HIGHLIGHT : COLOR_WINDOW));
         RECT swatch{item->rcItem.left + 5, item->rcItem.top + 3, item->rcItem.left + 39, item->rcItem.bottom - 3};
@@ -131,11 +147,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         if (LOWORD(wParam) == IDOK) {
             state->working = {Selection(window, kFont), Selection(window, kBackdrop), Selection(window, kStrength),
-                              Selection(window, kTextColor), Selection(window, kHighlightColor), Selection(window, kReadColor)};
+                              Selection(window, kTextColor), Selection(window, kHighlightColor), Selection(window, kReadColor),
+                              IsDlgButtonChecked(window, kBackgroundEnabled) == BST_CHECKED,
+                              Selection(window, kBackgroundColor)};
             state->accepted = true; state->finished = true; DestroyWindow(window); return 0;
         }
         if (LOWORD(wParam) == IDCANCEL) { state->finished = true; DestroyWindow(window); return 0; }
-        if (HIWORD(wParam) == CBN_SELCHANGE && LOWORD(wParam) != kPreset)
+        if ((HIWORD(wParam) == CBN_SELCHANGE || LOWORD(wParam) == kBackgroundEnabled) &&
+            LOWORD(wParam) != kPreset)
             SendDlgItemMessageW(window, kPreset, CB_SETCURSEL, 3, 0);
         break;
     case WM_CLOSE:
@@ -158,7 +177,7 @@ bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settin
     DialogState state{settings, false, false, owner};
     HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClass, L"LRC Presets",
                                   WS_CAPTION | WS_SYSMENU | WS_POPUP,
-                                  CW_USEDEFAULT, CW_USEDEFAULT, 394, 367,
+                                  CW_USEDEFAULT, CW_USEDEFAULT, 394, 459,
                                   owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!window) return false;
     RECT bounds{}; GetWindowRect(window, &bounds);
