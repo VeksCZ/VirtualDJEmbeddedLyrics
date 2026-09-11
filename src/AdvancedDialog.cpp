@@ -20,9 +20,8 @@ constexpr int kBackgroundEnabled = 107;
 constexpr int kBackgroundColor = 108;
 constexpr int kPreview = 109;
 constexpr int kTimedLines = 110, kUntimedLines = 111, kSize = 112, kPosition = 113;
-constexpr int kTiming = 114, kResetTiming = 115, kPreviewMode = 116;
+constexpr int kPreviewMode = 116;
 constexpr int kUpfaders = 117, kAutoTag = 118, kRecord = 119;
-constexpr int kWholeLine = 120, kCountdown = 121;
 
 void AddSlider(HWND window, const wchar_t* label, int id, int y, int low, int high, int value, int x = 390) {
     CreateWindowW(L"STATIC", label, WS_CHILD | WS_VISIBLE, x, y, 120, 22,
@@ -40,13 +39,10 @@ void AddSlider(HWND window, const wchar_t* label, int id, int y, int low, int hi
 int Slider(HWND window, int id) { return static_cast<int>(SendDlgItemMessageW(window, id, TBM_GETPOS, 0, 0)); }
 
 void UpdateSliderLabels(HWND window) {
-    for (int id : {kTimedLines, kUntimedLines, kSize, kPosition, kTiming, kCountdown}) {
+    for (int id : {kTimedLines, kUntimedLines, kSize, kPosition}) {
         int value = Slider(window, id);
-        if (id == kTiming) value *= 10;
         auto text = std::to_wstring(value);
-        if (id == kTiming) text = (value > 0 ? L"+" : L"") + text + L" ms";
-        else if (id == kSize || id == kPosition) text += L"%";
-        else if (id == kCountdown) text += L" s";
+        if (id == kSize || id == kPosition) text += L"%";
         SetDlgItemTextW(window, id + 100, text.c_str());
     }
     InvalidateRect(GetDlgItem(window, kPreview), nullptr, FALSE);
@@ -116,12 +112,9 @@ AdvancedAppearanceSettings ReadSelections(HWND window) {
     value.untimedLines = Slider(window, kUntimedLines);
     value.fontPercent = Slider(window, kSize);
     value.verticalPercent = Slider(window, kPosition);
-    value.timingMs = Slider(window, kTiming) * 10;
     value.useUpfaders = IsDlgButtonChecked(window, kUpfaders) == BST_CHECKED;
     value.autoTag = IsDlgButtonChecked(window, kAutoTag) == BST_CHECKED;
     value.recordTiming = IsDlgButtonChecked(window, kRecord) == BST_CHECKED;
-    value.wholeLineHighlight = IsDlgButtonChecked(window, kWholeLine) == BST_CHECKED;
-    value.countdownSeconds = Slider(window, kCountdown);
     return value;
 }
 
@@ -225,8 +218,8 @@ void DrawPreview(HWND window, const DRAWITEMSTRUCT& item) {
         SetTextColor(item.hDC, kColors[std::clamp(color, 0, 8)].color);
         DrawTextW(item.hDC, text.c_str(), -1, &line, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
         if (timed && index == active) {
-            const auto elapsed = static_cast<long long>(GetTickCount64() % 4000) - value.timingMs;
-            const float progress = LyricHighlightProgress(elapsed, 0, 3000, value.wholeLineHighlight);
+            const auto elapsed = static_cast<long long>(GetTickCount64() % 4000);
+            const float progress = LyricHighlightProgress(elapsed, 0, 3000, false);
             SIZE extent{};
             GetTextExtentPoint32W(item.hDC, text.c_str(), static_cast<int>(text.size()), &extent);
             const int left = (line.left + line.right - extent.cx) / 2;
@@ -274,8 +267,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP,
                    116, 338, 232, 190, kBackgroundColor);
         AddControl(window, L"STATIC", L"", SS_OWNERDRAW, 386, 48, 350, 260, kPreview);
-        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 510, 590, 108, 30, IDOK);
-        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 630, 590, 108, 30, IDCANCEL);
+        AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 510, 550, 108, 30, IDOK);
+        AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 630, 550, 108, 30, IDCANCEL);
         AddControl(window, L"STATIC", L"Preview mode", 0, 386, 17, 110, 22);
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, 505, 14, 230, 100, kPreviewMode);
         const wchar_t* modes[] = {L"Timed lyrics", L"Untimed lyrics"};
@@ -284,20 +277,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         AddSlider(window, L"Untimed lines", kUntimedLines, 368, 1, 12, state->working.untimedLines);
         AddSlider(window, L"Font size", kSize, 406, 50, 200, state->working.fontPercent);
         AddSlider(window, L"Vertical position", kPosition, 444, 10, 90, state->working.verticalPercent);
-        AddSlider(window, L"Timed delay", kTiming, 482, -200, 200, state->working.timingMs / 10);
-        AddControl(window, L"STATIC", L"Earlier (-)       0 ms       Later (+)", 0, 488, 514, 248, 22);
-        AddControl(window, L"BUTTON", L"Reset to 0 ms", BS_PUSHBUTTON | WS_TABSTOP, 505, 538, 150, 27, kResetTiming);
         AddControl(window, L"BUTTON", L"Playback options", BS_GROUPBOX, 12, 386, 354, 155);
         AddControl(window, L"BUTTON", L"Follow audio upfaders", BS_AUTOCHECKBOX | WS_TABSTOP, 28, 411, 324, 26, kUpfaders);
-        AddControl(window, L"BUTTON", L"Add #sylt / #-uslt to User 1", BS_AUTOCHECKBOX | WS_TABSTOP, 28, 450, 324, 26, kAutoTag);
+        AddControl(window, L"BUTTON", L"Add #sylt / # - uslt to User 1", BS_AUTOCHECKBOX | WS_TABSTOP, 28, 450, 324, 26, kAutoTag);
         AddControl(window, L"BUTTON", L"Record timing to embedded tags", BS_AUTOCHECKBOX | WS_TABSTOP, 28, 489, 324, 26, kRecord);
         CheckDlgButton(window, kUpfaders, state->working.useUpfaders ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, kAutoTag, state->working.autoTag ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(window, kRecord, state->working.recordTiming ? BST_CHECKED : BST_UNCHECKED);
-        AddControl(window, L"BUTTON", L"Highlight the whole timed line", BS_AUTOCHECKBOX | WS_TABSTOP,
-                   28, 550, 324, 26, kWholeLine);
-        CheckDlgButton(window, kWholeLine, state->working.wholeLineHighlight ? BST_CHECKED : BST_UNCHECKED);
-        AddSlider(window, L"Countdown from", kCountdown, 590, 3, 10, state->working.countdownSeconds, 28);
         UpdateSliderLabels(window);
         const wchar_t* presets[] = {L"Default", L"Photos", L"Clean", L"Custom"};
         FillCombo(window, kPreset, presets, 4, MatchingPreset(state->working));
@@ -348,15 +334,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         UpdateSliderLabels(window);
         return 0;
     case WM_COMMAND:
-        if (LOWORD(wParam) == kWholeLine) {
-            InvalidateRect(GetDlgItem(window, kPreview), nullptr, FALSE);
-            return 0;
-        }
-        if (LOWORD(wParam) == kResetTiming) {
-            SendDlgItemMessageW(window, kTiming, TBM_SETPOS, TRUE, 0);
-            UpdateSliderLabels(window);
-            return 0;
-        }
         if (LOWORD(wParam) == kPreviewMode) {
             InvalidateRect(GetDlgItem(window, kPreview), nullptr, FALSE);
             return 0;
@@ -402,7 +379,7 @@ bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settin
     DialogState state{settings, customSettings, false, false, owner};
     HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, kWindowClass, L"LRC Advanced settings",
                                   WS_CAPTION | WS_SYSMENU | WS_POPUP,
-                                  CW_USEDEFAULT, CW_USEDEFAULT, 780, 674,
+                                  CW_USEDEFAULT, CW_USEDEFAULT, 780, 634,
                                   owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (!window) return false;
     RECT bounds{}; GetWindowRect(window, &bounds);

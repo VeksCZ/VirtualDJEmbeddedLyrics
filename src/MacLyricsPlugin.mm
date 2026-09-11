@@ -239,7 +239,7 @@ public:
             DeclareParameterButton(&nextLine_, 7, "Next line", "Next") != S_OK ||
             DeclareParameterButton(&previousLine_, 8, "Previous line", "Prev") != S_OK ||
             DeclareParameterButton(&advanced_, 10, "Advanced settings", "Advanced") != S_OK ||
-            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #sylt/#-uslt to User 1", "Auto-tag lyrics", true) != S_OK)
+            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #sylt / # - uslt to User 1", "Auto-tag lyrics", true) != S_OK)
             return -1;
         return S_OK;
     }
@@ -411,8 +411,9 @@ private:
         std::string value{user1};
         std::transform(value.begin(), value.end(), value.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        const char* wanted = lyrics_.synchronized ? "#sylt" : "#-uslt";
-        for (const char* obsolete : {"#lrc", "#uslt", lyrics_.synchronized ? "#-uslt" : "#sylt"}) {
+        const char* wanted = lyrics_.synchronized ? "#sylt" : "# - uslt";
+        for (const char* obsolete : {"#lrc", "#uslt", "#-uslt",
+                                     lyrics_.synchronized ? "# - uslt" : "#sylt"}) {
             if (value.find(obsolete) == std::string::npos) continue;
             std::snprintf(command, sizeof(command),
                           "deck %d loaded_song_hashtag 'user 1' '%s'", deck, obsolete);

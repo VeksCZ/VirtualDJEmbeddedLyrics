@@ -254,7 +254,7 @@ class App(tk.Tk):
             import_tab,
             "Import same-name .lrc and .txt files into MP3 ID3 tags. LRC has priority "
             "for synchronized lyrics. Writes are verified before sources are deleted. "
-            "A real run also updates #sylt/#-uslt in VirtualDJ User 1.",
+            "A real run also updates #sylt / # - uslt in VirtualDJ User 1.",
         )
         ttk.Checkbutton(import_tab, text="Replace existing destination lyrics frames",
                         variable=self.opt_import_overwrite).pack(anchor="w", pady=3)
@@ -282,7 +282,7 @@ class App(tk.Tk):
             mark_tab,
             "Normalize embedded lyrics to exactly one standard SYLT or USLT frame, "
             "remove obsolete custom lyric duplicates, set the portable ID3 Grouping "
-            "marker, then update #sylt/#-uslt in VirtualDJ User 1. Unrelated tags are preserved.",
+            "marker, then update #sylt / # - uslt in VirtualDJ User 1. Unrelated tags are preserved.",
         )
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
 

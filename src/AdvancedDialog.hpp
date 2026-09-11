@@ -16,12 +16,9 @@ struct AdvancedAppearanceSettings {
     int untimedLines{7};
     int fontPercent{100};
     int verticalPercent{50};
-    int timingMs{};
     bool useUpfaders{};
     bool autoTag{true};
     bool recordTiming{};
-    bool wholeLineHighlight{};
-    int countdownSeconds{5};
 };
 
 bool ShowAdvancedAppearanceDialog(HWND owner, AdvancedAppearanceSettings& settings,

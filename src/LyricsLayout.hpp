@@ -17,5 +17,5 @@ inline LyricsWindow VisibleLyricsWindow(std::size_t size, std::size_t active,
 }
 
 inline std::int64_t AdjustLyricsTime(std::int64_t elapsed, int delayMs) {
-    return elapsed - std::clamp(delayMs, -2000, 2000);
+    return elapsed - std::clamp(delayMs, -5000, 5000);
 }

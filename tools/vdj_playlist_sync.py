@@ -458,8 +458,8 @@ def _replace_xml_attribute(opening: str, name: str, value: str) -> str:
 
 
 def _updated_user1(current: str, wanted: str) -> str:
-    obsolete = {"#lrc", "#sylt", "#uslt", "#-uslt"}
-    parts = [part for part in current.split() if part.casefold() not in obsolete]
+    cleaned = re.sub(r"(?i)(?:#\s*-\s*uslt|#-uslt|#lrc|#sylt|#uslt)", " ", current)
+    parts = cleaned.split()
     parts.append(wanted)
     return " ".join(parts)
 
@@ -517,7 +517,7 @@ def sync_lyrics_user1_markers(
     *,
     log: Callable[[str], None] = print,
 ) -> Path | None:
-    """Write #sylt/#-uslt to per-volume VirtualDJ databases with backups."""
+    """Write #sylt / # - uslt to per-volume VirtualDJ databases with backups."""
     if not markers:
         log("[USER 1] No embedded lyrics markers were found.")
         return None
@@ -529,7 +529,7 @@ def sync_lyrics_user1_markers(
         if original != updated:
             plans[database_path] = (original, updated, changed)
     if not plans:
-        log("[USER 1] All #sylt/#-uslt markers are already current.")
+        log("[USER 1] All #sylt / # - uslt markers are already current.")
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]

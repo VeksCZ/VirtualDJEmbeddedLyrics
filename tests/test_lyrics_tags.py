@@ -333,7 +333,7 @@ class MarkLyricsGroupingTests(unittest.TestCase):
             markers = converter.collect_virtualdj_lyrics_markers(root)
 
             self.assertEqual(markers[synced.resolve()], "#sylt")
-            self.assertEqual(markers[plain.resolve()], "#-uslt")
+            self.assertEqual(markers[plain.resolve()], "# - uslt")
 
 
 class TimingWriterTests(unittest.TestCase):

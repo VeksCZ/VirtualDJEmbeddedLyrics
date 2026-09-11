@@ -76,19 +76,16 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   lines** and **Vertical position**, with a live timed/untimed preview. Line counts
   select 1–12 logical lines total, including the current line. Long lyrics can wrap.
   Large line counts reduce the maximum font size to fit the video area.
-- Windows **Timed delay** ranges from −2000 to +2000 ms in 10 ms steps. Use the
-  arrow keys for fine adjustments; **Reset to 0 ms** restores the center. For
-  example, −10 ms displays and highlights lyrics 10 ms earlier. The correction
-  resets when the active track changes and does not modify lyric timestamps.
+- Windows **Timing offset** is a main effect control ranging from −5000 to
+  +5000 ms in 10 ms steps, centered at 0 ms. For example, −10 ms displays and
+  highlights lyrics 10 ms earlier. The correction resets when the active track
+  changes and does not modify lyric timestamps.
 - Windows playback options use wide checkboxes in **Advanced** for following
   audio upfaders, adding lyrics tags to User 1, and recording timing.
-- **Highlight the whole timed line** in Windows **Advanced** switches from the
-  default progressive highlighting to highlighting the entire active line at its
-  timestamp. Untimed navigation and scrolling are unchanged; the preview reacts
-  immediately. **Countdown from** selects the minimum estimated pause from 3 to
-  10 seconds (default 5). A pause equal to the threshold also shows the countdown.
-  This applies to the intro and the estimated gap after a lyric finishes, not
-  simply the time between two line timestamps. Both settings are saved by Apply.
+- The main **Whole line** switch changes the default progressive highlighting to
+  highlighting the entire active line at its timestamp. **Countdown gap** selects
+  the minimum estimated pause from 3 to 10 seconds (default 5). A pause equal to
+  the threshold also shows the countdown. Untimed navigation is unchanged.
 - **Advanced** opens presets, font selection, outline/shadow options, colors,
   and the optional solid video background. Its live sample previews those choices
   before they are applied. The Custom preset is stored separately and survives
@@ -98,14 +95,14 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
 - **Edit TXT** creates or opens the current track's same-name TXT file.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
   after the track has been unloaded from all decks.
-- **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `#-uslt` for plain
+- **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `# - uslt` for plain
   untimed lyrics to VirtualDJ **User 1** after lyrics have been loaded. It also
   replaces the older `#lrc` marker and preserves unrelated User 1 content.
 
 `User 1` is stored in the VirtualDJ database, not in the MP3. LyricsTools writes
 the standard ID3 `Grouping` field for the portable markers `Lyrics: Synced` and
 `Lyrics: Unsynced`; after a real Import, Mark, or TIDAL/normalize run it also
-updates `#sylt/#-uslt` directly in the appropriate VirtualDJ database. Missing
+updates `#sylt / # - uslt` directly in the appropriate VirtualDJ database. Missing
 database entries are added, while unrelated tags and existing analysis are kept.
 VirtualDJ must be closed for that direct database update, and a backup is created.
 
@@ -183,7 +180,7 @@ not required to run the VirtualDJ plugins.
 The plugin automatically distinguishes loaded lyrics in VirtualDJ User 1:
 
 - `#sylt` means synchronized lyrics and automatic line progression.
-- `#-uslt` means untimed lyrics and manual page/line control.
+- `# - uslt` means untimed lyrics and manual page/line control.
 
 VirtualDJ's microphone icon is not evidence that a same-name LRC exists next to
 the audio file. It can also reflect embedded MP3 lyrics or lyrics already known
@@ -199,7 +196,7 @@ has_lyrics ? get_loaded_song 'User 1' & param_contains '#lyrics' ? nothing : loa
 After **Reload Tags**, copy the portable Grouping marker for the browsed track:
 
 ```text
-get_browsed_song 'Grouping' & param_contains 'Lyrics: Synced' ? get_browsed_song 'User 1' & param_contains '#sylt' ? nothing : browsed_song_hashtag 'user 1' '#sylt' : get_browsed_song 'Grouping' & param_contains 'Lyrics: Unsynced' ? get_browsed_song 'User 1' & param_contains '#-uslt' ? nothing : browsed_song_hashtag 'user 1' '#-uslt' : nothing
+get_browsed_song 'Grouping' & param_contains 'Lyrics: Synced' ? get_browsed_song 'User 1' & param_contains '#sylt' ? nothing : browsed_song_hashtag 'user 1' '#sylt' : get_browsed_song 'Grouping' & param_contains 'Lyrics: Unsynced' ? get_browsed_song 'User 1' & param_contains '# - uslt' ? nothing : browsed_song_hashtag 'user 1' '# - uslt' : nothing
 ```
 
 VDJScript handles one loaded or browsed track here; it does not iterate through

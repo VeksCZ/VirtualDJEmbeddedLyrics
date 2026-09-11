@@ -32,6 +32,10 @@ int main(int argc, char** argv) {
     assert(VisibleLyricsWindow(0, 0, 7).end == 0);
     assert(AdjustLyricsTime(1000, -10) == 1010);
     assert(AdjustLyricsTime(1000, 10) == 990);
+    assert(AdjustLyricsTime(1000, -5000) == 6000);
+    assert(AdjustLyricsTime(1000, 5000) == -4000);
+    assert(AdjustLyricsTime(1000, -6000) == 6000);
+    assert(AdjustLyricsTime(1000, 6000) == -4000);
     assert(AdjustLyricsTime(0, 10) == -10);
     assert(AdjustLyricsTime(1000, 0) == 1000);
     assert(EstimateLyricHighlightMs(L"Short line") >= 1200);
