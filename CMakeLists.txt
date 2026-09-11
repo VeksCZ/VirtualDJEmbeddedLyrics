@@ -87,7 +87,7 @@ if(WIN32)
             target_compile_options(EmbeddedLyricsMaster PRIVATE /W4 /external:W0 /permissive- /EHsc)
             set_property(TARGET EmbeddedLyricsMaster PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
         endif()
-        target_link_libraries(EmbeddedLyricsMaster PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
+        target_link_libraries(EmbeddedLyricsMaster PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comctl32)
         set_target_properties(EmbeddedLyricsMaster PROPERTIES PREFIX "" OUTPUT_NAME "LRCMaster")
 
         add_library(Blackout SHARED

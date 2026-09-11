@@ -198,12 +198,14 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         self.assertIn(f'<Song FilePath="{absent}" Flag="16">', text)
 
     def test_lyrics_user1_marker_preserves_other_tags_and_analysis(self):
+        self.assertEqual(sync._updated_user1("favorite #uslt", "#-uslt"), "favorite #-uslt")
+        self.assertEqual(sync._updated_user1("favorite #-uslt", "#-uslt"), "favorite #-uslt")
         track = self._track(self.library / "Current.mp3").resolve()
         self.database.write_text(
             '<?xml version="1.0" encoding="UTF-8"?>\r\n'
             '<VirtualDJ_Database Version="8.5">\r\n'
             f' <Song FilePath="{track}">\r\n'
-            '  <Tags Author="Artist" User1="favorite #lrc #uslt" />\r\n'
+            '  <Tags Author="Artist" User1="favorite #lrc #uslt #-uslt" />\r\n'
             '  <Scan Version="801" Bpm="0.4" Key="F#m" />\r\n'
             ' </Song>\r\n'
             '</VirtualDJ_Database>\r\n',
@@ -224,14 +226,14 @@ class VirtualDJPlaylistSyncTests(unittest.TestCase):
         original = self.database.read_bytes()
 
         backup = sync.sync_lyrics_user1_markers(
-            self.home, {track: "#uslt"}, log=lambda _message: None)
+            self.home, {track: "#-uslt"}, log=lambda _message: None)
 
         self.assertIsNotNone(backup)
         self.assertEqual((backup / "database.before.xml").read_bytes(), original)
         database = ET.fromstring(self.database.read_bytes())
         song = next(item for item in database.findall("Song")
                     if sync._path_key(item.attrib["FilePath"]) == sync._path_key(track))
-        self.assertEqual(song.find("Tags").attrib["User1"], "#uslt")
+        self.assertEqual(song.find("Tags").attrib["User1"], "#-uslt")
 
     def test_search_database_can_be_disabled(self):
         self._track(self.library / "Not registered.mp3")

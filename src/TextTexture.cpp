@@ -122,6 +122,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
                               int backdropStyle, int backdropStrength,
                               bool backgroundEnabled, std::uint32_t backgroundColor) {
     if (!device_ || width <= 0 || height <= 0 || lines.empty() || activeLine >= lines.size()) return false;
+    if (lines.size() == 1) scrollProgress = 0.0f;
     highlightProgress = std::clamp(highlightProgress, 0.0f, 1.0f);
     scrollProgress = std::clamp(scrollProgress, 0.0f, 1.0f);
     fontScale = std::clamp(fontScale, 0.5f, 2.0f);
@@ -161,7 +162,9 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     SetBkMode(dc, TRANSPARENT);
     SetTextAlign(dc, TA_CENTER | TA_BASELINE);
 
-    const int fontSize = std::max(18, static_cast<int>(std::max(36, height / 13) * fontScale));
+    const int requestedSize = std::max(18, static_cast<int>(std::max(36, height / 13) * fontScale));
+    const int fontSize = std::min(requestedSize,
+        std::max(8, static_cast<int>(height * 0.85f / (lines.size() * 1.2f))));
     HFONT font = CreateFontW(-fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_SWISS, FontName(fontFamily));
@@ -178,7 +181,16 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
     for (const auto& line : lines) wrappedLines.push_back(WrapText(dc, line, maxTextWidth));
 
     const int activeHeight = std::max(1, static_cast<int>(wrappedLines[activeLine].size())) * spacing;
-    const int anchor = static_cast<int>(height * verticalPosition) + fontSize / 2;
+    int beforeHeight = 0, afterHeight = 0;
+    for (std::size_t i = 0; i < wrappedLines.size(); ++i) {
+        const int lineHeight = static_cast<int>(wrappedLines[i].size()) * spacing;
+        if (i < activeLine) beforeHeight += lineHeight;
+        else afterHeight += lineHeight;
+    }
+    const int minAnchor = beforeHeight + fontSize;
+    const int maxAnchor = std::max(minAnchor, height - afterHeight + fontSize / 2);
+    const int anchor = std::clamp(static_cast<int>(height * verticalPosition) + fontSize / 2,
+                                  minAnchor, maxAnchor);
     int y = anchor - static_cast<int>(scrollProgress * activeHeight + 0.5f);
     for (std::size_t i = 0; i < activeLine; ++i)
         y -= std::max(1, static_cast<int>(wrappedLines[i].size())) * spacing;
@@ -223,10 +235,10 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
 
     FinalizeAlpha(pixels, static_cast<std::size_t>(width) * height);
     auto* pixelValues = static_cast<std::uint32_t*>(pixels);
-    const float topZero = static_cast<float>(anchor) - spacing * 5.25f;
-    const float topOpaque = static_cast<float>(anchor) - spacing * 2.5f;
-    const float bottomOpaque = static_cast<float>(anchor) + spacing * 2.5f;
-    const float bottomZero = static_cast<float>(anchor) + spacing * 4.0f;
+    const float topZero = static_cast<float>(anchor - beforeHeight - fontSize - spacing);
+    const float topOpaque = static_cast<float>(anchor - beforeHeight - fontSize / 2);
+    const float bottomOpaque = static_cast<float>(anchor + afterHeight - spacing);
+    const float bottomZero = static_cast<float>(anchor + afterHeight);
     for (int row = 0; row < height; ++row) {
         float fade = 1.0f;
         if (row < topOpaque) fade = std::clamp((row - topZero) / (topOpaque - topZero), 0.0f, 1.0f);

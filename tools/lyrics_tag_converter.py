@@ -284,7 +284,7 @@ def mark_existing_mp3(root: Path, write: bool, log: Callable[[object], None] = p
 
 
 def collect_virtualdj_lyrics_markers(root: Path) -> dict[Path, str]:
-    """Return canonical file paths mapped to #sylt/#uslt from embedded tags."""
+    """Return canonical file paths mapped to #sylt/#-uslt from embedded tags."""
     _, ID3, ID3NoHeaderError, _, _, _, _ = load_mutagen()
     paths = [root] if root.is_file() else sorted(
         (path for path in root.rglob("*")
@@ -299,7 +299,7 @@ def collect_virtualdj_lyrics_markers(root: Path) -> dict[Path, str]:
             continue
         kind = embedded_lyrics_kind(tags)
         if kind:
-            result[path.resolve()] = "#sylt" if kind == "Synced" else "#uslt"
+            result[path.resolve()] = "#sylt" if kind == "Synced" else "#-uslt"
     return result
 
 

@@ -254,7 +254,7 @@ class App(tk.Tk):
             import_tab,
             "Import same-name .lrc and .txt files into MP3 ID3 tags. LRC has priority "
             "for synchronized lyrics. Writes are verified before sources are deleted. "
-            "A real run also updates #sylt/#uslt in VirtualDJ User 1.",
+            "A real run also updates #sylt/#-uslt in VirtualDJ User 1.",
         )
         ttk.Checkbutton(import_tab, text="Replace existing destination lyrics frames",
                         variable=self.opt_import_overwrite).pack(anchor="w", pady=3)
@@ -282,7 +282,7 @@ class App(tk.Tk):
             mark_tab,
             "Normalize embedded lyrics to exactly one standard SYLT or USLT frame, "
             "remove obsolete custom lyric duplicates, set the portable ID3 Grouping "
-            "marker, then update #sylt/#uslt in VirtualDJ User 1. Unrelated tags are preserved.",
+            "marker, then update #sylt/#-uslt in VirtualDJ User 1. Unrelated tags are preserved.",
         )
         self._dry_run_checkbox(mark_tab, "Preview only (do not modify Grouping tags)")
 
@@ -402,9 +402,10 @@ class App(tk.Tk):
         log_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=4)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        self.log_text = tk.Text(log_frame, wrap="word", state="disabled")
+        self.log_text = tk.Text(log_frame, wrap="word", state="disabled", background="#ffffff")
         self.log_text.tag_configure("success", foreground="#166534")
-        self.log_text.tag_configure("warning", foreground="#1d4ed8")
+        self.log_text.tag_configure("warning", foreground="#92400e")
+        self.log_text.tag_configure("info", foreground="#1d4ed8")
         self.log_text.tag_configure("error", foreground="#b91c1c")
         self.log_text.tag_configure("neutral", foreground="#334155")
         self.log_text.grid(row=0, column=0, sticky="nsew")
@@ -677,10 +678,12 @@ class App(tk.Tk):
 
         self._start_worker(job, "Video window layout reset")
 
-    def _log(self, message) -> None:
+    def _log(self, message, style=None) -> None:
         value = str(message)
         upper = value.upper()
-        if "ERROR" in upper or "FAILED" in upper:
+        if style is not None:
+            pass
+        elif "ERROR" in upper or "FAILED" in upper:
             style = "error"
         elif any(word in upper for word in (
                 "WARNING", "WARN", "SKIP", "DRY-RUN", "MISSING")):
@@ -774,12 +777,14 @@ class App(tk.Tk):
                     self._log(payload)
                 elif kind == "operation":
                     name, backup = payload
-                    self.last_operation.set(f"Last operation completed: {name}")
+                    self.last_operation.set(f"Done: {name}")
+                    self._log(f"Done: {name}", "success")
                     self.last_backup = backup
                     self.backup_button.configure(state="normal" if backup else "disabled")
                     self.after(0, lambda: self._validate_vdj_home(show_error=False))
                 elif kind == "error":
                     self.last_operation.set(f"Last operation failed: {payload}")
+                    self._log(f"Failed: {payload}", "error")
                 elif kind == "issues":
                     self.issue_results = payload
                     self.issue_tree.delete(*self.issue_tree.get_children())
@@ -793,6 +798,7 @@ class App(tk.Tk):
                     self.issue_summary.configure(text=f"{len(payload)} item(s) need attention.")
                 elif kind == "update":
                     release, latest, available, current = payload
+                    self._log(f"Done: update check. {'Available: ' + latest if available else 'Version ' + current + ' is current.'}", "success")
                     if available:
                         if messagebox.askyesno(
                             "Update available",
@@ -802,7 +808,7 @@ class App(tk.Tk):
                     else:
                         messagebox.showinfo("No update", f"Version {current} is current.")
                 elif kind == "update_ready":
-                    self._log(f"Verified update launched: {payload}")
+                    self._log(f"Done: verified update launched: {payload}", "success")
                     self.last_operation.set("The verified updated LyricsTools was launched.")
                 elif kind == "done":
                     self.worker_running = False
@@ -838,12 +844,14 @@ class App(tk.Tk):
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
 
+        self.last_operation.set(f"Running: {operation_name}")
+        self._log(f"Running: {operation_name}...", "info")
+
         def wrapper() -> None:
             try:
                 backup = target()
                 self.events.queue.put(("operation", (operation_name, backup)))
             except Exception as exc:
-                self.events.log(f"[ERROR] {exc}")
                 self.events.queue.put(("error", str(exc)))
             finally:
                 self.events.done()

@@ -1,6 +1,7 @@
 param(
     [string]$Generator = 'Visual Studio 17 2022',
-    [string]$PythonCommand = 'py'
+    [string]$PythonCommand = 'py',
+    [switch]$KeepExtracted
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,14 +74,10 @@ Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -De
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $InternalDirectory
 
-$readme = @"
-LyricsTools $Version
-
-Open LyricsTools.exe. No Python installation is required.
-The first tab installs or updates LRC Master and LRC BlackOut for VirtualDJ.
-All support files are kept in _internal; users normally do not need to open it.
-"@
-[System.IO.File]::WriteAllText((Join-Path $PackageDirectory 'README.txt'), $readme, [System.Text.UTF8Encoding]::new($false))
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination (Join-Path $PackageDirectory 'README.txt')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination $PackageDirectory
+New-Item -ItemType Directory -Force -Path (Join-Path $PackageDirectory 'tools') | Out-Null
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\README.md') -Destination (Join-Path $PackageDirectory 'tools')
 
 if (-not (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe'))) {
     throw 'LyricsTools.exe is missing from the package root.'
@@ -96,6 +93,11 @@ Write-Host "Release ZIP: $PackageZip" -ForegroundColor Green
 Write-Host "SHA-256:     $hash"
 
 Assert-ChildPath -Child $PackageDirectory -Parent $DistRoot
-Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
+if (-not $KeepExtracted) {
+    Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
+} else {
+    Write-Host "Local EXE: $(Join-Path $PackageDirectory 'LyricsTools.exe')" -ForegroundColor Green
+}
 Assert-ChildPath -Child $BuildDirectory -Parent $ProjectRoot
 Remove-Item -LiteralPath $BuildDirectory -Recurse -Force
+Write-Host 'Done - release package and checksum are ready.' -ForegroundColor Green

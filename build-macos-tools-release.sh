@@ -55,7 +55,10 @@ cp "$project_root/VERSION" "$resources/VERSION"
 
 /usr/bin/codesign --force --deep --sign - "$app"
 /usr/bin/codesign --verify --deep --strict "$app"
-printf '%s\n' "Open LyricsTools.app. The first tab installs or updates the VirtualDJ plugin." > "$package_dir/README.txt"
+cp "$project_root/README.md" "$package_dir/README.txt"
+cp "$project_root/README.md" "$package_dir/README.md"
+mkdir -p "$package_dir/tools"
+cp "$project_root/tools/README.md" "$package_dir/tools/README.md"
 
 mkdir -p "$dist_dir"
 zip_path="$dist_dir/$package_name.zip"
@@ -64,3 +67,8 @@ rm -f "$zip_path" "$zip_path.sha256"
 hash="$(/usr/bin/shasum -a 256 "$zip_path" | awk '{print toupper($1)}')"
 printf '%s  %s\n' "$hash" "$(basename "$zip_path")" > "$zip_path.sha256"
 printf 'Release ZIP: %s\nSHA-256: %s\n' "$zip_path" "$hash"
+if [[ -t 1 || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf '\033[32mDone - release package and checksum are ready.\033[0m\n'
+else
+    printf 'Done - release package and checksum are ready.\n'
+fi

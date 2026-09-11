@@ -1,61 +1,19 @@
-# LRC Lyrics for VirtualDJ {{VERSION}}
+# LRC Lyrics for VirtualDJ 0.8.3
 
-## Highlights
+## Changes
 
-- Added rate-limited LRCLIB exact and search lookup as a fallback after TIDAL.
-  TIDAL remains the preferred online source.
-- Standardized new MP3 lyrics storage on one ID3v2 `SYLT` frame for timed lyrics
-  or one `USLT` frame for plain lyrics. Legacy custom TXXX duplicates remain
-  readable; Mark existing lyrics can convert and remove them across a library.
-- LRC Master now prefers standard embedded SYLT, then compatible legacy timed
-  fields, followed by standard USLT and compatible legacy untimed fields.
-- Added an optional solid background to LRC Master's Advanced settings, with
-  black and additional color choices; transparency remains the default and the
-  top/bottom fade now remains active over solid backgrounds.
-- Added a live font, color, backdrop, and background preview to Advanced settings.
-  Custom appearance values are now stored independently from built-in presets.
-- LRC Master now tags loaded synchronized lyrics as `#sylt` and untimed lyrics
-  as `#uslt` in VirtualDJ User 1, replacing the older generic `#lrc` marker.
-- LyricsTools now performs the same `#sylt/#uslt` update directly in VirtualDJ's
-  per-volume databases after MP3-writing workflows, with backups and without
-  discarding unrelated User 1 values or track analysis.
-- Refined LyricsTools with a top-right settings dialog, action-specific run
-  buttons, a Problems scrollbar, and color-coded Activity messages.
-- Added a separate conservative option to delete redundant timed TXT sidecars
-  only after a preferred same-name LRC was imported and verified.
-- Added a backed-up **Reset video window layout** action that removes only
-  VirtualDJ's remembered external-video window geometry.
-- Unified plugin setup and all lyrics/library operations in one **LyricsTools**
-  application. Plugin installation and update is now the first tab.
-- Simplified release packages: Windows shows `LyricsTools.exe` at the root and
-  keeps support files in `_internal`; macOS keeps them inside `LyricsTools.app`.
-- Removed the separate LRC Plugin Setup application and downloads.
-- Added opt-in automatic updates with SHA-256 verification and safe extraction.
-- Added a local problem queue with CSV export.
-- Added an option to ask a running VirtualDJ instance to close normally before
-  installation; the installer never force-terminates it.
-- Added native Metal builds of LRC Master and LRC BlackOut for macOS.
-- Added clearly named macOS packages for Apple Silicon and Intel. Both contain
-  universal VirtualDJ plugin bundles; the standalone GUI runtime matches the
-  architecture in the ZIP name.
-- Added a native macOS installer with automatic `PluginsArm`/`Plugins64`
-  selection, timestamped backups, uninstall, and restore.
-- Added **LyricsTools.app**, which opens the unified GUI without a Terminal
-  window and supports lyrics maintenance, managed MyLists synchronization, and
-  add-only Search DB registration on macOS.
-- Replaced the separate Windows PowerShell/CMD installer stack with the same
-  native Python installation engine used by the packaged LyricsTools GUI. The
-  release now contains only the application, a short README, version metadata,
-  and the three required plugin payload files.
+- Windows Advanced settings now include timed/untimed line counts (1–12), font size and vertical position with a live preview, plus wide playback checkboxes.
+- Fixed line-count rendering while preserving the opaque background fix from 0.8.2.
+- Added a timed lyric offset from -2000 to +2000 ms in 10 ms steps. Negative values show lyrics earlier; the offset resets on track changes.
+- Added optional whole-line highlighting and a saved countdown pause threshold from 3 to 10 seconds (default 5).
+- Untimed lyrics now use `#-uslt` in VirtualDJ User 1. Automatic tagging replaces legacy `#uslt` without removing unrelated tags.
+- Added explicit green Done messages, clearer running/warning/error colors, and the complete README and tool guide in release archives.
+- Shortened the manual navigation label to Next line.
 
-## Installation
+Includes the LRCLIB fallback and standard SYLT/USLT storage changes from 0.8.2.
 
-- Windows: extract `LyricsTools-Windows-v{{VERSION}}.zip` and open
-  `LyricsTools.exe`.
-- macOS: extract the matching `LyricsTools-macOS-AppleSilicon` or
-  `LyricsTools-macOS-Intel` ZIP and open `LyricsTools.app`.
-- In LyricsTools, use the first **Plugin** tab to install or update the VirtualDJ
-  plugin. The app offers to close VirtualDJ normally when required.
+## Windows download
 
-Restart VirtualDJ and enable LRC Master under Video Overlays. LRC BlackOut
-remains optional.
+Extract the complete LyricsTools-Windows-v0.8.3.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+
+The Advanced settings changes above are Windows-specific. macOS receives the untimed marker and shared tool/documentation updates.

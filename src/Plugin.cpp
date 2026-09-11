@@ -2,6 +2,7 @@
 #include "Lyrics.hpp"
 #include "AdvancedDialog.hpp"
 #include "LyricsTiming.hpp"
+#include "LyricsLayout.hpp"
 #include "AsyncLyricsLoader.hpp"
 #include "Diagnostics.hpp"
 #include "MasterDeckSelector.hpp"
@@ -65,19 +66,11 @@ std::filesystem::path AdvancedSettingsPath() {
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
+        if (FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit TXT", "Edit TXT")) ||
+            FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line")) ||
+            FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous")) ||
+            FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced"))) return E_FAIL;
         LoadAdvancedSettings();
-        if (FAILED(DeclareParameterSlider(&fontSizeParameter_, 1, "Font size", "Size", 1.0f / 3.0f)) ||
-            FAILED(DeclareParameterSlider(&timedLinesParameter_, 2, "Timed lines", "Timed lines", 2.0f / 7.0f)) ||
-            FAILED(DeclareParameterSlider(&pageLinesParameter_, 3, "Untimed lines", "Untimed lines", 2.0f / 7.0f)) ||
-            FAILED(DeclareParameterSlider(&verticalPositionParameter_, 4, "Vertical position", "Position", 0.5f))
-            || FAILED(DeclareParameterSwitch(&useVolumeFadersParameter_, 5, "Upfaders", "Upfaders", false))
-            || FAILED(DeclareParameterSwitch(&autoTagLrcParameter_, 11, "Add #sylt/#uslt to User 1", "Auto-tag lyrics", true))
-            || FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit lyrics TXT", "Edit TXT")) ||
-            FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line / tap timestamp", "Next")) ||
-            FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Prev")) ||
-            FAILED(DeclareParameterSwitch(&recordTimingParameter_, 9, "Record timing to embedded tags", "Record timing", false)) ||
-            FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced settings", "Advanced"))
-            ) return E_FAIL;
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
     }
@@ -173,6 +166,7 @@ public:
             activeLine_ = 0;
             untimedScrollActive_ = false;
             recordTimingParameter_ = 0;
+            timingMs_ = 0;
             recordedTimes_.clear();
             recordingNextLine_ = 0;
             CaptureTextTimestamp();
@@ -208,7 +202,7 @@ public:
             Diagnostics::Error(L"VirtualDJ elapsed-time query failed");
             return S_OK;
         }
-        UpdateVisible(static_cast<std::int64_t>(elapsedMs));
+        UpdateVisible(AdjustLyricsTime(static_cast<std::int64_t>(elapsedMs), timingMs_));
         if (!DrawLyricsTexture()) Diagnostics::Error(L"Failed to render synchronized lyrics");
         return S_OK;
     }
@@ -231,8 +225,8 @@ private:
             return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A'))
                                                : static_cast<char>(value);
         });
-        const char* wanted = lyrics_.synchronized ? "#sylt" : "#uslt";
-        for (const char* obsolete : {"#lrc", lyrics_.synchronized ? "#uslt" : "#sylt"}) {
+        const char* wanted = lyrics_.synchronized ? "#sylt" : "#-uslt";
+        for (const char* obsolete : {"#lrc", "#uslt", lyrics_.synchronized ? "#-uslt" : "#sylt"}) {
             if (current.find(obsolete) == std::string::npos) continue;
             std::snprintf(command, sizeof(command),
                           "deck %d loaded_song_hashtag 'user 1' '%s'", deck, obsolete);
@@ -243,7 +237,7 @@ private:
                       "deck %d loaded_song_hashtag 'user 1' '%s'", deck, wanted);
         if (FAILED(SendCommand(command))) Diagnostics::Error(L"VirtualDJ failed to tag lyrics type");
         else Diagnostics::Info(lyrics_.synchronized ? L"Added #sylt to VirtualDJ User 1"
-                                                     : L"Added #uslt to VirtualDJ User 1");
+                                                     : L"Added #-uslt to VirtualDJ User 1");
     }
 
     int VisibleVideoDeck() {
@@ -267,9 +261,8 @@ private:
         constexpr std::int64_t scrollDuration = 650;
         std::vector<DisplayLine> timeline;
         timeline.reserve(lyrics_.lines.size() * 2 + 1);
-        constexpr std::int64_t minimumPauseMs = 2500;
         const auto firstLyricTime = lyrics_.lines.front().timeMs;
-        if (firstLyricTime > minimumPauseMs) {
+        if (ShowLyricCountdown(firstLyricTime, countdownSeconds_)) {
             timeline.push_back({std::to_wstring(LyricCountdown(firstLyricTime)), 0, true});
         }
         for (std::size_t i = 0; i < lyrics_.lines.size(); ++i) {
@@ -281,7 +274,7 @@ private:
                 std::max<std::int64_t>(500, nextTime - lyric.timeMs - scrollDuration));
             const auto pauseStart = lyric.timeMs + highlight + 700;
             const auto pauseDuration = nextTime - pauseStart;
-            if (pauseDuration > minimumPauseMs)
+            if (ShowLyricCountdown(pauseDuration, countdownSeconds_))
                 timeline.push_back({std::to_wstring(LyricCountdown(pauseDuration)), pauseStart, true});
         }
 
@@ -293,9 +286,9 @@ private:
         const auto next = active + 1 < timeline.size() ? timeline[active + 1].timeMs : start + 5000;
         const auto interval = std::max<std::int64_t>(1, next - start);
 
-        constexpr std::size_t previousLineCount = 3;
-        const auto visibleStart = active > previousLineCount ? active - previousLineCount : 0u;
-        const auto visibleEnd = std::min(timeline.size(), active + TimedLineCount());
+        const auto window = VisibleLyricsWindow(timeline.size(), active, TimedLineCount());
+        const auto visibleStart = window.first;
+        const auto visibleEnd = window.end;
         std::vector<std::wstring> visibleLines;
         std::vector<bool> subduedLines;
         visibleLines.reserve(visibleEnd - visibleStart);
@@ -318,7 +311,7 @@ private:
         if (!timeline[active].pause) {
             const auto highlightDuration = std::min(EstimateLyricHighlightMs(timeline[active].text),
                 std::max<std::int64_t>(500, interval - scrollDuration));
-            highlightProgress = UnitProgress(now, start, highlightDuration);
+            highlightProgress = LyricHighlightProgress(now, start, highlightDuration, wholeLineHighlight_);
         }
         const auto scrollProgress = timeline[active].pause
             ? UnitProgress(now, next - scrollDuration, scrollDuration)
@@ -341,10 +334,10 @@ private:
     }
 
     std::size_t PageSize() const noexcept {
-        return 5 + static_cast<std::size_t>(std::clamp(pageLinesParameter_, 0.0f, 1.0f) * 7.0f + 0.5f);
+        return static_cast<std::size_t>(untimedLines_);
     }
     std::size_t TimedLineCount() const noexcept {
-        return 5 + static_cast<std::size_t>(std::clamp(timedLinesParameter_, 0.0f, 1.0f) * 7.0f + 0.5f);
+        return static_cast<std::size_t>(timedLines_);
     }
     std::uint32_t TextColor() const noexcept { return kPalette[PaletteIndex(textColorParameter_)].color; }
     std::uint32_t HighlightColor() const noexcept { return kPalette[PaletteIndex(highlightColorParameter_)].color; }
@@ -379,8 +372,9 @@ private:
             if (scroll < 1.0f) renderActive = scrollFromLine_;
             else { untimedScrollActive_ = false; scroll = 0.0f; }
         }
-        const auto first = renderActive > 3 ? renderActive - 3 : 0u;
-        const auto end = std::min(lyrics_.lines.size(), renderActive + PageSize());
+        const auto window = VisibleLyricsWindow(lyrics_.lines.size(), renderActive, PageSize());
+        const auto first = window.first;
+        const auto end = window.end;
         std::vector<std::wstring> visible; visible.reserve(end - first);
         for (auto i = first; i < end; ++i) visible.push_back(lyrics_.lines[i].text);
         return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
@@ -477,7 +471,30 @@ private:
             static_cast<int>(PaletteIndex(readColorParameter_)),
             backgroundParameter_ != 0,
             static_cast<int>(DiscreteIndex(backgroundColorParameter_, std::size(kBackgroundPalette)))};
+        settings.timedLines = timedLines_;
+        settings.untimedLines = untimedLines_;
+        settings.fontPercent = static_cast<int>(FontScale() * 100 + 0.5f);
+        settings.verticalPercent = static_cast<int>(VerticalPosition() * 100 + 0.5f);
+        settings.timingMs = timingMs_;
+        settings.wholeLineHighlight = wholeLineHighlight_;
+        settings.countdownSeconds = countdownSeconds_;
+        settings.useUpfaders = useVolumeFadersParameter_ != 0;
+        settings.autoTag = autoTagLrcParameter_ != 0;
+        settings.recordTiming = recordTimingParameter_ != 0;
         if (!ShowAdvancedAppearanceDialog(GetForegroundWindow(), settings, customAppearance_)) return;
+        timedLines_ = settings.timedLines;
+        untimedLines_ = settings.untimedLines;
+        fontSizeParameter_ = (settings.fontPercent / 100.0f - 0.5f) / 1.5f;
+        verticalPositionParameter_ = (settings.verticalPercent / 100.0f - 0.1f) / 0.8f;
+        timingMs_ = settings.timingMs;
+        wholeLineHighlight_ = settings.wholeLineHighlight;
+        countdownSeconds_ = settings.countdownSeconds;
+        useVolumeFadersParameter_ = settings.useUpfaders;
+        autoTagLrcParameter_ = settings.autoTag;
+        if (recordTimingParameter_ != settings.recordTiming) {
+            recordTimingParameter_ = settings.recordTiming;
+            OnParameter(9);
+        }
         fontFamilyParameter_ = static_cast<float>(settings.font) /
                                static_cast<float>(std::size(kFontNames) - 1);
         backdropStyleParameter_ = static_cast<float>(settings.backdrop) /
@@ -511,6 +528,15 @@ private:
         readColorParameter_ = static_cast<float>(value(L"ReadColor", 2, 8)) / 8.0f;
         backgroundParameter_ = value(L"BackgroundEnabled", 0, 1);
         backgroundColorParameter_ = static_cast<float>(value(L"BackgroundColor", 0, 8)) / 8.0f;
+        timedLines_ = std::max(1, value(L"TimedLines", 7, 12));
+        untimedLines_ = std::max(1, value(L"UntimedLines", 7, 12));
+        fontSizeParameter_ = (std::max(50, value(L"FontPercent", 100, 200)) / 100.0f - 0.5f) / 1.5f;
+        verticalPositionParameter_ = (std::max(10, value(L"VerticalPercent", 50, 90)) / 100.0f - 0.1f) / 0.8f;
+        useVolumeFadersParameter_ = value(L"UseUpfaders", 0, 1);
+        autoTagLrcParameter_ = value(L"AutoTag", 1, 1);
+        wholeLineHighlight_ = value(L"WholeLineHighlight", 0, 1) != 0;
+        countdownSeconds_ = std::max(3, value(L"CountdownSeconds", 5, 10));
+        // Timing is a live correction for the current track, not a file tag edit.
         customAppearance_ = {
             value(L"CustomFont", FontFamily(), 5),
             value(L"CustomBackdrop", BackdropStyle(), 2),
@@ -530,6 +556,14 @@ private:
             const auto text = std::to_wstring(value);
             WritePrivateProfileStringW(L"Advanced", key, text.c_str(), path.c_str());
         };
+        write(L"TimedLines", timedLines_);
+        write(L"UntimedLines", untimedLines_);
+        write(L"FontPercent", static_cast<int>(FontScale() * 100 + 0.5f));
+        write(L"VerticalPercent", static_cast<int>(VerticalPosition() * 100 + 0.5f));
+        write(L"UseUpfaders", useVolumeFadersParameter_);
+        write(L"AutoTag", autoTagLrcParameter_);
+        write(L"WholeLineHighlight", wholeLineHighlight_ ? 1u : 0u);
+        write(L"CountdownSeconds", countdownSeconds_);
         write(L"Font", static_cast<std::size_t>(FontFamily()));
         write(L"Backdrop", static_cast<std::size_t>(BackdropStyle()));
         write(L"Strength", static_cast<std::size_t>(BackdropStrength()));
@@ -578,7 +612,9 @@ private:
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{};
-    float pageLinesParameter_{2.0f / 7.0f}; float timedLinesParameter_{2.0f / 7.0f};
+    int untimedLines_{7}; int timedLines_{7}; int timingMs_{};
+    bool wholeLineHighlight_{};
+    int countdownSeconds_{5};
     float textColorParameter_{}; float highlightColorParameter_{1.0f / 8.0f};
     float readColorParameter_{2.0f / 8.0f};
     float fontFamilyParameter_{}; float backdropStyleParameter_{};

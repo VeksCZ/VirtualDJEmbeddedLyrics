@@ -18,6 +18,16 @@ inline float UnitProgress(std::int64_t now, std::int64_t start, std::int64_t dur
     return std::clamp(static_cast<float>(now - start) / static_cast<float>(duration), 0.0f, 1.0f);
 }
 
+inline float LyricHighlightProgress(std::int64_t now, std::int64_t start,
+                                    std::int64_t duration, bool wholeLine) noexcept {
+    if (now < start) return 0.0f;
+    return wholeLine ? 1.0f : UnitProgress(now, start, duration);
+}
+
+inline bool ShowLyricCountdown(std::int64_t pauseMs, int thresholdSeconds) noexcept {
+    return pauseMs >= static_cast<std::int64_t>(std::clamp(thresholdSeconds, 3, 10)) * 1000;
+}
+
 inline int LyricCountdown(std::int64_t remainingMs) noexcept {
     if (remainingMs <= 0) return -1;
     const auto seconds = (remainingMs + 999) / 1000;

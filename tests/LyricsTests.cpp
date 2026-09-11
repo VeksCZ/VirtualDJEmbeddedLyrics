@@ -1,5 +1,6 @@
 #include "Lyrics.hpp"
 #include "LyricsTiming.hpp"
+#include "LyricsLayout.hpp"
 #include "MasterDeckSelector.hpp"
 
 #include <cassert>
@@ -8,6 +9,31 @@
 #include <iostream>
 
 int main(int argc, char** argv) {
+    assert(LyricHighlightProgress(999, 1000, 1000, true) == 0.0f);
+    assert(LyricHighlightProgress(1000, 1000, 1000, true) == 1.0f);
+    assert(LyricHighlightProgress(1500, 1000, 1000, false) == 0.5f);
+    assert(LyricHighlightProgress(2500, 1000, 1000, false) == 1.0f);
+    for (int seconds = 3; seconds <= 10; ++seconds) {
+        assert(!ShowLyricCountdown(seconds * 1000 - 1, seconds));
+        assert(ShowLyricCountdown(seconds * 1000, seconds));
+        assert(ShowLyricCountdown(seconds * 1000 + 1, seconds));
+    }
+    assert(!ShowLyricCountdown(-1000, 3));
+    for (std::size_t size : {1u, 3u, 20u}) {
+        for (std::size_t active = 0; active < size; ++active) {
+            for (std::size_t count = 1; count <= 12; ++count) {
+                const auto window = VisibleLyricsWindow(size, active, count);
+                assert(window.end - window.first == std::min(size, count));
+                assert(window.first <= active && active < window.end);
+                assert(window.end <= size);
+            }
+        }
+    }
+    assert(VisibleLyricsWindow(0, 0, 7).end == 0);
+    assert(AdjustLyricsTime(1000, -10) == 1010);
+    assert(AdjustLyricsTime(1000, 10) == 990);
+    assert(AdjustLyricsTime(0, 10) == -10);
+    assert(AdjustLyricsTime(1000, 0) == 1000);
     assert(EstimateLyricHighlightMs(L"Short line") >= 1200);
     assert(EstimateLyricHighlightMs(std::wstring(200, L'a')) == 4500);
     assert(UnitProgress(2000, 1000, 2000) == 0.5f);
