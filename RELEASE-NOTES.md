@@ -1,19 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.8.3
+# LRC Lyrics for VirtualDJ 0.8.4
 
 ## Changes
 
-- Windows Advanced settings now include timed/untimed line counts (1–12), font size and vertical position with a live preview, plus wide playback checkboxes.
-- Fixed line-count rendering while preserving the opaque background fix from 0.8.2.
-- Added a main timed lyric offset from -5000 to +5000 ms in 10 ms steps. Negative values show lyrics earlier; the offset resets on track changes.
-- Added main whole-line highlighting and a countdown pause threshold from 3 to 10 seconds (default 5).
-- Untimed lyrics now use `# - uslt` in VirtualDJ User 1. Automatic tagging replaces legacy `#uslt` and `#-uslt` without removing unrelated tags.
-- Added explicit green Done messages, clearer running/warning/error colors, and the complete README and tool guide in release archives.
-- Shortened the manual navigation label to Next line.
-
-Includes the LRCLIB fallback and standard SYLT/USLT storage changes from 0.8.2.
+- Added a track intro to the Windows VirtualDJ output: `Artist – Title`, a blank line, then the first lyric or start countdown.
+- The intro uses the configured lyric font, colors, backdrop, position and solid background.
+- Untimed lyrics show the same intro; the first Next line action dismisses it without skipping the first lyric.
+- The intro is generated only for display and never changes embedded SYLT/USLT tags or LRC files.
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.3.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.8.4.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
-The Advanced settings changes above are Windows-specific. macOS receives the untimed marker and shared tool/documentation updates.
+The track intro in this release is currently Windows-specific.

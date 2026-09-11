@@ -62,6 +62,15 @@ std::filesystem::path AdvancedSettingsPath() {
     localAppData.resize(length);
     return std::filesystem::path(localAppData) / L"VirtualDJ" / L"LRC Advanced.ini";
 }
+std::wstring WideFromUtf8(const char* value) {
+    if (!value || !*value) return {};
+    const int length = static_cast<int>(std::strlen(value));
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value, length, nullptr, 0);
+    if (size <= 0) return {};
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value, length, result.data(), size);
+    return result;
+}
 }
 
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
@@ -174,9 +183,11 @@ public:
         }
         if (!path.empty() && path != loadedPath_) {
             loadedPath_ = path;
+            LoadTrackHeading(deck);
             texture_.Reset();
             lyrics_ = {};
             activeLine_ = 0;
+            introVisible_ = true;
             untimedScrollActive_ = false;
             recordTimingParameter_ = 0;
             timingOffsetParameter_ = 0.5f;
@@ -273,9 +284,23 @@ private:
             bool pause{};
         };
         constexpr std::int64_t scrollDuration = 650;
+        const auto firstLyricTime = lyrics_.lines.front().timeMs;
+        if (now < firstLyricTime && !trackHeading_.empty()) {
+            const auto remaining = firstLyricTime - now;
+            std::wstring upcoming = lyrics_.lines.front().text;
+            if (ShowLyricCountdown(remaining, CountdownGapSeconds()))
+                upcoming = L"> " + std::to_wstring(LyricCountdown(remaining)) + L" <";
+            const std::vector<std::wstring> intro{trackHeading_, L"", std::move(upcoming)};
+            if (!texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
+                                      width, height, FontScale(), VerticalPosition(), {},
+                                      TextColor(), HighlightColor(), ReadColor(),
+                                      FontFamily(), BackdropStyle(), BackdropStrength(),
+                                      backgroundParameter_ != 0, BackgroundColor()))
+                Diagnostics::Error(L"Failed to update track intro texture");
+            return;
+        }
         std::vector<DisplayLine> timeline;
         timeline.reserve(lyrics_.lines.size() * 2 + 1);
-        const auto firstLyricTime = lyrics_.lines.front().timeMs;
         if (ShowLyricCountdown(firstLyricTime, CountdownGapSeconds())) {
             timeline.push_back({std::to_wstring(LyricCountdown(firstLyricTime)), 0, true});
         }
@@ -388,6 +413,14 @@ private:
     }
     bool UpdateUntimedRibbon() {
         if (lyrics_.lines.empty()) return false;
+        if (introVisible_ && !trackHeading_.empty()) {
+            const std::vector<std::wstring> intro{trackHeading_, L"", lyrics_.lines.front().text};
+            return texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
+                                        width, height, FontScale(), VerticalPosition(), {},
+                                        TextColor(), HighlightColor(), ReadColor(),
+                                        FontFamily(), BackdropStyle(), BackdropStrength(),
+                                        backgroundParameter_ != 0, BackgroundColor());
+        }
         auto renderActive = activeLine_; float scroll = 0.0f;
         if (untimedScrollActive_) {
             scroll = std::clamp(std::chrono::duration<float>(std::chrono::steady_clock::now() - untimedScrollStarted_).count() / 0.45f, 0.0f, 1.0f);
@@ -407,6 +440,11 @@ private:
     }
     void AdvanceUntimedLine() {
         if (lyrics_.synchronized || lyrics_.lines.empty()) return;
+        if (introVisible_) {
+            introVisible_ = false;
+            texture_.Reset();
+            return;
+        }
         if (!recordTimingParameter_) {
             if (activeLine_ + 1 < lyrics_.lines.size()) BeginUntimedScroll(activeLine_ + 1);
             return;
@@ -419,6 +457,19 @@ private:
         if (target != activeLine_) BeginUntimedScroll(target);
         recordedTimes_[target] = static_cast<std::int64_t>(elapsed);
         if (recordingNextLine_ == lyrics_.lines.size()) QueueTimingRecording();
+    }
+
+    void LoadTrackHeading(int deck) {
+        char command[128]{}, value[4096]{};
+        std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'artist'", deck);
+        const auto artist = SUCCEEDED(GetStringInfo(command, value, sizeof(value)))
+            ? WideFromUtf8(value) : std::wstring{};
+        value[0] = '\0';
+        std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'title'", deck);
+        const auto title = SUCCEEDED(GetStringInfo(command, value, sizeof(value)))
+            ? WideFromUtf8(value) : std::wstring{};
+        const auto label = artist.empty() ? title : title.empty() ? artist : artist + L" – " + title;
+        trackHeading_ = label.empty() ? std::wstring{} : L"──  " + label + L"  ──";
     }
     static std::string Utf8(const std::wstring& value) {
         if (value.empty()) return {};
@@ -618,6 +669,7 @@ private:
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
     std::filesystem::path loadedPath_;
+    std::wstring trackHeading_;
     LyricsDocument lyrics_;
     bool drawContextLogged_{};
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
@@ -633,6 +685,7 @@ private:
     float backdropStrengthParameter_{0.5f};
 
     std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
+    bool introVisible_{true};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
     bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
