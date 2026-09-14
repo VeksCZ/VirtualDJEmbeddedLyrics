@@ -78,6 +78,7 @@ class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
         if (FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit embedded lyrics", "Edit lyrics")) ||
+            FAILED(DeclareParameterButton(&editBrowsedButton_, 11, "Edit browsed lyrics", "Edit browser")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous")) ||
             FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced")) ||
@@ -101,6 +102,7 @@ public:
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { OpenEmbeddedLyricsEditor(); editTextButton_ = 0; }
+        else if (id == 11 && editBrowsedButton_) { OpenBrowsedLyricsEditor(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
@@ -484,9 +486,9 @@ private:
         WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),result.data(),size,nullptr,nullptr);
         return result;
     }
-    std::wstring CurrentLyricsText(bool synchronized) const {
+    std::wstring LyricsText(const LyricsDocument& document, bool synchronized) const {
         std::wstring result;
-        for (const auto& line : lyrics_.lines) {
+        for (const auto& line : document.lines) {
             if (!result.empty()) result += L"\r\n";
             if (synchronized) {
                 const auto total = std::max<std::int64_t>(0, line.timeMs);
@@ -509,13 +511,17 @@ private:
             Diagnostics::Error(L"Embedded lyrics can be edited only for a loaded MP3");
             return;
         }
-        EmbeddedLyricsEdit edit{CurrentLyricsText(lyrics_.synchronized), lyrics_.synchronized};
-        if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit) || edit.text.empty()) return;
+        auto timed = LoadEmbeddedTimedLyrics(loadedPath_);
+        auto untimed = LoadEmbeddedUntimedLyrics(loadedPath_);
+        EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), lyrics_.synchronized};
+        if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
+        const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
+        if (editedText.empty()) return;
         std::error_code error;
         pendingEditorTextPath_ = std::filesystem::temp_directory_path(error) /
             (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(loadedPath_.wstring())) + L".lyrics");
         std::ofstream output(pendingEditorTextPath_, std::ios::binary | std::ios::trunc);
-        output << Utf8(edit.text);
+        output << Utf8(editedText);
         if (!output) {
             Diagnostics::Error(L"Cannot save pending embedded lyrics text");
             return;
@@ -540,6 +546,23 @@ private:
         pendingEditorWrite_ = true;
         if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
         Diagnostics::Info(L"Embedded lyrics updated; tag write waits for track unload");
+    }
+    void OpenBrowsedLyricsEditor() {
+        char value[4096]{};
+        if (FAILED(GetStringInfo("get_browsed_song 'filepath'", value, sizeof(value))) || !*value) {
+            Diagnostics::Error(L"Select an MP3 in the VirtualDJ browser first");
+            return;
+        }
+        const std::filesystem::path browsed{std::u8string(reinterpret_cast<const char8_t*>(value))};
+        if (browsed.extension() != L".mp3") {
+            Diagnostics::Error(L"Embedded lyrics can be edited only for an MP3 selected in the browser");
+            return;
+        }
+        const auto savedPath = loadedPath_; const auto savedLyrics = lyrics_; const auto savedDeck = currentDeck_;
+        const auto savedActive = activeLine_; const auto savedIntro = introVisible_;
+        loadedPath_ = browsed; currentDeck_ = 0; OpenEmbeddedLyricsEditor();
+        loadedPath_ = savedPath; lyrics_ = savedLyrics; currentDeck_ = savedDeck;
+        activeLine_ = savedActive; introVisible_ = savedIntro; texture_.Reset();
     }
     void QueueTimingRecording() {
         auto extension = loadedPath_.extension().wstring();
@@ -747,7 +770,7 @@ private:
     std::vector<std::wstring> trackHeading_;
     LyricsDocument lyrics_;
     bool drawContextLogged_{};
-    int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
+    int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{}; int editBrowsedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{};
     int untimedLines_{7}; int timedLines_{7};
@@ -785,3 +808,7 @@ STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {
     return S_OK;
 }
 #endif
+
+
+
+
