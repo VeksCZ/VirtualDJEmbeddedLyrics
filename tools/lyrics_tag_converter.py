@@ -497,9 +497,52 @@ def write_recording(mp3_path: Path, timing_path: Path) -> int:
     return 0
 
 
+def write_editor_text(mp3_path: Path, text_path: Path, synchronized: bool) -> int:
+    """Replace embedded lyrics with the text saved by the VirtualDJ plugin editor."""
+    try:
+        Encoding, ID3, ID3NoHeaderError, SYLT, _, _, USLT = load_mutagen()
+        content = text_path.read_text(encoding="utf-8-sig")
+    except (ImportError, OSError, UnicodeError):
+        return 2
+    try:
+        tags = ID3(mp3_path)
+    except ID3NoHeaderError:
+        tags = ID3()
+    if synchronized:
+        timed_lines = parse_timestamped_text(content)
+        if not timed_lines:
+            return 3
+        kind = "Synced"
+    else:
+        plain_text = sanitize_untimed_text(content)
+        if not plain_text:
+            return 4
+        kind = "Unsynced"
+    tags.delall("SYLT")
+    tags.delall("USLT")
+    remove_legacy_lyrics_txxx(tags)
+    if synchronized:
+        tags.add(SYLT(encoding=Encoding.UTF16, lang="und", format=2, type=1,
+                      desc="Edited in VirtualDJ Embedded Lyrics",
+                      text=[(line.text, line.time_ms) for line in timed_lines]))
+    else:
+        tags.add(USLT(encoding=Encoding.UTF16, lang="und",
+                      desc="Edited in VirtualDJ Embedded Lyrics", text=plain_text))
+    set_grouping_lyrics_marker(tags, kind)
+    version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
+    tags.save(mp3_path, v2_version=version)
+    verify = ID3(mp3_path)
+    valid = bool(verify.getall("SYLT")) and not verify.getall("USLT") if synchronized else (
+        bool(verify.getall("USLT")) and not verify.getall("SYLT"))
+    if not valid:
+        return 5
+    text_path.unlink(missing_ok=True)
+    return 0
 def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "--write-recording":
         return write_recording(Path(sys.argv[2]), Path(sys.argv[3]))
+    if len(sys.argv) == 5 and sys.argv[1] == "--write-editor-text":
+        return write_editor_text(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4] == "timed")
     parser = argparse.ArgumentParser(
         description=("Find same-name MP3/LRC/TXT files; write timed lyrics to "
                      "standard SYLT and plain lyrics to standard USLT."))

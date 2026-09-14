@@ -1,6 +1,7 @@
 #ifdef _WIN32
 #include "Lyrics.hpp"
 #include "AdvancedDialog.hpp"
+#include "EmbeddedLyricsEditor.hpp"
 #include "LyricsTiming.hpp"
 #include "LyricsLayout.hpp"
 #include "AsyncLyricsLoader.hpp"
@@ -76,7 +77,7 @@ std::wstring WideFromUtf8(const char* value) {
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
-        if (FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit TXT", "Edit TXT")) ||
+        if (FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit embedded lyrics", "Edit lyrics")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous")) ||
             FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced")) ||
@@ -99,7 +100,7 @@ public:
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 6 && editTextButton_) { OpenTextEditor(); editTextButton_ = 0; }
+        } else if (id == 6 && editTextButton_) { OpenEmbeddedLyricsEditor(); editTextButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
@@ -203,7 +204,7 @@ public:
                 Diagnostics::Error(L"No lyrics found for: " + loadedPath_.wstring() + L"; " + completed->result.error);
             } else {
                 Diagnostics::Info(L"Lyrics loaded: " + loadedPath_.wstring());
-                if (autoTagLrcParameter_) EnsureLyricsHashtag(deck);
+                if (autoTagLrcParameter_) EnsureLyricsHashtag(deck, lyrics_.synchronized);
             }
         }
         CheckTextChanges();
@@ -236,7 +237,7 @@ private:
         return renderer_.Draw(texture_.View());
     }
 
-    void EnsureLyricsHashtag(int deck) {
+    void EnsureLyricsHashtag(int deck, bool synchronized) {
         char command[256]{};
         char user1[4096]{};
         std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'user 1'", deck);
@@ -249,9 +250,9 @@ private:
             return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A'))
                                                : static_cast<char>(value);
         });
-        const char* wanted = lyrics_.synchronized ? "#sylt" : "# - uslt";
+        const char* wanted = synchronized ? "#sylt" : "# - uslt";
         for (const char* obsolete : {"#lrc", "#uslt", "#-uslt",
-                                     lyrics_.synchronized ? "# - uslt" : "#sylt"}) {
+                                     synchronized ? "# - uslt" : "#sylt"}) {
             if (current.find(obsolete) == std::string::npos) continue;
             std::snprintf(command, sizeof(command),
                           "deck %d loaded_song_hashtag 'user 1' '%s'", deck, obsolete);
@@ -261,7 +262,7 @@ private:
         std::snprintf(command, sizeof(command),
                       "deck %d loaded_song_hashtag 'user 1' '%s'", deck, wanted);
         if (FAILED(SendCommand(command))) Diagnostics::Error(L"VirtualDJ failed to tag lyrics type");
-        else Diagnostics::Info(lyrics_.synchronized ? L"Added #sylt to VirtualDJ User 1"
+        else Diagnostics::Info(synchronized ? L"Added #sylt to VirtualDJ User 1"
                                                      : L"Added # - uslt to VirtualDJ User 1");
     }
 
@@ -290,7 +291,9 @@ private:
             std::wstring upcoming = lyrics_.lines.front().text;
             if (ShowLyricCountdown(remaining, CountdownGapSeconds()))
                 upcoming = L"> " + std::to_wstring(LyricCountdown(remaining)) + L" <";
-            const std::vector<std::wstring> intro{trackHeading_, L"", std::move(upcoming)};
+            std::vector<std::wstring> intro = trackHeading_;
+            intro.push_back(L"");
+            intro.push_back(std::move(upcoming));
             if (!texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
                                       width, height, FontScale(), VerticalPosition(), {},
                                       TextColor(), HighlightColor(), ReadColor(),
@@ -414,7 +417,9 @@ private:
     bool UpdateUntimedRibbon() {
         if (lyrics_.lines.empty()) return false;
         if (introVisible_ && !trackHeading_.empty()) {
-            const std::vector<std::wstring> intro{trackHeading_, L"", lyrics_.lines.front().text};
+            std::vector<std::wstring> intro = trackHeading_;
+            intro.push_back(L"");
+            intro.push_back(lyrics_.lines.front().text);
             return texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
                                         width, height, FontScale(), VerticalPosition(), {},
                                         TextColor(), HighlightColor(), ReadColor(),
@@ -468,8 +473,9 @@ private:
         std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'title'", deck);
         const auto title = SUCCEEDED(GetStringInfo(command, value, sizeof(value)))
             ? WideFromUtf8(value) : std::wstring{};
-        const auto label = artist.empty() ? title : title.empty() ? artist : artist + L" – " + title;
-        trackHeading_ = label.empty() ? std::wstring{} : L"──  " + label + L"  ──";
+        trackHeading_.clear();
+        if (!artist.empty()) trackHeading_.push_back(artist);
+        if (!title.empty()) trackHeading_.push_back(title);
     }
     static std::string Utf8(const std::wstring& value) {
         if (value.empty()) return {};
@@ -477,6 +483,63 @@ private:
         std::string result(static_cast<std::size_t>(size),'\0');
         WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),result.data(),size,nullptr,nullptr);
         return result;
+    }
+    std::wstring CurrentLyricsText(bool synchronized) const {
+        std::wstring result;
+        for (const auto& line : lyrics_.lines) {
+            if (!result.empty()) result += L"\r\n";
+            if (synchronized) {
+                const auto total = std::max<std::int64_t>(0, line.timeMs);
+                const auto minutes = total / 60000;
+                const auto seconds = (total / 1000) % 60;
+                const auto hundredths = (total % 1000) / 10;
+                wchar_t timestamp[32]{};
+                std::swprintf(timestamp, std::size(timestamp), L"[%02lld:%02lld.%02lld] ",
+                              static_cast<long long>(minutes), static_cast<long long>(seconds),
+                              static_cast<long long>(hundredths));
+                result += timestamp;
+            }
+            result += line.text;
+        }
+        return result;
+    }
+
+    void OpenEmbeddedLyricsEditor() {
+        if (loadedPath_.empty() || loadedPath_.extension() != L".mp3") {
+            Diagnostics::Error(L"Embedded lyrics can be edited only for a loaded MP3");
+            return;
+        }
+        EmbeddedLyricsEdit edit{CurrentLyricsText(lyrics_.synchronized), lyrics_.synchronized};
+        if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit) || edit.text.empty()) return;
+        std::error_code error;
+        pendingEditorTextPath_ = std::filesystem::temp_directory_path(error) /
+            (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(loadedPath_.wstring())) + L".lyrics");
+        std::ofstream output(pendingEditorTextPath_, std::ios::binary | std::ios::trunc);
+        output << Utf8(edit.text);
+        if (!output) {
+            Diagnostics::Error(L"Cannot save pending embedded lyrics text");
+            return;
+        }
+        output.close();
+        const auto validation = LoadPlainTextLyrics(pendingEditorTextPath_);
+        if (validation.document.empty() || validation.document.synchronized != edit.synchronized) {
+            std::filesystem::remove(pendingEditorTextPath_, error);
+            Diagnostics::Error(edit.synchronized
+                ? L"Timed lyrics must contain LRC timestamps such as [01:23.45] Text"
+                : L"Untimed lyrics must contain at least one non-empty line");
+            return;
+        }
+        // Show the accepted edit immediately; the durable MP3 write waits until the file is unloaded.
+        lyrics_ = validation.document;
+        activeLine_ = 0;
+        introVisible_ = true;
+        untimedScrollActive_ = false;
+        texture_.Reset();
+        pendingEditorAudioPath_ = loadedPath_;
+        pendingEditorSynchronized_ = edit.synchronized;
+        pendingEditorWrite_ = true;
+        if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
+        Diagnostics::Info(L"Embedded lyrics updated; tag write waits for track unload");
     }
     void QueueTimingRecording() {
         auto extension = loadedPath_.extension().wstring();
@@ -501,6 +564,18 @@ private:
         return false;
     }
     void TryCommitPendingRecording() {
+        if (pendingEditorWrite_ && !TrackLoadedAnywhere(pendingEditorAudioPath_)) {
+            const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
+            std::wstring command = L"py.exe \"" + script.wstring() + L"\" --write-editor-text \"" +
+                pendingEditorAudioPath_.wstring() + L"\" \"" + pendingEditorTextPath_.wstring() +
+                L"\" " + (pendingEditorSynchronized_ ? L"timed" : L"untimed");
+            STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
+            if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+                               nullptr, nullptr, &startup, &process)) {
+                CloseHandle(process.hThread); CloseHandle(process.hProcess); pendingEditorWrite_ = false;
+                Diagnostics::Info(L"Queued embedded lyrics tag write");
+            }
+        }
         if (!pendingTimingWrite_ || TrackLoadedAnywhere(pendingAudioPath_)) return;
         const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
         std::wstring command = L"py.exe \""+script.wstring()+L"\" --write-recording \""+pendingAudioPath_.wstring()+L"\" \""+pendingTimingPath_.wstring()+L"\"";
@@ -669,7 +744,7 @@ private:
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
     std::filesystem::path loadedPath_;
-    std::wstring trackHeading_;
+    std::vector<std::wstring> trackHeading_;
     LyricsDocument lyrics_;
     bool drawContextLogged_{};
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{};
@@ -689,6 +764,8 @@ private:
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
     bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
+    bool pendingEditorWrite_{}; bool pendingEditorSynchronized_{};
+    std::filesystem::path pendingEditorAudioPath_, pendingEditorTextPath_;
     std::optional<std::filesystem::file_time_type> textWriteTime_;
     std::chrono::steady_clock::time_point nextTextCheck_{};
     MasterDeckSelector masterDeckSelector_;

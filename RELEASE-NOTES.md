@@ -1,14 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.8.4
+# LRC Lyrics for VirtualDJ 0.8.5
 
 ## Changes
 
-- Added a track intro to the Windows VirtualDJ output: `Artist – Title`, a blank line, then the first lyric or start countdown.
-- The intro uses the configured lyric font, colors, backdrop, position and solid background.
-- Untimed lyrics show the same intro; the first Next line action dismisses it without skipping the first lyric.
-- The intro is generated only for display and never changes embedded SYLT/USLT tags or LRC files.
+- Reworked the Windows track intro into two clean lines: artist, then song title.
+- Added an in-plugin **Edit lyrics** window for loaded MP3 tracks; it preloads the current lyrics and updates the video output immediately after saving.
+- The editor writes timed LRC-style entries as a standard ID3v2 `SYLT` frame or plain entries as a standard `USLT` frame after the track is unloaded from every deck.
+- Saving replaces obsolete embedded lyric variants, validates the selected format first, and updates VirtualDJ User 1 with `#sylt` or `# - uslt`.
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.4.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.8.5.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
-The track intro in this release is currently Windows-specific.
+The in-plugin lyric editor and track intro in this release are currently Windows-specific.

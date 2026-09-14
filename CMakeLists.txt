@@ -72,6 +72,7 @@ if(WIN32)
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
         add_library(EmbeddedLyricsMaster SHARED
             src/AdvancedDialog.cpp
+            src/EmbeddedLyricsEditor.cpp
             src/Plugin.cpp
             src/TextTexture.cpp
             src/VideoRenderer.cpp
