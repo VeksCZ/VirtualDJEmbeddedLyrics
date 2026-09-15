@@ -18,7 +18,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <shellapi.h>
 
 #ifndef LRC_PLUGIN_VERSION
@@ -101,8 +103,8 @@ public:
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 6 && editTextButton_) { OpenEmbeddedLyricsEditor(); editTextButton_ = 0; }
-        else if (id == 11 && editBrowsedButton_) { OpenBrowsedLyricsEditor(); editBrowsedButton_ = 0; }
+        } else if (id == 6 && editTextButton_) { std::thread([this] { OpenEmbeddedLyricsEditor(); }).detach(); editTextButton_ = 0; }
+        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_song 'filepath'", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
@@ -157,6 +159,11 @@ public:
         return S_OK;
     }
     HRESULT VDJ_API OnDraw() override {
+        // The lyrics/text-editor dialogs run on their own background thread and read/write
+        // loadedPath_, lyrics_, texture_, activeLine_ etc. directly. Without this lock, the
+        // render thread and the editor thread touch that state concurrently, which is what
+        // was causing playback to stutter/freeze while an "Edit lyrics" dialog was open.
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
         TryCommitPendingRecording();
         const auto deck = VisibleVideoDeck();
         currentDeck_ = deck;
@@ -507,62 +514,79 @@ private:
     }
 
     void OpenEmbeddedLyricsEditor() {
-        if (loadedPath_.empty() || loadedPath_.extension() != L".mp3") {
-            Diagnostics::Error(L"Embedded lyrics can be edited only for a loaded MP3");
+        // Snapshot the state the dialog needs, then release the lock before showing it: the
+        // dialog runs a modal message loop on this (background) thread and can stay open for
+        // a while, so we must not hold stateMutex_ across it or OnDraw on the render thread
+        // would block/stutter for as long as the editor window is open.
+        std::filesystem::path currentPath;
+        bool synchronized{};
+        {
+            std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+            if (loadedPath_.empty()) {
+                Diagnostics::Error(L"Embedded lyrics can be edited only for a loaded MP3");
+                return;
+            }
+            currentPath = loadedPath_;
+            synchronized = lyrics_.synchronized;
+        }
+        EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true);
+    }
+    void OpenBrowsedLyricsEditor(const std::filesystem::path& browsed) {
+        if (browsed.empty()) {
+            Diagnostics::Error(L"Select an MP3 in the VirtualDJ browser first");
             return;
         }
-        auto timed = LoadEmbeddedTimedLyrics(loadedPath_);
-        auto untimed = LoadEmbeddedUntimedLyrics(loadedPath_);
-        EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), lyrics_.synchronized};
+        // Never touch loadedPath_/lyrics_/currentDeck_/texture_ here: those belong to the
+        // render thread's OnDraw(), which keeps running concurrently on this background
+        // thread's whole editing session and would immediately stomp any temporary override
+        // back to the actually-playing track. Default to whichever type this file already has.
+        const auto timedPreview = LoadEmbeddedTimedLyrics(browsed);
+        EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/false);
+    }
+    void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay) {
+        auto timed = LoadEmbeddedTimedLyrics(targetPath);
+        auto untimed = LoadEmbeddedUntimedLyrics(targetPath);
+        EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), synchronized};
         if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
         const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
         if (editedText.empty()) return;
         std::error_code error;
-        pendingEditorTextPath_ = std::filesystem::temp_directory_path(error) /
-            (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(loadedPath_.wstring())) + L".lyrics");
-        std::ofstream output(pendingEditorTextPath_, std::ios::binary | std::ios::trunc);
+        const auto pendingTextPath = std::filesystem::temp_directory_path(error) /
+            (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(targetPath.wstring())) + L".lyrics");
+        std::ofstream output(pendingTextPath, std::ios::binary | std::ios::trunc);
         output << Utf8(editedText);
         if (!output) {
             Diagnostics::Error(L"Cannot save pending embedded lyrics text");
             return;
         }
         output.close();
-        const auto validation = LoadPlainTextLyrics(pendingEditorTextPath_);
+        const auto validation = LoadPlainTextLyrics(pendingTextPath);
         if (validation.document.empty() || validation.document.synchronized != edit.synchronized) {
-            std::filesystem::remove(pendingEditorTextPath_, error);
+            std::filesystem::remove(pendingTextPath, error);
             Diagnostics::Error(edit.synchronized
                 ? L"Timed lyrics must contain LRC timestamps such as [01:23.45] Text"
                 : L"Untimed lyrics must contain at least one non-empty line");
             return;
         }
         // Show the accepted edit immediately; the durable MP3 write waits until the file is unloaded.
-        lyrics_ = validation.document;
-        activeLine_ = 0;
-        introVisible_ = true;
-        untimedScrollActive_ = false;
-        texture_.Reset();
-        pendingEditorAudioPath_ = loadedPath_;
-        pendingEditorSynchronized_ = edit.synchronized;
-        pendingEditorWrite_ = true;
-        if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
+        {
+            std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+            pendingEditorTextPath_ = pendingTextPath;
+            pendingEditorAudioPath_ = targetPath;
+            pendingEditorSynchronized_ = edit.synchronized;
+            pendingEditorWrite_ = true;
+            // Only refresh the on-screen lyrics if the track being edited is still the one
+            // actually loaded; it may have changed on deck while the dialog was open.
+            if (applyLiveDisplay && targetPath == loadedPath_) {
+                lyrics_ = validation.document;
+                activeLine_ = 0;
+                introVisible_ = true;
+                untimedScrollActive_ = false;
+                texture_.Reset();
+                if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
+            }
+        }
         Diagnostics::Info(L"Embedded lyrics updated; tag write waits for track unload");
-    }
-    void OpenBrowsedLyricsEditor() {
-        char value[4096]{};
-        if (FAILED(GetStringInfo("get_browsed_song 'filepath'", value, sizeof(value))) || !*value) {
-            Diagnostics::Error(L"Select an MP3 in the VirtualDJ browser first");
-            return;
-        }
-        const std::filesystem::path browsed{std::u8string(reinterpret_cast<const char8_t*>(value))};
-        if (browsed.extension() != L".mp3") {
-            Diagnostics::Error(L"Embedded lyrics can be edited only for an MP3 selected in the browser");
-            return;
-        }
-        const auto savedPath = loadedPath_; const auto savedLyrics = lyrics_; const auto savedDeck = currentDeck_;
-        const auto savedActive = activeLine_; const auto savedIntro = introVisible_;
-        loadedPath_ = browsed; currentDeck_ = 0; OpenEmbeddedLyricsEditor();
-        loadedPath_ = savedPath; lyrics_ = savedLyrics; currentDeck_ = savedDeck;
-        activeLine_ = savedActive; introVisible_ = savedIntro; texture_.Reset();
     }
     void QueueTimingRecording() {
         auto extension = loadedPath_.extension().wstring();
@@ -766,6 +790,7 @@ private:
     TextTexture texture_;
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
+    std::recursive_mutex stateMutex_;
     std::filesystem::path loadedPath_;
     std::vector<std::wstring> trackHeading_;
     LyricsDocument lyrics_;
@@ -808,6 +833,10 @@ STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {
     return S_OK;
 }
 #endif
+
+
+
+
 
 
 
