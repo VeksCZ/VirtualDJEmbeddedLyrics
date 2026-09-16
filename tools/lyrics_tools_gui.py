@@ -195,16 +195,29 @@ class App(tk.Tk):
         ttk.Checkbutton(parent, text=text, variable=self.opt_dryrun).pack(
             anchor="w", pady=3)
 
+    @staticmethod
+    def _checkbox_with_hint(parent, label: str, hint: str, variable) -> None:
+        """A short checkbox label plus a smaller gray explanation underneath, for options whose
+        one-line description used to be the checkbox label itself and ran long enough to wrap."""
+        ttk.Checkbutton(parent, text=label, variable=variable).pack(anchor="w", pady=(3, 0))
+        ttk.Label(parent, text=hint, foreground="#64748b", wraplength=770, justify="left").pack(
+            anchor="w", padx=(22, 0), pady=(0, 4))
+
     def _build_ui(self) -> None:
         header = tk.Frame(self, bg="#eaf2f8", padx=12, pady=8)
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
         header.columnconfigure(1, weight=1)
         tk.Label(header, text="VirtualDJ", bg="#eaf2f8", font=("TkDefaultFont", 10, "bold")).grid(row=0, column=0)
         tk.Label(header, textvariable=self.vdj_status, bg="#eaf2f8", anchor="w").grid(row=0, column=1, sticky="ew", padx=10)
+        self.app_update_status = tk.StringVar(
+            value=f"LyricsTools {gui_common.packaged_version(SCRIPT_DIR)}")
+        self.app_update_badge = tk.Label(
+            header, textvariable=self.app_update_status, bg="#3b536b", fg="white", padx=9, pady=4)
+        self.app_update_badge.grid(row=0, column=2, padx=(0, 6))
         self.header_state = tk.Label(header, textvariable=self.vdj_installation_status, bg="#3b536b", fg="white", padx=9, pady=4)
-        self.header_state.grid(row=0, column=2)
+        self.header_state.grid(row=0, column=3)
         ttk.Button(header, text="⚙", width=3, command=self._show_settings).grid(
-            row=0, column=3, padx=(10, 0))
+            row=0, column=4, padx=(10, 0))
 
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 4))
@@ -265,16 +278,17 @@ class App(tk.Tk):
         )
         ttk.Checkbutton(import_tab, text="Replace existing destination lyrics frames",
                         variable=self.opt_import_overwrite).pack(anchor="w", pady=3)
-        ttk.Checkbutton(
-            import_tab,
-            text="Delete successfully imported LRC/TXT sidecars after verification",
-            variable=self.opt_delete_sidecars,
-        ).pack(anchor="w", pady=3)
-        ttk.Checkbutton(
-            import_tab,
-            text="Also delete redundant timed TXT after a same-name LRC was imported and verified",
-            variable=self.opt_delete_redundant_txt,
-        ).pack(anchor="w", pady=3)
+        self._checkbox_with_hint(
+            import_tab, "Delete sidecars after import",
+            "Removes the source .lrc/.txt file once its contents are verified inside the MP3.",
+            self.opt_delete_sidecars,
+        )
+        self._checkbox_with_hint(
+            import_tab, "Delete redundant timed TXT",
+            "If both a .lrc and a same-name timed .txt exist for a track, also removes the "
+            ".txt once the .lrc import is verified.",
+            self.opt_delete_redundant_txt,
+        )
         language_row = ttk.Frame(import_tab)
         language_row.pack(anchor="w", pady=3)
         ttk.Label(language_row, text="Three-letter ID3 language code:").pack(side="left")
@@ -302,7 +316,10 @@ class App(tk.Tk):
         )
         issue_actions = ttk.Frame(issues_tab)
         issue_actions.pack(fill="x", pady=(0, 6))
-        self.issue_summary = ttk.Label(issue_actions, text="No problem scan has been run.")
+        # A plain tk.Label, not ttk.Label: matches the colored status pills in the header (a
+        # ttk.Label's background doesn't reliably tint on Windows' native theme either).
+        self.issue_summary = tk.Label(
+            issue_actions, text="Not scanned yet", bg="#64748b", fg="white", padx=9, pady=4)
         self.issue_summary.pack(side="left")
         ttk.Button(issue_actions, text="Export CSV...", command=self._export_issues).pack(side="right")
         columns = ("problem", "file", "detail")
@@ -332,12 +349,23 @@ class App(tk.Tk):
             "normalize USLT frames, back up lyrics before editing MP3 tags, and update "
             "VirtualDJ User 1 markers after a real run.",
         )
-        ttk.Checkbutton(tidal_tab, text="Download missing lyrics online (TIDAL first, then LRCLIB)",
-                        variable=self.opt_tidal).pack(anchor="w", pady=3)
-        ttk.Checkbutton(tidal_tab, text="Normalize existing USLT frames when no better source is found",
-                        variable=self.opt_dedupe).pack(anchor="w", pady=3)
-        ttk.Checkbutton(tidal_tab, text="Create synchronized SYLT frames when timestamps are available",
-                        variable=self.opt_sylt).pack(anchor="w", pady=3)
+        self._checkbox_with_hint(
+            tidal_tab, "Download missing lyrics online",
+            "Tries TIDAL first, then falls back to LRCLIB, for tracks with no local lyrics.",
+            self.opt_tidal,
+        )
+        self._checkbox_with_hint(
+            tidal_tab, "Normalize existing lyrics",
+            "Cleans up already-embedded unsynchronized lyrics (USLT) when no better source "
+            "(local LRC or TIDAL) is available.",
+            self.opt_dedupe,
+        )
+        self._checkbox_with_hint(
+            tidal_tab, "Create synced lyrics",
+            "Embeds time-synced SYLT frames instead of plain text when timestamp data is "
+            "available.",
+            self.opt_sylt,
+        )
         self._dry_run_checkbox(
             tidal_tab,
             "Preview only (do not modify media, backups, credentials, or reports)",
@@ -348,6 +376,16 @@ class App(tk.Tk):
         ttk.Label(threshold_row, text="English-language detection threshold:").pack(side="left")
         ttk.Spinbox(threshold_row, from_=1, to=50, width=5,
                     textvariable=self.opt_english_threshold).pack(side="left", padx=6)
+        ttk.Label(
+            tidal_tab,
+            text=(
+                "Lyrics are tagged as English (ID3 language 'eng') once more than this many "
+                "common English words are found in them; otherwise they're tagged 'und' "
+                "(undetermined). Lower catches more English lyrics but may mistag foreign "
+                "lyrics that borrow English words; higher is stricter."
+            ),
+            foreground="#64748b", wraplength=790, justify="left",
+        ).pack(anchor="w", pady=(0, 3))
 
         restore_tab = self.tabs["restore"]
         self._folder_panel(restore_tab, include_backup=True)
@@ -380,16 +418,18 @@ class App(tk.Tk):
         ttk.Button(
             root_row, text="Use folder name", command=self._playlist_root_from_library
         ).pack(side="right")
-        ttk.Checkbutton(
-            playlist_tab,
-            text="Adopt and replace an existing MyLists root with this exact name",
-            variable=self.opt_adopt_playlist_root,
-        ).pack(anchor="w", pady=3)
-        ttk.Checkbutton(
-            playlist_tab,
-            text="Add synchronized tracks to Search DB (preserve all existing data)",
-            variable=self.opt_add_search_db,
-        ).pack(anchor="w", pady=3)
+        self._checkbox_with_hint(
+            playlist_tab, "Adopt existing list",
+            "If a MyLists root with this exact name already exists (not created by this "
+            "tool), take it over instead of refusing to touch it.",
+            self.opt_adopt_playlist_root,
+        )
+        self._checkbox_with_hint(
+            playlist_tab, "Add to Search DB",
+            "Adds synced tracks to VirtualDJ's Search DB; never removes or changes existing "
+            "entries.",
+            self.opt_add_search_db,
+        )
         self._dry_run_checkbox(
             playlist_tab, "Preview only (scan and compare, but do not change MyLists)")
         ttk.Label(
@@ -420,8 +460,12 @@ class App(tk.Tk):
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
+        self.progress = ttk.Progressbar(self, mode="indeterminate")
+        self.progress.grid(row=3, column=0, sticky="ew", padx=8, pady=(0, 4))
+        self.progress.grid_remove()
+
         actions = ttk.Frame(self)
-        actions.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 8))
+        actions.grid(row=4, column=0, sticky="ew", padx=8, pady=(4, 8))
         ttk.Label(actions, textvariable=self.last_operation).pack(side="left")
         self.backup_button = ttk.Button(actions, text="Open backup", state="disabled", command=self._open_last_backup)
         self.backup_button.pack(side="left", padx=6)
@@ -612,6 +656,12 @@ class App(tk.Tk):
     def _update_run_button(self) -> None:
         if not hasattr(self, "run_button"):
             return
+        if self.worker_running:
+            self.progress.grid()
+            self.progress.start(12)
+        else:
+            self.progress.stop()
+            self.progress.grid_remove()
         active_tab = self._active_tab_name()
         labels = {
             "plugin": "Install / update plugin",
@@ -824,19 +874,28 @@ class App(tk.Tk):
                         except ValueError:
                             display = issue.path.name
                         self.issue_tree.insert("", "end", values=(issue.kind, str(display), issue.detail))
-                    self.issue_summary.configure(text=f"{len(payload)} item(s) need attention.")
+                    if payload:
+                        self.issue_summary.configure(
+                            text=f"{len(payload)} item(s) need attention", bg="#b56500")
+                    else:
+                        self.issue_summary.configure(text="No problems found", bg="#167a3f")
                 elif kind == "update":
                     release, latest, available, current, silent = payload
                     if not silent:
                         self._log(f"Done: update check. {'Available: ' + latest if available else 'Version ' + current + ' is current.'}", "success")
                     if available:
+                        self.app_update_status.set(f"Update available: {latest}")
+                        self.app_update_badge.configure(bg="#b56500")
                         if messagebox.askyesno(
                             "Update available",
                             f"LyricsTools {latest} is available.\n\nDownload, verify and launch it now?",
                         ):
                             self.after(0, lambda r=release, v=latest: self._download_update(r, v))
-                    elif not silent:
-                        messagebox.showinfo("No update", f"Version {current} is current.")
+                    else:
+                        self.app_update_status.set(f"LyricsTools {current} (up to date)")
+                        self.app_update_badge.configure(bg="#167a3f")
+                        if not silent:
+                            messagebox.showinfo("No update", f"Version {current} is current.")
                 elif kind == "log_only":
                     self._log(f"[INFO] {payload}")
                 elif kind == "update_ready":
