@@ -289,12 +289,12 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         static_cast<float>(anchor + reservedAfter),
         bottomFadeWidth, static_cast<float>(height));
     const float bottomOpaque = bottomZero - bottomFadeWidth;
-    // With a background plate enabled, the plate itself must fade out at the top/bottom edges
-    // too -- not just the text -- or the plate reads as a hard-edged opaque box with no "mask"
-    // at all, since a solid plate hides the transparency fade that would otherwise reveal video
-    // underneath. So the per-row fade factor drives the *output* alpha directly in that case,
-    // uniformly across the row (plate and text together), instead of only scaling the text's own
-    // alpha and then forcing the plate back to fully opaque afterwards.
+    // The fade always scales the *text's own* alpha, never the background plate: with a
+    // background enabled, the plate stays a solid, fully opaque color across the whole frame
+    // height, and only the letters fade into it near the top/bottom (their faded alpha becomes
+    // the blend weight against the plate color, so a letter at 0% alpha reads as pure plate
+    // color, not a hole in it). Without a background, that same faded alpha *is* the final pixel
+    // alpha, so the letters fade into the transparent video below instead.
     std::uint32_t backgroundRed = 0, backgroundGreen = 0, backgroundBlue = 0;
     if (backgroundEnabled) {
         const auto background = DibColor(backgroundColor);
@@ -306,16 +306,14 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
         float fade = 1.0f;
         if (row < topOpaque) fade = std::clamp((row - topZero) / (topOpaque - topZero), 0.0f, 1.0f);
         else if (row > bottomOpaque) fade = std::clamp((bottomZero - row) / (bottomZero - bottomOpaque), 0.0f, 1.0f);
-        if (!backgroundEnabled) {
-            if (fade >= 0.999f) continue;
+        if (fade < 0.999f) {
             for (int column = 0; column < width; ++column) {
                 auto& pixel = pixelValues[static_cast<std::size_t>(row) * width + column];
                 const auto alpha = static_cast<std::uint32_t>(((pixel >> 24) & 0xffu) * fade + 0.5f);
                 pixel = (pixel & 0x00ffffffu) | (alpha << 24);
             }
-            continue;
         }
-        const std::uint32_t outAlpha = static_cast<std::uint32_t>(255.0f * fade + 0.5f) << 24;
+        if (!backgroundEnabled) continue;
         for (int column = 0; column < width; ++column) {
             auto& pixel = pixelValues[static_cast<std::size_t>(row) * width + column];
             const auto source = pixel;
@@ -324,7 +322,7 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
             const auto red = (((source >> 16) & 0xffu) * alpha + backgroundRed * inverse + 127u) / 255u;
             const auto green = (((source >> 8) & 0xffu) * alpha + backgroundGreen * inverse + 127u) / 255u;
             const auto blue = ((source & 0xffu) * alpha + backgroundBlue * inverse + 127u) / 255u;
-            pixel = outAlpha | (red << 16) | (green << 8) | blue;
+            pixel = 0xff000000u | (red << 16) | (green << 8) | blue;
         }
     }
 
