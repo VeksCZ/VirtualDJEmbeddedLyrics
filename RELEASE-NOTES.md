@@ -1,6 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.8.8
+# LRC Lyrics for VirtualDJ 0.8.9
 
 ## Changes
+
+- Fixed the diagnostics log silently truncating and merging lines whenever a message contained a non-ASCII character (e.g. a Czech file path or artist name).
+- Clarified the "Edit browsed" Settings-panel button (was labeled "Edit browser", which read as if it edited the file browser itself).
+- LyricsTools now checks for its own updates shortly after startup by default (silently, unless one is actually available) and shows a status badge for it in the header, matching the plugin one. Toggle in Settings: "Automatically check for updates on startup".
+- `build-release.ps1 -Publish` now tags, pushes, creates the GitHub Release and attaches both the Windows and macOS packages automatically, so a release can no longer end up tagged with no corresponding GitHub Release.
+- LyricsTools GUI polish: a colored primary "Run" button, a progress indicator while any operation is running, a colored status pill on the Problems tab, and shorter checkbox labels with a smaller explanation underneath instead of one long wrapped sentence.
+
+## 0.8.8
 
 - Replaced the track name/artist intro with an independent banner that no longer interacts with the lyrics scroll at all, fixing several bugs it used to cause (wrong highlight color, broken countdown, unstable sizing).
 - Fixed lyrics scrolling and the top/bottom fade mask jumping whenever a line wrapped onto two rows or the active line changed: the anchor and fade band are now derived purely from the configured line count and font settings, never from which lines happen to be on screen.
@@ -22,6 +30,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.8.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.8.9.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
 These new editor and track-intro improvements are currently Windows-specific.
