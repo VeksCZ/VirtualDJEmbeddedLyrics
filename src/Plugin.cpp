@@ -85,7 +85,7 @@ public:
                 "Edit lyrics for the song selected in the browser", "Edit browsed")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous")) ||
-            FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced settings", "Advanced")) ||
+            FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced")) ||
             FAILED(DeclareParameterSwitch(&wholeLineHighlightParameter_, 12,
                 "Highlight whole active line", "Whole line", false)) ||
             FAILED(DeclareParameterSlider(&countdownGapParameter_, 13,
