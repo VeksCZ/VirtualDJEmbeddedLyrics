@@ -110,6 +110,8 @@ class App(tk.Tk):
         self.opt_dedupe = tk.BooleanVar(value=bool(settings.get("opt_dedupe", True)))
         self.opt_sylt = tk.BooleanVar(value=bool(settings.get("opt_sylt", True)))
         self.opt_overwrite_restore = tk.BooleanVar(value=bool(settings.get("opt_overwrite_restore", False)))
+        self.opt_auto_update_check = tk.BooleanVar(
+            value=bool(settings.get("opt_auto_update_check", True)))
         try:
             saved_threshold = int(settings.get("opt_english_threshold", 5))
         except (TypeError, ValueError):
@@ -135,6 +137,10 @@ class App(tk.Tk):
         self._tab_changed()
         self.after(100, self._poll_events)
         self.after(250, self._initial_vdj_detection)
+        if self.opt_auto_update_check.get():
+            # Delayed well past the VDJ detection above so the two background checks don't both
+            # grab self.worker_running at once; a missed check just waits for the next launch.
+            self.after(2000, lambda: self._check_updates(silent=True))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _settings_payload(self) -> dict:
@@ -157,6 +163,7 @@ class App(tk.Tk):
             "opt_sylt": self.opt_sylt.get(),
             "opt_overwrite_restore": self.opt_overwrite_restore.get(),
             "opt_english_threshold": self.opt_english_threshold.get(),
+            "opt_auto_update_check": self.opt_auto_update_check.get(),
         }
 
     def _save_settings(self) -> None:
@@ -573,6 +580,10 @@ class App(tk.Tk):
             body, text="Advanced mode", variable=self.opt_advanced,
             command=self._toggle_advanced,
         ).pack(anchor="w", pady=(0, 12))
+        ttk.Checkbutton(
+            body, text="Automatically check for updates on startup",
+            variable=self.opt_auto_update_check, command=self._save_settings,
+        ).pack(anchor="w", pady=(0, 12))
         ttk.Separator(body).pack(fill="x", pady=(0, 12))
         ttk.Button(body, text="Check for updates", command=self._check_updates).pack(
             fill="x", pady=3)
@@ -702,21 +713,28 @@ class App(tk.Tk):
         if self.last_backup is not None:
             gui_common.open_path(self.last_backup)
 
-    def _check_updates(self) -> None:
+    def _check_updates(self, silent: bool = False) -> None:
         if self.worker_running:
             return
         current = gui_common.packaged_version(SCRIPT_DIR)
         self.worker_running = True
         self._update_run_button()
-        self._log("Checking GitHub for a new LyricsTools release...")
+        if not silent:
+            self._log("Checking GitHub for a new LyricsTools release...")
         def worker() -> None:
             try:
                 release = gui_common.latest_release()
                 latest = str(release.get("tag_name") or "").removeprefix("v")
                 available = gui_common.version_tuple(latest) > gui_common.version_tuple(current)
-                self.events.queue.put(("update", (release, latest, available, current)))
+                self.events.queue.put(("update", (release, latest, available, current, silent)))
             except Exception as exc:
-                self.events.queue.put(("error", f"Update check failed: {exc}"))
+                # The automatic startup check must never interrupt a person who is offline or
+                # has no GitHub access with an error dialog every time they open the app; only
+                # a manual "Check for updates" click reports a failure.
+                if silent:
+                    self.events.queue.put(("log_only", f"Automatic update check skipped: {exc}"))
+                else:
+                    self.events.queue.put(("error", f"Update check failed: {exc}"))
             finally:
                 self.events.done()
         threading.Thread(target=worker, daemon=False, name="lyrics-update-check").start()
@@ -797,16 +815,19 @@ class App(tk.Tk):
                         self.issue_tree.insert("", "end", values=(issue.kind, str(display), issue.detail))
                     self.issue_summary.configure(text=f"{len(payload)} item(s) need attention.")
                 elif kind == "update":
-                    release, latest, available, current = payload
-                    self._log(f"Done: update check. {'Available: ' + latest if available else 'Version ' + current + ' is current.'}", "success")
+                    release, latest, available, current, silent = payload
+                    if not silent:
+                        self._log(f"Done: update check. {'Available: ' + latest if available else 'Version ' + current + ' is current.'}", "success")
                     if available:
                         if messagebox.askyesno(
                             "Update available",
                             f"LyricsTools {latest} is available.\n\nDownload, verify and launch it now?",
                         ):
                             self.after(0, lambda r=release, v=latest: self._download_update(r, v))
-                    else:
+                    elif not silent:
                         messagebox.showinfo("No update", f"Version {current} is current.")
+                elif kind == "log_only":
+                    self._log(f"[INFO] {payload}")
                 elif kind == "update_ready":
                     self._log(f"Done: verified update launched: {payload}", "success")
                     self.last_operation.set("The verified updated LyricsTools was launched.")

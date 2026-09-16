@@ -9,6 +9,8 @@
 #include <fstream>
 #include <iomanip>
 #include <mutex>
+#include <sstream>
+#include <string>
 
 namespace {
 std::mutex logMutex;
@@ -30,16 +32,35 @@ std::filesystem::path LogPath() {
         : std::filesystem::path{L"EmbeddedLyrics.log"};
 }
 
+std::string ToUtf8(std::wstring_view value) {
+    if (value.empty()) return {};
+    const auto size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                                          nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                        result.data(), size, nullptr, nullptr);
+    return result;
+}
+
 void Write(std::wstring_view level, std::wstring_view message) {
     std::scoped_lock lock{logMutex};
-    std::wofstream stream{LogPath(), std::ios::app};
+    // A wofstream converts through the classic "C" locale's codecvt facet, which can only
+    // represent ASCII; any non-ASCII character (e.g. a Czech diacritic in a file path or lyric
+    // line) puts the stream into a fail state and silently stops that write mid-line, which is
+    // what made log lines with accented text run together with no newline. Writing raw UTF-8
+    // bytes through a narrow, binary stream sidesteps locale conversion entirely.
+    std::ofstream stream{LogPath(), std::ios::app | std::ios::binary};
     if (!stream) return;
     const auto now = std::chrono::system_clock::now();
     const auto seconds = std::chrono::system_clock::to_time_t(now);
     std::tm local{};
     localtime_s(&local, &seconds);
-    stream << std::put_time(&local, L"%Y-%m-%d %H:%M:%S") << L" [" << level << L"] "
-           << message << L'\n';
+    std::wostringstream line;
+    line << std::put_time(&local, L"%Y-%m-%d %H:%M:%S") << L" [" << level << L"] "
+         << message << L'\n';
+    const auto utf8 = ToUtf8(line.str());
+    stream.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
 }
 }
 

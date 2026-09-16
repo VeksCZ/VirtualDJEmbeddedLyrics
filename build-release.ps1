@@ -1,7 +1,14 @@
 param(
     [string]$Generator = 'Visual Studio 17 2022',
     [string]$PythonCommand = 'py',
-    [switch]$KeepExtracted
+    [switch]$KeepExtracted,
+    # Tags the release commit, pushes the branch and tag, creates (or updates) the GitHub
+    # Release with the Windows package, then waits for the macOS GitHub Actions workflow that
+    # tag push triggers and attaches its artifacts too. Without this switch the script only
+    # produces the local dist/ package, same as before -- v0.8.7 shipped a tag with no GitHub
+    # Release at all because that publishing step lived only in a person's memory, not here.
+    [switch]$Publish,
+    [string]$Repository = 'VeksCZ/VirtualDJEmbeddedLyrics'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,11 +33,51 @@ function Assert-ChildPath {
     }
 }
 
+# RELEASE-NOTES.md accumulates every past version's notes in one file (so historical entries
+# stay readable), but a GitHub Release body should only show this version's "## Changes" plus
+# the trailing "## Windows download" instructions, not the whole changelog. Pull just those two
+# sections out, in the order a person publishing by hand has always assembled them.
+function Get-ReleaseNotesBody {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Version)
+    $sections = [ordered]@{}
+    $current = $null
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^##\s+(.+?)\s*$') {
+            $current = $Matches[1]
+            if (-not $sections.Contains($current)) { $sections[$current] = [System.Collections.Generic.List[string]]::new() }
+        } elseif ($null -ne $current) {
+            $sections[$current].Add($line)
+        }
+    }
+    if (-not $sections.Contains('Changes')) { throw "RELEASE-NOTES.md has no '## Changes' section." }
+    $downloadKey = $sections.Keys | Where-Object { $_ -like 'Windows download*' } | Select-Object -First 1
+    $body = [System.Collections.Generic.List[string]]::new()
+    $body.Add("# LRC Lyrics for VirtualDJ $Version"); $body.Add('')
+    $body.Add('## Changes'); $body.AddRange($sections['Changes'])
+    if ($downloadKey) { $body.Add("## $downloadKey"); $body.AddRange($sections[$downloadKey]) }
+    return ($body -join "`n").Trim()
+}
+
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw 'CMake was not found. Install Visual Studio 2022 with Desktop development with C++.'
 }
 if (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
     throw "Python 3 is required to run the release tests: $PythonCommand"
+}
+if ($Publish) {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'git is required to -Publish.' }
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI (gh) is required to -Publish.' }
+    gh auth status *> $null
+    if ($LASTEXITCODE -ne 0) { throw "gh is not authenticated. Run 'gh auth login' first, then re-run with -Publish." }
+    Push-Location $ProjectRoot
+    $publishDirty = git status --porcelain
+    Pop-Location
+    if ($publishDirty) { throw 'Working tree has uncommitted changes; commit before publishing.' }
+    $publishTag = "v$Version"
+    Push-Location $ProjectRoot
+    $publishExistingTag = git tag --list $publishTag
+    Pop-Location
+    if ($publishExistingTag) { throw "Tag $publishTag already exists locally; bump VERSION or delete the stale tag first." }
 }
 & $PythonCommand -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) {
@@ -101,3 +148,68 @@ if (-not $KeepExtracted) {
 Assert-ChildPath -Child $BuildDirectory -Parent $ProjectRoot
 Remove-Item -LiteralPath $BuildDirectory -Recurse -Force
 Write-Host 'Done - release package and checksum are ready.' -ForegroundColor Green
+
+if ($Publish) {
+    Write-Host "Publishing $publishTag to $Repository..." -ForegroundColor Cyan
+    Push-Location $ProjectRoot
+    try {
+        $branch = (git rev-parse --abbrev-ref HEAD).Trim()
+        git tag -a $publishTag -m "Release $Version"
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to create the tag.' }
+        git push origin $branch
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to push the branch.' }
+        git push origin $publishTag
+        if ($LASTEXITCODE -ne 0) { throw 'Failed to push the tag.' }
+
+        $notesPath = [System.IO.Path]::GetTempFileName()
+        try {
+            Get-ReleaseNotesBody -Path (Join-Path $ProjectRoot 'RELEASE-NOTES.md') -Version $Version |
+                Set-Content -LiteralPath $notesPath -Encoding utf8NoBOM
+            gh release create $publishTag $PackageZip "$PackageZip.sha256" `
+                --repo $Repository --title "LRC Lyrics for VirtualDJ $Version" --notes-file $notesPath
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to create the GitHub Release.' }
+        } finally {
+            Remove-Item -LiteralPath $notesPath -Force -ErrorAction SilentlyContinue
+        }
+        Write-Host "Windows package published: https://github.com/$Repository/releases/tag/$publishTag" -ForegroundColor Green
+
+        # Pushing the tag above already triggered the macOS GitHub Actions workflow (it runs on
+        # every push). Find that run and wait for it so the macOS packages can ride along on the
+        # same release instead of needing someone to remember a second, separate manual step.
+        Write-Host 'Waiting for the macOS build (GitHub Actions) to start...' -ForegroundColor Cyan
+        $macRun = $null
+        for ($attempt = 0; $attempt -lt 12 -and -not $macRun; $attempt++) {
+            Start-Sleep -Seconds 5
+            $candidates = gh run list --repo $Repository --workflow=macos-tools.yml --branch $publishTag `
+                --json databaseId,status,conclusion --limit 1 | ConvertFrom-Json
+            if ($candidates) { $macRun = $candidates[0] }
+        }
+        if (-not $macRun) {
+            Write-Warning "Could not find the macOS workflow run for $publishTag. Attach the macOS packages manually: gh run list --repo $Repository --workflow=macos-tools.yml --branch $publishTag"
+        } else {
+            gh run watch $macRun.databaseId --repo $Repository --exit-status
+            $macFailed = $LASTEXITCODE -ne 0
+            if ($macFailed) {
+                Write-Warning "The macOS build failed; the release is published Windows-only. Inspect it with: gh run view $($macRun.databaseId) --repo $Repository --log-failed"
+            } else {
+                $macDir = Join-Path ([System.IO.Path]::GetTempPath()) "lrc-macos-$publishTag"
+                if (Test-Path -LiteralPath $macDir) { Remove-Item -LiteralPath $macDir -Recurse -Force }
+                gh run download $macRun.databaseId --repo $Repository --dir $macDir
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warning "Could not download the macOS artifacts for run $($macRun.databaseId); attach them manually."
+                } else {
+                    $macAssets = Get-ChildItem -LiteralPath $macDir -Recurse -File
+                    if ($macAssets) {
+                        gh release upload $publishTag @($macAssets.FullName) --repo $Repository
+                        if ($LASTEXITCODE -ne 0) { Write-Warning 'Failed to upload the macOS assets to the release.' }
+                        else { Write-Host 'macOS packages attached.' -ForegroundColor Green }
+                    }
+                }
+                Remove-Item -LiteralPath $macDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Host "Release ready: https://github.com/$Repository/releases/tag/$publishTag" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+}
