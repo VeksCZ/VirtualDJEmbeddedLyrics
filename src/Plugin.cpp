@@ -20,6 +20,7 @@
 #include <fstream>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <thread>
 #include <shellapi.h>
 
@@ -89,7 +90,9 @@ public:
             FAILED(DeclareParameterSlider(&countdownGapParameter_, 13,
                 "Countdown gap (3-10 seconds)", "Countdown gap", 2.0f / 7.0f)) ||
             FAILED(DeclareParameterSlider(&timingOffsetParameter_, 14,
-                "Lyrics timing offset (-5 to +5 seconds)", "Timing offset", 0.5f))) return E_FAIL;
+                "Lyrics timing offset (-5 to +5 seconds)", "Timing offset", 0.5f)) ||
+            FAILED(DeclareParameterSwitch(&showHeadingParameter_, 15,
+                "Show track name and artist", "Show name", true))) return E_FAIL;
         LoadAdvancedSettings();
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
@@ -104,7 +107,7 @@ public:
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { std::thread([this] { OpenEmbeddedLyricsEditor(); }).detach(); editTextButton_ = 0; }
-        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_song 'filepath'", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
+        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_song 'filepath'", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
@@ -146,7 +149,8 @@ public:
             Diagnostics::Error(L"VirtualDJ did not provide a DirectX 11 device");
             return E_FAIL;
         }
-        if (!texture_.Initialize(device_) || !renderer_.Initialize(device_)) {
+        if (!texture_.Initialize(device_) || !headingTexture_.Initialize(device_) ||
+            !renderer_.Initialize(device_)) {
             Diagnostics::Error(L"DirectX 11 lyrics renderer initialization failed");
             return E_FAIL;
         }
@@ -154,7 +158,7 @@ public:
         return S_OK;
     }
     HRESULT VDJ_API OnDeviceClose() override {
-        renderer_.Reset(); texture_.Reset(); device_ = nullptr;
+        renderer_.Reset(); texture_.Reset(); headingTexture_.Reset(); device_ = nullptr;
         drawContextLogged_ = false;
         return S_OK;
     }
@@ -197,7 +201,6 @@ public:
             texture_.Reset();
             lyrics_ = {};
             activeLine_ = 0;
-            introVisible_ = true;
             untimedScrollActive_ = false;
             recordTimingParameter_ = 0;
             timingOffsetParameter_ = 0.5f;
@@ -223,11 +226,13 @@ public:
                 !DrawLyricsTexture()) {
                 Diagnostics::Error(L"Failed to render missing-lyrics indication");
             }
+            DrawHeadingBanner();
             return S_OK;
         }
         if (!lyrics_.synchronized) {
             if (!UpdateUntimedRibbon() || !DrawLyricsTexture())
                 Diagnostics::Error(L"Failed to render untimed lyrics ribbon");
+            DrawHeadingBanner();
             return S_OK;
         }
         double elapsedMs = 0.0;
@@ -238,12 +243,27 @@ public:
         }
         UpdateVisible(AdjustLyricsTime(static_cast<std::int64_t>(elapsedMs), TimingOffsetMs()));
         if (!DrawLyricsTexture()) Diagnostics::Error(L"Failed to render synchronized lyrics");
+        DrawHeadingBanner();
         return S_OK;
     }
 
 private:
     bool DrawLyricsTexture() {
         return renderer_.Draw(texture_.View());
+    }
+
+    // The artist/title banner is a second, independent overlay drawn on top of the scrolling
+    // lyrics texture instead of being woven into its timeline: it doesn't participate in the
+    // scroll/highlight/fade-mask machinery at all, so it can't destabilize that (already
+    // fragile-enough) logic the way folding it into the lyrics timeline previously did.
+    void DrawHeadingBanner() {
+        if (!showHeadingParameter_ || trackHeading_.empty()) return;
+        std::wstring text = trackHeading_.front();
+        for (std::size_t i = 1; i < trackHeading_.size(); ++i) text += L" - " + trackHeading_[i];
+        if (!headingTexture_.UpdateBanner(text, width, height, TextColor(), FontFamily(),
+                                          BackdropStyle(), BackdropStrength()) ||
+            !renderer_.Draw(headingTexture_.View()))
+            Diagnostics::Error(L"Failed to render track name banner");
     }
 
     void EnsureLyricsHashtag(int deck, bool synchronized) {
@@ -294,25 +314,9 @@ private:
             bool pause{};
         };
         constexpr std::int64_t scrollDuration = 650;
-        const auto firstLyricTime = lyrics_.lines.front().timeMs;
-        if (now < firstLyricTime && !trackHeading_.empty()) {
-            const auto remaining = firstLyricTime - now;
-            std::wstring upcoming = lyrics_.lines.front().text;
-            if (ShowLyricCountdown(remaining, CountdownGapSeconds()))
-                upcoming = L"> " + std::to_wstring(LyricCountdown(remaining)) + L" <";
-            std::vector<std::wstring> intro = trackHeading_;
-            intro.push_back(L"");
-            intro.push_back(std::move(upcoming));
-            if (!texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
-                                      width, height, FontScale(), VerticalPosition(), {},
-                                      TextColor(), HighlightColor(), ReadColor(),
-                                      FontFamily(), BackdropStyle(), BackdropStrength(),
-                                      backgroundParameter_ != 0, BackgroundColor()))
-                Diagnostics::Error(L"Failed to update track intro texture");
-            return;
-        }
         std::vector<DisplayLine> timeline;
         timeline.reserve(lyrics_.lines.size() * 2 + 1);
+        const auto firstLyricTime = lyrics_.lines.front().timeMs;
         if (ShowLyricCountdown(firstLyricTime, CountdownGapSeconds())) {
             timeline.push_back({std::to_wstring(LyricCountdown(firstLyricTime)), 0, true});
         }
@@ -337,15 +341,17 @@ private:
         const auto next = active + 1 < timeline.size() ? timeline[active + 1].timeMs : start + 5000;
         const auto interval = std::max<std::int64_t>(1, next - start);
 
-        const auto window = VisibleLyricsWindow(timeline.size(), active, TimedLineCount());
-        const auto visibleStart = window.first;
-        const auto visibleEnd = window.end;
+        // Hand TextTexture the whole timeline as candidates around "active", not a pre-shrunk
+        // window: the anchor and the fade band are computed there purely from TimedLineCount(),
+        // never from which candidates end up on screen or how they wrap, so neither can jump
+        // between frames just because a line happens to wrap to two rows. TextTexture works out
+        // for itself how many candidates it actually needs to fill the frame.
         std::vector<std::wstring> visibleLines;
         std::vector<bool> subduedLines;
-        visibleLines.reserve(visibleEnd - visibleStart);
-        subduedLines.reserve(visibleEnd - visibleStart);
+        visibleLines.reserve(timeline.size());
+        subduedLines.reserve(timeline.size());
         bool countdownVisible = false;
-        for (auto i = visibleStart; i < visibleEnd; ++i) {
+        for (std::size_t i = 0; i < timeline.size(); ++i) {
             if (timeline[i].pause) {
                 const int position = i < active ? -1 : i > active ? 1 : 0;
                 visibleLines.push_back(
@@ -357,7 +363,6 @@ private:
             subduedLines.push_back(timeline[i].pause && i != active);
         }
 
-        const auto activeOffset = active - visibleStart;
         float highlightProgress = countdownVisible ? 1.0f : 0.0f;
         if (!timeline[active].pause) {
             const auto highlightDuration = std::min(EstimateLyricHighlightMs(timeline[active].text),
@@ -368,11 +373,11 @@ private:
         const auto scrollProgress = timeline[active].pause
             ? UnitProgress(now, next - scrollDuration, scrollDuration)
             : UnitProgress(now, start, interval);
-        if (!texture_.UpdateTimed(visibleLines, activeOffset, highlightProgress, scrollProgress,
+        if (!texture_.UpdateTimed(visibleLines, active, highlightProgress, scrollProgress,
                                   width, height, FontScale(), VerticalPosition(), subduedLines,
                                   TextColor(), HighlightColor(), ReadColor(),
                                   FontFamily(), BackdropStyle(), BackdropStrength(),
-                                  backgroundParameter_ != 0, BackgroundColor()))
+                                  backgroundParameter_ != 0, BackgroundColor(), TimedLineCount()))
             Diagnostics::Error(L"Failed to update lyrics texture");
     }
 
@@ -425,40 +430,25 @@ private:
     }
     bool UpdateUntimedRibbon() {
         if (lyrics_.lines.empty()) return false;
-        if (introVisible_ && !trackHeading_.empty()) {
-            std::vector<std::wstring> intro = trackHeading_;
-            intro.push_back(L"");
-            intro.push_back(lyrics_.lines.front().text);
-            return texture_.UpdateTimed(intro, 0, 1.0f, 0.0f,
-                                        width, height, FontScale(), VerticalPosition(), {},
-                                        TextColor(), HighlightColor(), ReadColor(),
-                                        FontFamily(), BackdropStyle(), BackdropStrength(),
-                                        backgroundParameter_ != 0, BackgroundColor());
-        }
         auto renderActive = activeLine_; float scroll = 0.0f;
         if (untimedScrollActive_) {
             scroll = std::clamp(std::chrono::duration<float>(std::chrono::steady_clock::now() - untimedScrollStarted_).count() / 0.45f, 0.0f, 1.0f);
             if (scroll < 1.0f) renderActive = scrollFromLine_;
             else { untimedScrollActive_ = false; scroll = 0.0f; }
         }
-        const auto window = VisibleLyricsWindow(lyrics_.lines.size(), renderActive, PageSize());
-        const auto first = window.first;
-        const auto end = window.end;
-        std::vector<std::wstring> visible; visible.reserve(end - first);
-        for (auto i = first; i < end; ++i) visible.push_back(lyrics_.lines[i].text);
-        return texture_.UpdateTimed(visible, renderActive - first, 1.0f, scroll,
+        // See the matching comment in UpdateVisible: hand over every line as a candidate and let
+        // TextTexture size the anchor/fade band from PageSize() alone, then work out how many
+        // candidates it actually needs.
+        std::vector<std::wstring> visible; visible.reserve(lyrics_.lines.size());
+        for (const auto& line : lyrics_.lines) visible.push_back(line.text);
+        return texture_.UpdateTimed(visible, renderActive, 1.0f, scroll,
                                     width, height, FontScale(), VerticalPosition(), {},
                                     TextColor(), HighlightColor(), ReadColor(),
                                     FontFamily(), BackdropStyle(), BackdropStrength(),
-                                    backgroundParameter_ != 0, BackgroundColor());
+                                    backgroundParameter_ != 0, BackgroundColor(), PageSize());
     }
     void AdvanceUntimedLine() {
         if (lyrics_.synchronized || lyrics_.lines.empty()) return;
-        if (introVisible_) {
-            introVisible_ = false;
-            texture_.Reset();
-            return;
-        }
         if (!recordTimingParameter_) {
             if (activeLine_ + 1 < lyrics_.lines.size()) BeginUntimedScroll(activeLine_ + 1);
             return;
@@ -532,7 +522,13 @@ private:
         EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true);
     }
     void OpenBrowsedLyricsEditor(const std::filesystem::path& browsed) {
-        if (browsed.empty()) {
+        // get_browsed_song 'filepath' returns whatever the browser's current selection is; if
+        // that's a folder/tree node rather than an actual song row (e.g. focus is on the
+        // directory tree, not the song list), it returns a folder path instead of a file, which
+        // used to be silently accepted and fail obscurely much later when writing the tag.
+        auto extension = browsed.extension().wstring();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+        if (browsed.empty() || extension != L".mp3") {
             Diagnostics::Error(L"Select an MP3 in the VirtualDJ browser first");
             return;
         }
@@ -544,6 +540,7 @@ private:
         EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/false);
     }
     void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay) {
+        Diagnostics::Info(L"EditEmbeddedLyrics targetPath=[" + targetPath.wstring() + L"]");
         auto timed = LoadEmbeddedTimedLyrics(targetPath);
         auto untimed = LoadEmbeddedUntimedLyrics(targetPath);
         EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), synchronized};
@@ -561,14 +558,29 @@ private:
         }
         output.close();
         const auto validation = LoadPlainTextLyrics(pendingTextPath);
-        if (validation.document.empty() || validation.document.synchronized != edit.synchronized) {
+        if (validation.document.empty()) {
             std::filesystem::remove(pendingTextPath, error);
             Diagnostics::Error(edit.synchronized
                 ? L"Timed lyrics must contain LRC timestamps such as [01:23.45] Text"
                 : L"Untimed lyrics must contain at least one non-empty line");
             return;
         }
-        // Show the accepted edit immediately; the durable MP3 write waits until the file is unloaded.
+        // LoadPlainTextLyrics classifies Timed vs. Untimed purely from the text (presence of
+        // [mm:ss.xx] timestamps), independent of which tab was selected in the dialog. Trust
+        // that detection instead of silently discarding a save whose content doesn't match the
+        // tab the user happened to leave selected.
+        if (validation.document.synchronized != edit.synchronized) {
+            Diagnostics::Info(L"Saved text looks " +
+                std::wstring(validation.document.synchronized ? L"Timed" : L"Untimed") +
+                L" though the " + std::wstring(edit.synchronized ? L"Timed" : L"Untimed") +
+                L" tab was selected; saving using the detected type");
+            edit.synchronized = validation.document.synchronized;
+        }
+        // Show the accepted edit immediately; the durable MP3 write waits until the file is
+        // unloaded. The commit itself must stay inside OnDraw's TryCommitPendingRecording call:
+        // VirtualDJ's GetStringInfo/GetInfo/SendCommand SDK calls (used by TrackLoadedAnywhere)
+        // are only safe to call from the thread VirtualDJ itself invokes the plugin on. Calling
+        // them from this editor's own background thread previously broke saving entirely.
         {
             std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
             pendingEditorTextPath_ = pendingTextPath;
@@ -580,7 +592,6 @@ private:
             if (applyLiveDisplay && targetPath == loadedPath_) {
                 lyrics_ = validation.document;
                 activeLine_ = 0;
-                introVisible_ = true;
                 untimedScrollActive_ = false;
                 texture_.Reset();
                 if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
@@ -610,26 +621,92 @@ private:
             if (SUCCEEDED(GetStringInfo(command,value,sizeof(value))) && std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(value))) == path) return true; }
         return false;
     }
+    // Launches the tag-writer script without blocking OnDraw (the process runs in the
+    // background; PollTagWriterScripts picks up its exit code and any stdout/stderr on a later
+    // frame). Waiting here would stall the render thread for however long python.exe takes to
+    // start and run, which is exactly the stutter the rest of this file works hard to avoid.
+    void RunTagWriterScript(const std::wstring& arguments, const wchar_t* label) {
+        const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
+        const std::wstring command = L"py.exe \"" + script.wstring() + L"\" " + arguments;
+        Diagnostics::Info(std::wstring(L"Tag writer command for ") + label + L": [" + command + L"]");
+
+        std::error_code fsError;
+        const auto outputPath = std::filesystem::temp_directory_path(fsError) /
+            (L"EmbeddedLyricsTagWriter-" + std::to_wstring(GetTickCount64()) + L".log");
+        SECURITY_ATTRIBUTES inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        HANDLE output = CreateFileW(outputPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+                                    &inheritable, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);
+
+        STARTUPINFOW startup{}; startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        std::wstring mutableCommand = command;
+        BOOL launched;
+        if (output != INVALID_HANDLE_VALUE) {
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdOutput = output;
+            startup.hStdError = output;
+            launched = CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, TRUE,
+                                      CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+        } else {
+            launched = CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, FALSE,
+                                      CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+        }
+        if (output != INVALID_HANDLE_VALUE) CloseHandle(output);
+        if (!launched) {
+            Diagnostics::Error(std::wstring(L"Failed to launch tag writer for ") + label +
+                              L": GetLastError=" + std::to_wstring(GetLastError()));
+            if (output != INVALID_HANDLE_VALUE) std::filesystem::remove(outputPath, fsError);
+            return;
+        }
+        CloseHandle(process.hThread);
+        pendingScripts_.push_back({process.hProcess,
+            output != INVALID_HANDLE_VALUE ? outputPath : std::filesystem::path{}, label});
+        Diagnostics::Info(std::wstring(L"Queued tag writer for ") + label);
+    }
+    // Non-blocking: reaps any tag-writer processes that have finished since the last frame and
+    // logs their result, without waiting on ones still running.
+    void PollTagWriterScripts() {
+        for (auto it = pendingScripts_.begin(); it != pendingScripts_.end();) {
+            if (WaitForSingleObject(it->process, 0) != WAIT_OBJECT_0) { ++it; continue; }
+            DWORD exitCode = 0;
+            GetExitCodeProcess(it->process, &exitCode);
+            CloseHandle(it->process);
+            std::wstring captured;
+            if (!it->outputPath.empty()) {
+                // The child's stdout/stderr are captured as raw UTF-8 bytes, not text-mode wide
+                // characters, so read narrow and decode explicitly (WideFromUtf8, used elsewhere
+                // in this file for the same reason) instead of a std::wifstream misreading them.
+                std::ifstream capture(it->outputPath, std::ios::binary);
+                std::ostringstream buffer; buffer << capture.rdbuf();
+                captured = WideFromUtf8(buffer.str().c_str());
+                capture.close();
+                std::error_code fsError;
+                std::filesystem::remove(it->outputPath, fsError);
+            }
+            if (exitCode != 0) {
+                Diagnostics::Error(L"Tag writer for " + it->label + L" exited with code " +
+                                  std::to_wstring(exitCode) +
+                                  (captured.empty() ? L"" : L"; output: " + captured));
+            } else {
+                Diagnostics::Info(L"Tag writer for " + it->label + L" completed successfully");
+            }
+            it = pendingScripts_.erase(it);
+        }
+    }
     void TryCommitPendingRecording() {
+        PollTagWriterScripts();
         if (pendingEditorWrite_ && !TrackLoadedAnywhere(pendingEditorAudioPath_)) {
-            const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
-            std::wstring command = L"py.exe \"" + script.wstring() + L"\" --write-editor-text \"" +
+            const std::wstring arguments = L"--write-editor-text \"" +
                 pendingEditorAudioPath_.wstring() + L"\" \"" + pendingEditorTextPath_.wstring() +
                 L"\" " + (pendingEditorSynchronized_ ? L"timed" : L"untimed");
-            STARTUPINFOW startup{}; startup.cb = sizeof(startup); PROCESS_INFORMATION process{};
-            if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                               nullptr, nullptr, &startup, &process)) {
-                CloseHandle(process.hThread); CloseHandle(process.hProcess); pendingEditorWrite_ = false;
-                Diagnostics::Info(L"Queued embedded lyrics tag write");
-            }
+            RunTagWriterScript(arguments, L"embedded lyrics");
+            pendingEditorWrite_ = false;
         }
         if (!pendingTimingWrite_ || TrackLoadedAnywhere(pendingAudioPath_)) return;
-        const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
-        std::wstring command = L"py.exe \""+script.wstring()+L"\" --write-recording \""+pendingAudioPath_.wstring()+L"\" \""+pendingTimingPath_.wstring()+L"\"";
-        STARTUPINFOW startup{}; startup.cb=sizeof(startup); PROCESS_INFORMATION process{};
-        if (!CreateProcessW(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&process)) return;
-        CloseHandle(process.hThread); CloseHandle(process.hProcess); pendingTimingWrite_=false;
-        Diagnostics::Info(L"Queued embedded SYLT and SYNCEDLYRICS write");
+        const std::wstring arguments = L"--write-recording \"" + pendingAudioPath_.wstring() +
+            L"\" \"" + pendingTimingPath_.wstring() + L"\"";
+        RunTagWriterScript(arguments, L"recorded timing");
+        pendingTimingWrite_ = false;
     }
 
     std::filesystem::path TextPath() const {
@@ -788,6 +865,7 @@ private:
 
     ID3D11Device* device_{};
     TextTexture texture_;
+    TextTexture headingTexture_;
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
     std::recursive_mutex stateMutex_;
@@ -802,18 +880,20 @@ private:
     int wholeLineHighlightParameter_{};
     float countdownGapParameter_{2.0f / 7.0f};
     float timingOffsetParameter_{0.5f};
+    int showHeadingParameter_{1};
     float textColorParameter_{}; float highlightColorParameter_{1.0f / 8.0f};
     float readColorParameter_{2.0f / 8.0f};
     float fontFamilyParameter_{}; float backdropStyleParameter_{};
     float backdropStrengthParameter_{0.5f};
 
     std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
-    bool introVisible_{true};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
     bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     bool pendingEditorWrite_{}; bool pendingEditorSynchronized_{};
     std::filesystem::path pendingEditorAudioPath_, pendingEditorTextPath_;
+    struct PendingScript { HANDLE process; std::filesystem::path outputPath; std::wstring label; };
+    std::vector<PendingScript> pendingScripts_;
     std::optional<std::filesystem::file_time_type> textWriteTime_;
     std::chrono::steady_clock::time_point nextTextCheck_{};
     MasterDeckSelector masterDeckSelector_;
