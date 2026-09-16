@@ -425,8 +425,14 @@ class App(tk.Tk):
         ttk.Label(actions, textvariable=self.last_operation).pack(side="left")
         self.backup_button = ttk.Button(actions, text="Open backup", state="disabled", command=self._open_last_backup)
         self.backup_button.pack(side="left", padx=6)
-        self.run_button = ttk.Button(
-            actions, text="Run", command=self._run_current_tab)
+        # A plain tk.Button, not ttk.Button: on Windows' native ttk themes, a themed button
+        # ignores custom background colors entirely (the OS draws it), so this is the only
+        # reliable way to make the primary action stand out from the secondary buttons around it.
+        self.run_button = tk.Button(
+            actions, text="Run", command=self._run_current_tab,
+            font=("TkDefaultFont", 9, "bold"), relief="flat", bd=0,
+            padx=16, pady=5, cursor="hand2",
+        )
         self.run_button.pack(side="right")
         self._toggle_advanced()
         self._update_run_button()
@@ -618,7 +624,12 @@ class App(tk.Tk):
         }
         label = labels.get(active_tab, "Run")
         state = "disabled" if self.worker_running else "normal"
-        self.run_button.configure(text=label, state=state)
+        colors = (
+            {"bg": "#94a3b8", "fg": "#f1f5f9", "activebackground": "#94a3b8", "activeforeground": "#f1f5f9"}
+            if state == "disabled" else
+            {"bg": "#2563eb", "fg": "white", "activebackground": "#1d4ed8", "activeforeground": "white"}
+        )
+        self.run_button.configure(text=label, state=state, **colors)
         setup_state = "disabled" if self.worker_running or self.package_layout is None else "normal"
         for button in getattr(self, "setup_buttons", []):
             button.configure(state=setup_state)
@@ -860,7 +871,7 @@ class App(tk.Tk):
             return
         self._save_settings()
         self.worker_running = True
-        self.run_button.configure(state="disabled")
+        self._update_run_button()
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
