@@ -531,6 +531,11 @@ private:
         std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
         if (browsed.empty() || extension != L".mp3") {
             Diagnostics::Error(L"Select an MP3 in the VirtualDJ browser first");
+            // This used to only log, which looked like the button did nothing: clicking it
+            // with a folder/playlist focused in the browser (rather than an actual song row)
+            // is a common way to hit this, so tell the user instead of failing silently.
+            MessageBoxW(GetForegroundWindow(), L"Select an MP3 song row in the VirtualDJ browser first.",
+                       L"LRC Master", MB_OK | MB_ICONWARNING);
             return;
         }
         // Never touch loadedPath_/lyrics_/currentDeck_/texture_ here: those belong to the
