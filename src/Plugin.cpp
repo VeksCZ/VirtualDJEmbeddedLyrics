@@ -108,7 +108,7 @@ public:
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { std::thread([this] { OpenEmbeddedLyricsEditor(); }).detach(); editTextButton_ = 0; }
-        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_song 'filepath'", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
+        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         return S_OK;
     }
@@ -523,10 +523,12 @@ private:
         EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true);
     }
     void OpenBrowsedLyricsEditor(const std::filesystem::path& browsed) {
-        // get_browsed_song 'filepath' returns whatever the browser's current selection is; if
-        // that's a folder/tree node rather than an actual song row (e.g. focus is on the
-        // directory tree, not the song list), it returns a folder path instead of a file, which
-        // used to be silently accepted and fail obscurely much later when writing the tag.
+        // get_browsed_filepath returns whatever the browser currently considers "browsed"; if
+        // that's a folder/tree node rather than an actual song row, it returns a folder path
+        // instead of a file, which used to be silently accepted and fail obscurely much later
+        // when writing the tag. Keep this guard even though get_browsed_filepath (vs. the
+        // get_browsed_song 'filepath' column this used to call) fixed the common case of it
+        // firing right after startup or on a genuine folder/playlist selection.
         auto extension = browsed.extension().wstring();
         std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
         if (browsed.empty() || extension != L".mp3") {
