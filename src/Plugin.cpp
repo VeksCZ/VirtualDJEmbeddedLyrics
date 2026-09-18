@@ -585,17 +585,35 @@ private:
                 L" tab was selected; saving using the detected type");
             edit.synchronized = validation.document.synchronized;
         }
-        // Show the accepted edit immediately; the durable MP3 write waits until the file is
-        // unloaded. The commit itself must stay inside OnDraw's TryCommitPendingRecording call:
-        // VirtualDJ's GetStringInfo/GetInfo/SendCommand SDK calls (used by TrackLoadedAnywhere)
-        // are only safe to call from the thread VirtualDJ itself invokes the plugin on. Calling
-        // them from this editor's own background thread previously broke saving entirely.
+        // Deferring to OnDraw's TryCommitPendingRecording (checking VirtualDJ's own idea of
+        // "loaded") used to be the only option here: GetStringInfo/GetInfo/SendCommand are only
+        // safe to call from the thread VirtualDJ itself invokes the plugin on, and calling them
+        // from this editor's own background thread previously broke saving entirely. But for the
+        // common "Edit browsed" case the file was never loaded on a deck in the first place, and
+        // making that wait for OnDraw to even run (which needs the video window open) made saves
+        // look like they silently vanished. A plain exclusive-open probe needs no VDJ API call at
+        // all, so it's safe to try right here: if nothing else holds the file open, write now
+        // instead of waiting for a render frame that might not come for a while.
+        const bool fileIsFree = [&targetPath] {
+            const HANDLE probe = CreateFileW(targetPath.c_str(), GENERIC_READ, 0, nullptr,
+                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (probe == INVALID_HANDLE_VALUE) return false;
+            CloseHandle(probe);
+            return true;
+        }();
         {
             std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
-            pendingEditorTextPath_ = pendingTextPath;
-            pendingEditorAudioPath_ = targetPath;
-            pendingEditorSynchronized_ = edit.synchronized;
-            pendingEditorWrite_ = true;
+            if (fileIsFree) {
+                const std::wstring arguments = L"--write-editor-text \"" + targetPath.wstring() +
+                    L"\" \"" + pendingTextPath.wstring() + L"\" " +
+                    (edit.synchronized ? L"timed" : L"untimed");
+                RunTagWriterScript(arguments, L"embedded lyrics");
+            } else {
+                pendingEditorTextPath_ = pendingTextPath;
+                pendingEditorAudioPath_ = targetPath;
+                pendingEditorSynchronized_ = edit.synchronized;
+                pendingEditorWrite_ = true;
+            }
             // Only refresh the on-screen lyrics if the track being edited is still the one
             // actually loaded; it may have changed on deck while the dialog was open.
             if (applyLiveDisplay && targetPath == loadedPath_) {
@@ -606,7 +624,8 @@ private:
                 if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
             }
         }
-        Diagnostics::Info(L"Embedded lyrics updated; tag write waits for track unload");
+        Diagnostics::Info(fileIsFree ? L"Embedded lyrics updated; writing tag now"
+                                     : L"Embedded lyrics updated; tag write waits for track unload");
     }
     void QueueTimingRecording() {
         auto extension = loadedPath_.extension().wstring();
