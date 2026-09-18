@@ -551,7 +551,8 @@ private:
         Diagnostics::Info(L"EditEmbeddedLyrics targetPath=[" + targetPath.wstring() + L"]");
         auto timed = LoadEmbeddedTimedLyrics(targetPath);
         auto untimed = LoadEmbeddedUntimedLyrics(targetPath);
-        EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), synchronized};
+        EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), synchronized,
+                                targetPath.stem().wstring()};
         if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
         const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
         if (editedText.empty()) return;
