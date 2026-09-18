@@ -177,8 +177,42 @@ void DrawPreview(HWND window, const DRAWITEMSTRUCT& item) {
     }
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC, RGB(190, 196, 204));
-    RECT caption{area.left + 14, area.top + 10, area.right - 14, area.top + 32};
-    DrawTextW(item.hDC, L"PREVIEW", -1, &caption, DT_LEFT | DT_SINGLELINE);
+    RECT caption{area.left + 10, area.bottom - 20, area.right - 10, area.bottom - 4};
+    DrawTextW(item.hDC, L"PREVIEW", -1, &caption, DT_RIGHT | DT_SINGLELINE);
+
+    // Mirrors DrawHeadingBanner's sizing/position (TextTexture::UpdateBanner) so the preview
+    // matches what the "Artist - Title" banner actually looks like on screen.
+    {
+        const std::wstring heading = L"Artist - Title";
+        const int headingSize = std::clamp(static_cast<int>(area.bottom - area.top) / 10, 14, 60);
+        HFONT headingFont = CreateFontW(-headingSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS,
+                                 kFonts[std::clamp(value.font, 0, 5)]);
+        const auto oldHeadingFont = SelectObject(item.hDC, headingFont);
+        const int headingY = area.top + headingSize + std::max(2, static_cast<int>(area.bottom - area.top) / 80);
+        RECT headingLine{area.left + 12, headingY - headingSize, area.right - 12, headingY + 6};
+        const int thickness = value.strength + 1;
+        if (value.backdrop == 1 || value.backdrop == 2) {
+            RECT shadow = headingLine; OffsetRect(&shadow, thickness + 2, thickness + 2);
+            SetTextColor(item.hDC, RGB(0, 0, 0));
+            DrawTextW(item.hDC, heading.c_str(), -1, &shadow, DT_CENTER | DT_SINGLELINE | DT_BOTTOM);
+        }
+        if (value.backdrop == 0 || value.backdrop == 2) {
+            SetTextColor(item.hDC, RGB(0, 0, 0));
+            for (int dy = -thickness; dy <= thickness; ++dy)
+                for (int dx = -thickness; dx <= thickness; ++dx)
+                    if (dx || dy) {
+                        RECT outline = headingLine; OffsetRect(&outline, dx, dy);
+                        DrawTextW(item.hDC, heading.c_str(), -1, &outline,
+                                  DT_CENTER | DT_SINGLELINE | DT_BOTTOM);
+                    }
+        }
+        SetTextColor(item.hDC, kColors[std::clamp(value.textColor, 0, 8)].color);
+        DrawTextW(item.hDC, heading.c_str(), -1, &headingLine, DT_CENTER | DT_SINGLELINE | DT_BOTTOM);
+        SelectObject(item.hDC, oldHeadingFont);
+        DeleteObject(headingFont);
+    }
 
     const int count = std::max(1, Selection(window, kPreviewMode) == 0 ? value.timedLines : value.untimedLines);
     const int fontSize = std::max(8, static_cast<int>(22 * value.fontPercent / 100.0f));
@@ -266,7 +300,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         AddControl(window, L"STATIC", L"Color", 0, 28, 341, 82, 20);
         AddControl(window, L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | WS_TABSTOP,
                    116, 338, 232, 190, kBackgroundColor);
-        AddControl(window, L"STATIC", L"", SS_OWNERDRAW, 386, 48, 350, 260, kPreview);
+        AddControl(window, L"STATIC", L"", SS_OWNERDRAW, 386, 48, 350, 197, kPreview);
         AddControl(window, L"BUTTON", L"Apply", BS_DEFPUSHBUTTON | WS_TABSTOP, 510, 550, 108, 30, IDOK);
         AddControl(window, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 630, 550, 108, 30, IDCANCEL);
         AddControl(window, L"STATIC", L"Preview mode", 0, 386, 17, 110, 22);
