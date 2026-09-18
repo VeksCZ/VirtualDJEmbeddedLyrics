@@ -1,6 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.8.9
+# LRC Lyrics for VirtualDJ 0.8.10
 
 ## Changes
+
+- Fixed **"Edit browsed"** not finding the song selected in the browser: it was reading `get_browsed_song 'filepath'`, which returned only the containing folder instead of the file, so the button looked broken even with a song correctly selected. Now uses the dedicated `get_browsed_filepath` lookup.
+- **"Edit browsed"** now shows a message instead of silently doing nothing when nothing is actually selected in the browser (e.g. a folder or playlist node instead of a song row).
+- The embedded-lyrics editor now shows which song you're editing, both in its title bar and above the text box.
+- Embedded-lyrics edits now write to the MP3 immediately when the file isn't in use, instead of silently waiting for VirtualDJ's video window to be open and the track to be unloaded from a deck.
+- The Advanced settings preview now shows a placeholder "Artist - Title" banner matching the real on-screen heading, and uses a 16:9 aspect ratio to better match actual video output.
+
+## 0.8.9
 
 - Fixed the diagnostics log silently truncating and merging lines whenever a message contained a non-ASCII character (e.g. a Czech file path or artist name).
 - Clarified the "Edit browsed" Settings-panel button (was labeled "Edit browser", which read as if it edited the file browser itself).
@@ -30,6 +38,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.9.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.8.10.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
-These new editor and track-intro improvements are currently Windows-specific.
+These editor, preview, and lyrics-writing improvements are currently Windows-specific.
