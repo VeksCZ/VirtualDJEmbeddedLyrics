@@ -1,6 +1,10 @@
-# LRC Lyrics for VirtualDJ 0.8.10
+# LRC Lyrics for VirtualDJ 0.8.11
 
 ## Changes
+
+- Internal: deduplicated embedded ID3 lyrics parsing (shared tag/frame-walking helpers), and hardened the `lyrics_core` build with `/W4 /WX` and an optional AddressSanitizer target. No user-facing changes.
+
+## 0.8.10
 
 - Fixed **"Edit browsed"** not finding the song selected in the browser: it was reading `get_browsed_song 'filepath'`, which returned only the containing folder instead of the file, so the button looked broken even with a song correctly selected. Now uses the dedicated `get_browsed_filepath` lookup.
 - **"Edit browsed"** now shows a message instead of silently doing nothing when nothing is actually selected in the browser (e.g. a folder or playlist node instead of a song row).
@@ -38,6 +42,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.10.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.8.11.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
 These editor, preview, and lyrics-writing improvements are currently Windows-specific.
