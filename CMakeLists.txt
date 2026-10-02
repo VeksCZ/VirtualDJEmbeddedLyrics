@@ -15,6 +15,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# lyrics_core parses untrusted binary ID3/LRC data from arbitrary audio files,
+# so it is the highest-value target for sanitizer coverage. Off by default
+# because ASan adds overhead and isn't meant for release artifacts.
+option(LRC_ENABLE_SANITIZERS "Build lyrics_core and its tests with AddressSanitizer" OFF)
+
 add_library(lyrics_core STATIC
     src/AsyncLyricsLoader.cpp
     src/Diagnostics.cpp
@@ -25,6 +30,18 @@ add_library(lyrics_core STATIC
 target_include_directories(lyrics_core PUBLIC src)
 if(WIN32)
     target_link_libraries(lyrics_core PUBLIC shell32)
+endif()
+if(MSVC)
+    # /WX here is deliberately stricter than the plugin targets below: this
+    # library has no VirtualDJ SDK or platform headers to generate noise, so
+    # warnings-as-errors is cheap insurance on the parsing code specifically.
+    target_compile_options(lyrics_core PRIVATE /W4 /permissive- /EHsc /WX)
+    if(LRC_ENABLE_SANITIZERS)
+        # /Zi is required alongside /fsanitize=address: without it MSVC emits
+        # C5072 ("ASan enabled without debug info"), which /WX above turns
+        # into a hard error.
+        target_compile_options(lyrics_core PUBLIC /fsanitize=address /Zi)
+    endif()
 endif()
 
 if(APPLE)
@@ -50,6 +67,9 @@ if(BUILD_TESTING)
     enable_testing()
     add_executable(lyrics_tests tests/LyricsTests.cpp)
     target_link_libraries(lyrics_tests PRIVATE lyrics_core)
+    if(MSVC AND LRC_ENABLE_SANITIZERS)
+        target_compile_options(lyrics_tests PRIVATE /fsanitize=address)
+    endif()
     add_test(NAME lyrics_tests COMMAND lyrics_tests)
     if(WIN32)
         add_executable(renderer_tests
