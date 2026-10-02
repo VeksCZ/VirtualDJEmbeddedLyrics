@@ -163,8 +163,12 @@ if ($Publish) {
 
         $notesPath = [System.IO.Path]::GetTempFileName()
         try {
-            Get-ReleaseNotesBody -Path (Join-Path $ProjectRoot 'RELEASE-NOTES.md') -Version $Version |
-                Set-Content -LiteralPath $notesPath -Encoding utf8NoBOM
+            # Set-Content -Encoding utf8NoBOM only exists on PowerShell 7+; Windows PowerShell 5.1
+            # (the default powershell.exe) throws a terminating ParameterBindingException on it,
+            # silently killing the script right here -- after the tag/push already happened but
+            # before the GitHub Release was created. WriteAllText works on both.
+            $notesBody = (Get-ReleaseNotesBody -Path (Join-Path $ProjectRoot 'RELEASE-NOTES.md') -Version $Version) -join "`n"
+            [System.IO.File]::WriteAllText($notesPath, $notesBody, [System.Text.UTF8Encoding]::new($false))
             gh release create $publishTag $PackageZip "$PackageZip.sha256" `
                 --repo $Repository --title "LRC Lyrics for VirtualDJ $Version" --notes-file $notesPath
             if ($LASTEXITCODE -ne 0) { throw 'Failed to create the GitHub Release.' }
