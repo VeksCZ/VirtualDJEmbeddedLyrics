@@ -90,26 +90,32 @@ endif()
 if(WIN32)
     set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
-        add_library(EmbeddedLyricsMaster SHARED
-            src/AdvancedDialog.cpp
-            src/EmbeddedLyricsEditor.cpp
-            src/Plugin.cpp
-            src/TextTexture.cpp
-            src/VideoRenderer.cpp
-            src/PluginExports.def
-        )
-        target_include_directories(EmbeddedLyricsMaster PRIVATE src)
-        target_include_directories(EmbeddedLyricsMaster SYSTEM PRIVATE "${VDJ_SDK_DIR}")
-        target_compile_definitions(EmbeddedLyricsMaster PRIVATE
-            UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT
-            LRC_PLUGIN_VERSION="${PROJECT_VERSION}"
-        )
-        if(MSVC)
-            target_compile_options(EmbeddedLyricsMaster PRIVATE /W4 /external:W0 /permissive- /EHsc)
-            set_property(TARGET EmbeddedLyricsMaster PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-        endif()
-        target_link_libraries(EmbeddedLyricsMaster PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comctl32)
-        set_target_properties(EmbeddedLyricsMaster PROPERTIES PREFIX "" OUTPUT_NAME "LRCMaster")
+        # Same source, two plugins: LRC Master (master-only overlay) and LRC Deck (an
+        # ordinary Video FX for a single deck's FX chain, see LRC_DECK_VARIANT in Plugin.cpp).
+        function(add_win_lyrics_plugin target output_name)
+            add_library(${target} SHARED
+                src/AdvancedDialog.cpp
+                src/EmbeddedLyricsEditor.cpp
+                src/Plugin.cpp
+                src/TextTexture.cpp
+                src/VideoRenderer.cpp
+                src/PluginExports.def
+            )
+            target_include_directories(${target} PRIVATE src)
+            target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
+            target_compile_definitions(${target} PRIVATE
+                UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN NODLLEXPORT
+                LRC_PLUGIN_VERSION="${PROJECT_VERSION}" ${ARGN}
+            )
+            if(MSVC)
+                target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
+                set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+            endif()
+            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comctl32)
+            set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
+        endfunction()
+        add_win_lyrics_plugin(EmbeddedLyricsMaster LRCMaster)
+        add_win_lyrics_plugin(EmbeddedLyricsDeck LRCDeck LRC_DECK_VARIANT=1)
 
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp

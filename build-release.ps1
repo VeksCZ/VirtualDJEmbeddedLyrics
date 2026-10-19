@@ -118,6 +118,7 @@ Copy-Item -LiteralPath (Join-Path $AppDist 'LyricsTools.exe') -Destination $Pack
 
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
+Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCDeck.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $InternalDirectory
 

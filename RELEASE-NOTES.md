@@ -1,6 +1,12 @@
-# LRC Lyrics for VirtualDJ 0.8.11
+# LRC Lyrics for VirtualDJ 0.9.0
 
 ## Changes
+
+- New **LRC Deck** video effect (Windows): shows each deck's own lyrics inside that deck's video, so the deck previews in the skin show exactly what the audience will see. It works on audio-only tracks too and is installed by LyricsTools into `Plugins64\VideoEffect`. See the README for an optional toggle pad and the `ONSONGLOAD` mapping that switches it on automatically for each loaded track.
+- LRC Master and LRC Deck now share all appearance and Settings-panel options (highlight whole line, countdown gap, show name included). A change saved in either one is applied to the others immediately, without restarting VirtualDJ.
+- Removed the leftover once-a-second watch for external edits of same-name `.txt` lyrics files (and the unused Notepad editor code). `.txt` files are still read as the last lyrics source.
+
+## 0.8.11
 
 - Internal: deduplicated embedded ID3 lyrics parsing (shared tag/frame-walking helpers), and hardened the `lyrics_core` build with `/W4 /WX` and an optional AddressSanitizer target. No user-facing changes.
 

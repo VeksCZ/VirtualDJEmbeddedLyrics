@@ -234,7 +234,7 @@ class App(tk.Tk):
         plugin_tab = self.tabs["plugin"]
         self._description(
             plugin_tab,
-            "Install or update LRC Master and LRC BlackOut in the selected VirtualDJ "
+            "Install or update LRC Master, LRC BlackOut and LRC Deck in the selected VirtualDJ "
             "home folder. Existing plugin files are backed up before every change.",
         )
         self._vdj_path_row(plugin_tab)

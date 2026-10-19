@@ -5,6 +5,8 @@ master video output. The project provides two video overlays for Windows and mac
 
 - **LRC Master** displays the lyrics.
 - **LRC BlackOut** adds an optional black background behind overlays.
+- **LRC Deck** (Windows) displays each deck's own lyrics inside that deck's video,
+  so the deck previews show exactly what the audience will see.
 
 ## Download and install
 
@@ -47,8 +49,38 @@ LRC Master follows the video crossfader by default. Enable its **Upfaders**
 option if you prefer the effective audio-fader result. A track with no lyrics
 displays `...`.
 
-These are master overlays. VirtualDJ's public plugin interface does not provide
-this project with an independent audio-only lyric source for every deck preview.
+## Lyrics in the deck previews (LRC Deck, Windows)
+
+**LRC Deck** is an ordinary video effect for a single deck's FX chain. It draws
+the deck's picture (or the black canvas of an audio-only track) and then that
+deck's lyrics on top, so each deck preview shows its own lyrics and the master
+receives them through the video crossfader.
+
+VirtualDJ lists every deck-capable video effect under **transforms** in the
+master effects list as well; LRC Deck is meant for decks only, so don't enable it
+there.
+
+To turn it on automatically for every loaded track, add a toggle pad and a
+keyboard-mapping event (Settings > Controllers > Keyboard > Advanced editor):
+
+- Pad action (any pad page):
+  ```text
+  toggle '@$lrcdeck' & var '@$lrcdeck' ? deck 1 effect_active 'LRCDeck' on & deck 2 effect_active 'LRCDeck' on : deck 1 effect_active 'LRCDeck' off & deck 2 effect_active 'LRCDeck' off
+  ```
+- `ONSONGLOAD` action (runs on the deck the track was loaded on):
+  ```text
+  var '@$lrcdeck' ? effect_active 'LRCDeck' on : nothing
+  ```
+
+Deck effects are processed before master effects, so a master Slideshow or
+shader covers LRC Deck's text. To keep the lyrics on top of those as well, keep
+**LRC Master** enabled on the master at the same time: it draws the identical
+text over the master output, so normally only one copy is visible (a second one
+can briefly show through while the crossfader blends two decks).
+
+LRC Master and LRC Deck share all appearance and Settings-panel options (stored
+in `%LOCALAPPDATA%\VirtualDJ\LRC Advanced.ini`); a change saved in either one is
+picked up by the others immediately. The lyrics timing offset stays per deck.
 
 ## Supported lyrics
 

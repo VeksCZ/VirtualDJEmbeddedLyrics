@@ -28,6 +28,18 @@
 #define LRC_PLUGIN_VERSION "0.0.0-dev"
 #endif
 
+// LRC_DECK_VARIANT builds "LRC Deck": an ordinary (non-overlay, non-master-only) Video FX
+// that VirtualDJ can activate in a single deck's video FX chain. It draws the deck's own
+// picture first via DrawDeck() and then the lyrics on top, so the lyrics live inside that
+// deck's video and follow it through the video crossfader instead of sitting on the master.
+#ifdef LRC_DECK_VARIANT
+#define LRC_PLUGIN_NAME "LRC Deck"
+#define LRC_PLUGIN_WNAME L"LRC Deck"
+#else
+#define LRC_PLUGIN_NAME "LRC Master"
+#define LRC_PLUGIN_WNAME L"LRC Master"
+#endif
+
 namespace {
 int moduleAnchor;
 struct PaletteEntry { const wchar_t* name; std::uint32_t color; };
@@ -110,6 +122,16 @@ public:
         } else if (id == 6 && editTextButton_) { std::thread([this] { OpenEmbeddedLyricsEditor(); }).detach(); editTextButton_ = 0; }
         else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
+        else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
+            // Shared settings: persist and tell the other instances. Ignored until the first
+            // frame so VirtualDJ restoring this plugin's own saved values on load can't
+            // overwrite what the other plugin saved.
+            std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+            SaveAdvancedSettings();
+            PublishSettingsChange();
+            texture_.Reset();
+            headingTexture_.Reset();
+        }
         return S_OK;
     }
     HRESULT VDJ_API OnGetParameterString(int id, char* output, int outputSize) override {
@@ -135,12 +157,19 @@ public:
         return S_OK;
     }
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
-        info->PluginName = "LRC Master";
+        info->PluginName = LRC_PLUGIN_NAME;
         info->Author = "Slava / OpenAI";
         info->Description = "Timed embedded/LRC lyrics and manual untimed lyrics pages";
         info->Version = LRC_PLUGIN_VERSION;
+#ifdef LRC_DECK_VARIANT
+        // No MASTERONLY/OVERLAY: VirtualDJ may then host the effect in a deck's own FX
+        // chain. OUTPUTRESOLUTION renders at the output size instead of the source video's
+        // (otherwise text on a low-res clip or an audio-only deck would be blurry).
+        info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_OUTPUTRESOLUTION;
+#else
         info->Flags = VDJFLAG_PROCESSLAST | VDJFLAG_VIDEO_MASTERONLY |
                       VDJFLAG_VIDEO_OVERLAY;
+#endif
         info->Bitmap = nullptr;
         return S_OK;
     }
@@ -169,13 +198,25 @@ public:
         // render thread and the editor thread touch that state concurrently, which is what
         // was causing playback to stutter/freeze while an "Edit lyrics" dialog was open.
         std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
-        TryCommitPendingRecording();
+#ifdef LRC_DECK_VARIANT
+        // Without VDJFLAG_VIDEO_OVERLAY nothing is drawn for us: put the deck's own picture
+        // down first, on every frame and before any early return, or the deck goes black.
+        const HRESULT deckDrawn = DrawDeck();
+        SyncSharedSettings();
+        const auto deck = OwnDeck();
+#else
+        SyncSharedSettings();
         const auto deck = VisibleVideoDeck();
+#endif
+        TryCommitPendingRecording();
         currentDeck_ = deck;
         if (!drawContextLogged_) {
-            Diagnostics::Info(L"Master draw context: deck=" + std::to_wstring(deck) +
-                              L", size=" + std::to_wstring(width) + L"x" +
-                              std::to_wstring(height));
+            Diagnostics::Info(std::wstring(LRC_PLUGIN_WNAME) + L" draw context: deck=" +
+                              std::to_wstring(deck) + L", size=" + std::to_wstring(width) +
+                              L"x" + std::to_wstring(height));
+#ifdef LRC_DECK_VARIANT
+            LogDeckContext(deckDrawn);
+#endif
             drawContextLogged_ = true;
         }
         if (deck <= 0) {
@@ -207,7 +248,6 @@ public:
             timingOffsetParameter_ = 0.5f;
             recordedTimes_.clear();
             recordingNextLine_ = 0;
-            CaptureTextTimestamp();
             loader_.Request(path);
             Diagnostics::Info(L"Queued asynchronous lyrics load: " + path.wstring());
         }
@@ -220,7 +260,6 @@ public:
                 if (autoTagLrcParameter_) EnsureLyricsHashtag(deck, lyrics_.synchronized);
             }
         }
-        CheckTextChanges();
         if (lyrics_.empty()) {
             if (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition(),
                                         backgroundParameter_ != 0, BackgroundColor()) ||
@@ -295,6 +334,40 @@ private:
         else Diagnostics::Info(synchronized ? L"Added #sylt to VirtualDJ User 1"
                                                      : L"Added # - uslt to VirtualDJ User 1");
     }
+
+#ifdef LRC_DECK_VARIANT
+    // Hosted in a deck's FX chain, unprefixed script queries are evaluated against that
+    // deck, so "get_deck" names the deck this instance belongs to. Each deck gets its own
+    // plugin instance, so the answer is stable; it's re-read every frame anyway in case
+    // VirtualDJ moves the effect. Returns 0 when it can't tell (nothing is drawn then).
+    int OwnDeck() {
+        double deck = 0.0;
+        if (SUCCEEDED(GetInfo("get_deck", &deck)) && deck >= 1.0 && deck <= 99.0)
+            return static_cast<int>(deck);
+        return 0;
+    }
+
+    // One-shot diagnostics so a first test in VirtualDJ tells us whether the deck context
+    // actually works as assumed (the previous per-deck attempt was dropped without notes).
+    void LogDeckContext(HRESULT deckDrawn) {
+        double getDeck = -1.0;
+        const HRESULT deckResult = GetInfo("get_deck", &getDeck);
+        char ownPath[4096]{};
+        const HRESULT pathResult = GetStringInfo("get_filepath", ownPath, sizeof(ownPath));
+        Diagnostics::Info(L"Deck context: DrawDeck hr=" + std::to_wstring(deckDrawn) +
+                          L", get_deck hr=" + std::to_wstring(deckResult) + L" value=" +
+                          std::to_wstring(getDeck) + L", unprefixed get_filepath hr=" +
+                          std::to_wstring(pathResult) + L" value=[" +
+                          WideFromUtf8(ownPath) + L"]");
+        for (int deck = 1; deck <= 4; ++deck) {
+            char command[64]{}, value[4096]{};
+            std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
+            if (SUCCEEDED(GetStringInfo(command, value, sizeof(value))) && value[0])
+                Diagnostics::Info(L"  deck " + std::to_wstring(deck) + L" file=[" +
+                                  WideFromUtf8(value) + L"]");
+        }
+    }
+#endif
 
     int VisibleVideoDeck() {
         double balance = 0.0, leftDeck = 1.0, rightDeck = 2.0;
@@ -537,7 +610,7 @@ private:
             // with a folder/playlist focused in the browser (rather than an actual song row)
             // is a common way to hit this, so tell the user instead of failing silently.
             MessageBoxW(GetForegroundWindow(), L"Select an MP3 song row in the VirtualDJ browser first.",
-                       L"LRC Master", MB_OK | MB_ICONWARNING);
+                       LRC_PLUGIN_WNAME, MB_OK | MB_ICONWARNING);
             return;
         }
         // Never touch loadedPath_/lyrics_/currentDeck_/texture_ here: those belong to the
@@ -737,32 +810,6 @@ private:
         pendingTimingWrite_ = false;
     }
 
-    std::filesystem::path TextPath() const {
-        auto path = loadedPath_;
-        path.replace_extension(L".txt");
-        return path;
-    }
-
-    void CaptureTextTimestamp() {
-        std::error_code error;
-        const auto timestamp = std::filesystem::last_write_time(TextPath(), error);
-        textWriteTime_ = error ? std::optional<std::filesystem::file_time_type>{} : timestamp;
-        nextTextCheck_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-    }
-
-    void CheckTextChanges() {
-        if (loadedPath_.empty() || std::chrono::steady_clock::now() < nextTextCheck_) return;
-        nextTextCheck_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
-        std::error_code error;
-        const auto timestamp = std::filesystem::last_write_time(TextPath(), error);
-        const std::optional<std::filesystem::file_time_type> current = error
-            ? std::optional<std::filesystem::file_time_type>{} : timestamp;
-        if (current == textWriteTime_) return;
-        textWriteTime_ = current;
-        loader_.Request(loadedPath_);
-        Diagnostics::Info(L"TXT change detected; queued lyrics reload");
-    }
-
     void OpenAdvancedDialog() {
         AdvancedAppearanceSettings settings{
             FontFamily(), BackdropStyle(), BackdropStrength(),
@@ -806,6 +853,7 @@ private:
                                     static_cast<float>(std::size(kBackgroundPalette) - 1);
         texture_.Reset();
         SaveAdvancedSettings();
+        PublishSettingsChange();
     }
 
     void LoadAdvancedSettings() {
@@ -828,6 +876,12 @@ private:
         verticalPositionParameter_ = (std::max(10, value(L"VerticalPercent", 50, 90)) / 100.0f - 0.1f) / 0.8f;
         useVolumeFadersParameter_ = value(L"UseUpfaders", 0, 1);
         autoTagLrcParameter_ = value(L"AutoTag", 1, 1);
+        // Shared with the other LRC instances; the fallback keeps the current value so an
+        // ini written by an older version doesn't reset what VirtualDJ restored.
+        wholeLineHighlightParameter_ = value(L"WholeLineHighlight", wholeLineHighlightParameter_ != 0, 1);
+        countdownGapParameter_ = static_cast<float>(
+            std::clamp(value(L"CountdownGapSeconds", CountdownGapSeconds(), 10), 3, 10) - 3) / 7.0f;
+        showHeadingParameter_ = value(L"ShowHeading", showHeadingParameter_ != 0, 1);
         customAppearance_ = {
             value(L"CustomFont", FontFamily(), 5),
             value(L"CustomBackdrop", BackdropStyle(), 2),
@@ -870,25 +924,53 @@ private:
         write(L"CustomReadColor", customAppearance_.readColor);
         write(L"CustomBackgroundEnabled", customAppearance_.backgroundEnabled ? 1u : 0u);
         write(L"CustomBackgroundColor", customAppearance_.backgroundColor);
+        write(L"WholeLineHighlight", wholeLineHighlightParameter_ != 0 ? 1u : 0u);
+        write(L"CountdownGapSeconds", static_cast<std::size_t>(CountdownGapSeconds()));
+        write(L"ShowHeading", showHeadingParameter_ != 0 ? 1u : 0u);
     }
 
-    void OpenTextEditor() {
-        if (loadedPath_.empty()) {
-            Diagnostics::Error(L"Cannot edit TXT because no track is loaded");
+    // --- Settings shared between LRC Master and LRC Deck instances ---------------------
+    // All appearance settings live in LRC Advanced.ini. Whichever instance saves a change
+    // bumps the global VirtualDJ variable $lrc_settings_rev; every instance compares it once
+    // per frame (an in-process VDJ query, no file I/O) and re-reads the ini only when the
+    // number moved. The per-track timing offset is deliberately not shared.
+    static constexpr const char* kSettingsRevQuery = "get_var '$lrc_settings_rev'";
+
+    int SettingsRevision() {
+        double revision = 0.0;
+        if (FAILED(GetInfo(kSettingsRevQuery, &revision))) return seenSettingsRevision_;
+        return static_cast<int>(revision);
+    }
+
+    void PublishSettingsChange() {
+        const int next = SettingsRevision() + 1;
+        char command[64]{};
+        std::snprintf(command, sizeof(command), "set '$lrc_settings_rev' %d", next);
+        SendCommand(command);
+        seenSettingsRevision_ = next;
+    }
+
+    void SyncSharedSettings() {
+        if (!settingsSynced_) {
+            // First frame: VirtualDJ has finished restoring this plugin's own saved
+            // parameters by now. The shared ini wins; if it predates the shared keys,
+            // seed them from whatever this instance currently has.
+            const auto path = AdvancedSettingsPath().wstring();
+            const bool hasSharedKeys = GetPrivateProfileIntW(L"Advanced", L"CountdownGapSeconds",
+                                                             -1, path.c_str()) >= 0;
+            LoadAdvancedSettings();
+            if (!hasSharedKeys) SaveAdvancedSettings();
+            seenSettingsRevision_ = SettingsRevision();
+            settingsSynced_ = true;
             return;
         }
-        const auto path = TextPath();
-        if (!std::filesystem::exists(path)) {
-            std::ofstream create{path, std::ios::binary};
-            if (!create) {
-                Diagnostics::Error(L"Cannot create lyrics TXT: " + path.wstring());
-                return;
-            }
-        }
-        const std::wstring parameters = L"\"" + path.wstring() + L"\"";
-        const auto result = reinterpret_cast<std::intptr_t>(
-            ShellExecuteW(nullptr, L"open", L"notepad.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL));
-        if (result <= 32) Diagnostics::Error(L"Cannot open lyrics TXT editor: " + path.wstring());
+        const int revision = SettingsRevision();
+        if (revision == seenSettingsRevision_) return;
+        seenSettingsRevision_ = revision;
+        LoadAdvancedSettings();
+        texture_.Reset();
+        headingTexture_.Reset();
+        Diagnostics::Info(L"Shared settings reloaded (revision " + std::to_wstring(revision) + L")");
     }
 
     ID3D11Device* device_{};
@@ -922,14 +1004,14 @@ private:
     std::filesystem::path pendingEditorAudioPath_, pendingEditorTextPath_;
     struct PendingScript { HANDLE process; std::filesystem::path outputPath; std::wstring label; };
     std::vector<PendingScript> pendingScripts_;
-    std::optional<std::filesystem::file_time_type> textWriteTime_;
-    std::chrono::steady_clock::time_point nextTextCheck_{};
     MasterDeckSelector masterDeckSelector_;
     int useVolumeFadersParameter_{};
     int autoTagLrcParameter_{1};
     int backgroundParameter_{};
     float backgroundColorParameter_{};
     AdvancedAppearanceSettings customAppearance_{};
+    bool settingsSynced_{};
+    int seenSettingsRevision_{};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {

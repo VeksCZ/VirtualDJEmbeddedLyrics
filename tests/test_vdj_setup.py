@@ -229,5 +229,31 @@ class PackageLayoutTests(unittest.TestCase):
                                      for name in vdj_setup.WINDOWS_PAYLOAD_FILES))
 
 
+    @unittest.skipUnless(sys.platform == "win32", "Native Windows plugin installation")
+    def test_windows_install_adds_deck_effect_with_its_own_tag_writer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = root / "VirtualDJ"
+            payload = root / "Plugins"
+            (home / "MyLists").mkdir(parents=True)
+            self._touch_files(payload, vdj_setup.WINDOWS_PAYLOAD_FILES)
+            self._touch_files(payload, vdj_setup.WINDOWS_DECK_PAYLOAD_FILES)
+            layout = vdj_setup.PackageLayout(root=root, payload=payload, version="1.2.3")
+            deck = home / "Plugins64" / "VideoEffect"
+
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+                vdj_setup.run_action(layout, "install", home, lambda _message: None)
+                self.assertTrue(all((deck / name).is_file()
+                                    for name in vdj_setup.WINDOWS_DECK_PAYLOAD_FILES))
+                manifest = json.loads(
+                    (home / "LRC Lyrics Installation.json").read_text(encoding="utf-8"))
+                self.assertIn(str(Path("Plugins64") / "VideoEffect" / "LRCDeck.dll"),
+                              manifest["Files"])
+
+                vdj_setup.run_action(layout, "uninstall", home, lambda _message: None)
+                self.assertFalse(any((deck / name).exists()
+                                     for name in vdj_setup.WINDOWS_DECK_PAYLOAD_FILES))
+
+
 if __name__ == "__main__":
     unittest.main()

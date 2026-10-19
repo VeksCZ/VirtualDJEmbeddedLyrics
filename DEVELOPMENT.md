@@ -21,14 +21,14 @@ py -m pip install -r requirements-build.txt
 ./build-release.ps1
 ```
 
-The script builds both supported DLLs and the standalone LyricsTools application,
+The script builds the three plugin DLLs and the standalone LyricsTools application,
 runs C++ and Python tests (including native installer integration tests), then
 leaves only the publishable artifacts:
 
 - `dist/LyricsTools-Windows-v<VERSION>.zip[.sha256]`
 
-The release version comes from the root `VERSION` file and is compiled into both
-plugins. Normal packages contain only LRC Master and LRC BlackOut. Temporary
+The release version comes from the root `VERSION` file and is compiled into all
+plugins. Packages contain LRC Master, LRC BlackOut and LRC Deck. Temporary
 compiler output and the extracted staging package are removed after a successful
 build.
 

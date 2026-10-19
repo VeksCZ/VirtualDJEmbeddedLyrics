@@ -30,6 +30,17 @@ MAC_PAYLOAD_FILES = (
     "LRCBlackOut.bundle",
 )
 PAYLOAD_FILES = MAC_PAYLOAD_FILES if sys.platform == "darwin" else WINDOWS_PAYLOAD_FILES
+# Optional per-deck video effect (Windows only). It lives in VideoEffect, not VideoOverlay,
+# so VirtualDJ lets it run inside a single deck's FX chain. It needs its own copy of the
+# tag writer because the plugin looks for the script next to its own DLL.
+WINDOWS_DECK_PAYLOAD_FILES = (
+    "LRCDeck.dll",
+    "EmbeddedLyricsTagWriter.py",
+)
+
+
+def deck_effect_directory(virtualdj_home: Path) -> Path:
+    return virtualdj_home / "Plugins64" / "VideoEffect"
 
 
 @dataclass(frozen=True)
@@ -600,10 +611,16 @@ def _run_action_windows(
         return
 
     overlay = plugin_directory(virtualdj_home)
+    deck_effects = deck_effect_directory(virtualdj_home)
+    sources = list(WINDOWS_PAYLOAD_FILES)
     managed = [overlay / name for name in WINDOWS_PAYLOAD_FILES]
+    deck_paths = [deck_effects / name for name in WINDOWS_DECK_PAYLOAD_FILES]
+    if (layout.payload / WINDOWS_DECK_PAYLOAD_FILES[0]).is_file():
+        sources += list(WINDOWS_DECK_PAYLOAD_FILES)
+        managed += deck_paths
     manifest = virtualdj_home / "LRC Lyrics Installation.json"
     legacy = _windows_legacy_paths(virtualdj_home)
-    uninstall_paths = list(dict.fromkeys(managed + [
+    uninstall_paths = list(dict.fromkeys(managed + deck_paths + [
         overlay / "LRC Master.dll", overlay / "LRC BlackOut.dll", manifest,
     ]))
     affected = uninstall_paths if action == "uninstall" else list(
@@ -643,7 +660,7 @@ def _run_action_windows(
     try:
         for path in legacy:
             _remove_item(path)
-        for name, destination in zip(WINDOWS_PAYLOAD_FILES, managed):
+        for name, destination in zip(sources, managed):
             _copy_verified_file(layout.payload / name, destination)
             installed.append(destination)
         _atomic_json(manifest, {
