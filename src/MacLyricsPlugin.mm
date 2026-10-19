@@ -72,7 +72,7 @@ constexpr const char* kStrengthNames[] = {"Thin", "Normal", "Strong"};
 
 // Shared with LRC Master/LRC Deck in the same VirtualDJ process (and with the key names of
 // the Windows LRC Advanced.ini). Whichever instance saves bumps $lrc_settings_rev.
-struct Settings {
+struct LrcSettings {
     int font{}, backdrop{}, strength{1};
     int textColor{}, highlightColor{1}, readColor{2};
     bool backgroundEnabled{};
@@ -93,9 +93,9 @@ int ReadInt(NSUserDefaults* d, const char* name, int fallback, int low, int high
     return std::clamp(static_cast<int>([d integerForKey:Key(name)]), low, high);
 }
 
-Settings LoadSettings() {
+LrcSettings LoadSettings() {
     NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
-    Settings s;
+    LrcSettings s;
     s.font = ReadInt(d, "Font", s.font, 0, 5);
     s.backdrop = ReadInt(d, "Backdrop", s.backdrop, 0, 2);
     s.strength = ReadInt(d, "Strength", s.strength, 0, 2);
@@ -116,7 +116,7 @@ Settings LoadSettings() {
     return s;
 }
 
-void SaveSettings(const Settings& s) {
+void SaveSettings(const LrcSettings& s) {
     NSUserDefaults* d = [NSUserDefaults standardUserDefaults];
     auto put = [&](const char* name, int value) { [d setInteger:value forKey:Key(name)]; };
     put("Font", s.font); put("Backdrop", s.backdrop); put("Strength", s.strength);
@@ -129,7 +129,7 @@ void SaveSettings(const Settings& s) {
     put("CountdownGapSeconds", s.countdownGapSeconds);
 }
 
-MacTextStyle Style(const Settings& s) {
+MacTextStyle MakeTextStyle(const LrcSettings& s) {
     MacTextStyle style;
     style.font = s.font;
     style.backdrop = s.backdrop;
@@ -320,7 +320,7 @@ public:
             if (!lyrics_.empty() && settings_.autoTag) EnsureLyricsHashtag(deck);
         }
 
-        const auto style = Style(settings_);
+        const auto style = MakeTextStyle(settings_);
         id<MTLDevice> device = encoder.device;
         bool drawn = false;
         if (lyrics_.empty()) {
@@ -634,7 +634,7 @@ private:
             [alert addButtonWithTitle:@"Apply"];
             [alert addButtonWithTitle:@"Cancel"];
             NSView* view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 560, 400)];
-            const Settings s = settings_;
+            const LrcSettings s = settings_;
             Label(view, NSMakeRect(0, 372, 120, 20), @"Font");
             NSPopUpButton* font = Popup(view, NSMakeRect(130, 368, 150, 26), kFontNames, std::size(kFontNames), s.font);
             Label(view, NSMakeRect(290, 372, 100, 20), @"Backdrop");
@@ -681,7 +681,7 @@ private:
             for (NSSlider* slider in @[timed, untimed, size, position]) slider.target = nil;
             relay = nil;
             if (!apply) return;
-            Settings updated = settings_;
+            LrcSettings updated = settings_;
             updated.font = static_cast<int>(font.indexOfSelectedItem);
             updated.backdrop = static_cast<int>(backdrop.indexOfSelectedItem);
             updated.strength = static_cast<int>(strength.indexOfSelectedItem);
@@ -712,7 +712,7 @@ private:
     }
 
     std::recursive_mutex mutex_;
-    Settings settings_;
+    LrcSettings settings_;
     bool settingsSynced_{};
     int seenSettingsRevision_{};
     MacTextLayer lyricsLayer_;
