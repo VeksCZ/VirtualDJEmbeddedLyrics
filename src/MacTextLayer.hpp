@@ -46,7 +46,6 @@ private:
     id<MTLDevice> __strong pipelineDevice_ = nil;
     id<MTLTexture> __strong texture_ = nil;
     id<MTLRenderPipelineState> __strong pipeline_ = nil;
-    MTLPixelFormat pipelineFormat_ = MTLPixelFormatInvalid;
     std::wstring cacheKey_;
 };
 #endif

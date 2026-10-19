@@ -5,7 +5,7 @@ master video output. The project provides two video overlays for Windows and mac
 
 - **LRC Master** displays the lyrics.
 - **LRC BlackOut** adds an optional black background behind overlays.
-- **LRC Deck** (Windows) displays each deck's own lyrics inside that deck's video,
+- **LRC Deck** displays each deck's own lyrics inside that deck's video,
   so the deck previews show exactly what the audience will see.
 
 ## Download and install
@@ -49,7 +49,7 @@ LRC Master follows the video crossfader by default. Enable its **Upfaders**
 option if you prefer the effective audio-fader result. A track with no lyrics
 displays `...`.
 
-## Lyrics in the deck previews (LRC Deck, Windows)
+## Lyrics in the deck previews (LRC Deck)
 
 **LRC Deck** is an ordinary video effect for a single deck's FX chain. It draws
 the deck's picture (or the black canvas of an audio-only track) and then that
@@ -79,8 +79,11 @@ text over the master output, so normally only one copy is visible (a second one
 can briefly show through while the crossfader blends two decks).
 
 LRC Master and LRC Deck share all appearance and Settings-panel options (stored
-in `%LOCALAPPDATA%\VirtualDJ\LRC Advanced.ini`); a change saved in either one is
-picked up by the others immediately. The lyrics timing offset stays per deck.
+in `%LOCALAPPDATA%\VirtualDJ\LRC Advanced.ini` on Windows and in the VirtualDJ
+preferences on macOS); a change saved in either one is picked up by the others
+immediately. The lyrics timing offset stays per deck. On macOS LyricsTools installs
+`LRCDeck.bundle` into the `VideoEffect` folder next to `VideoOverlay`, and the same
+pad and `ONSONGLOAD` actions work there.
 
 ## Supported lyrics
 
@@ -190,7 +193,7 @@ detects both `~/Library/Application Support/VirtualDJ` and the legacy
 `~/Documents/VirtualDJ` home. Music on external drives is registered in that
 volume's `/Volumes/<name>/VirtualDJ/database.xml`.
 
-Each macOS package contains universal LRC Master and LRC BlackOut `.bundle`
+Each macOS package contains universal LRC Master, LRC Deck and LRC BlackOut `.bundle`
 plugins inside the architecture-specific LyricsTools app. The Plugin tab selects
 the proper VirtualDJ plugin location automatically. Folder/MyLists synchronization, Search DB
 registration, and MP3 lyrics maintenance are available on both platforms.

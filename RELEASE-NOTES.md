@@ -1,6 +1,16 @@
-# LRC Lyrics for VirtualDJ 0.11.0
+# LRC Lyrics for VirtualDJ 0.12.0
 
 ## Changes
+
+- **macOS now has everything the Windows plugins have:**
+  - **LRC Deck** for macOS (lyrics inside one deck's video and its preview), installed by LyricsTools into `VideoEffect` next to `VideoOverlay`.
+  - Full **Advanced** settings in LRC Master / LRC Deck: font, outline/shadow and strength, text/highlight/read colors, solid background, timed and untimed line counts, font size, vertical position, upfaders, auto-tag and **Record timing**.
+  - Settings-panel options **Whole line**, **Countdown gap**, **Timing offset** and **Show name**, plus the "Artist - Title" heading, countdowns in pauses and the progressive highlight.
+  - Settings are shared between LRC Master and LRC Deck and apply immediately, as on Windows.
+- The macOS Advanced window has no live preview yet; changes show in the video output after **Apply**.
+- The macOS build is verified by CI (Apple Silicon and Intel) but hasn't been tested in VirtualDJ on a real Mac yet. Please report anything that looks different from Windows.
+
+## 0.11.0
 
 - **macOS:** LRC Master now has **Edit lyrics** and **Edit browsed** with the same **LRC lyrics** window as Windows: what the MP3 already contains, **Search TIDAL / LRCLIB** with the source/match/timed report, the Timed/Untimed editor and **Save to MP3 tag**. LyricsTools installs `LrcHelper` next to the macOS plugin bundles for saving and TIDAL search; without it the window still searches LRCLIB on its own.
 - The built-in LRCLIB fallback is now shared C++ for Windows and macOS (WinHTTP / NSURLSession), with its matching tests running on both platforms.
