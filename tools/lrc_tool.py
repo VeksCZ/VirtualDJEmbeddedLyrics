@@ -183,6 +183,8 @@ def normalize_title(text: str | None) -> str:
         r"\(live[^)]*\)", r"-?\s*live version", r"\(radio edit\)",
         r"-?\s*radio edit", r"\(explicit\)", r"\(clean\)",
         r"\(deluxe[^)]*\)", r"\(bonus track\)",
+        # Unbracketed credits, e.g. TIDAL's "Guess featuring billie eilish".
+        r"\s+(feat\.?|featuring|ft\.)\s.*$",
     ]
     for pattern in noise:
         normalized = re.sub(pattern, "", normalized, flags=re.IGNORECASE)
@@ -203,10 +205,46 @@ def similarity(left: str, right: str) -> float:
     return difflib.SequenceMatcher(None, left, right).ratio() if left and right else 0.0
 
 
+ARTIST_SEPARATOR_RE = re.compile(r"\s*(?:,|;|/|&|\+|\bx\b|\band\b|\bwith\b|\bvs\.?\b)\s*",
+                                 re.IGNORECASE)
+
+
+def split_artists(text: str | None) -> list[str]:
+    """'Charlie Xcx, Billie Eilish' -> ['charlie xcx', 'billie eilish'] (normalized)."""
+    if not text:
+        return []
+    base = re.sub(r"\b(feat|featuring|ft)\.?\b", ",", text, flags=re.IGNORECASE)
+    parts = (normalize_artist(part) for part in ARTIST_SEPARATOR_RE.split(base))
+    return [part for part in parts if part]
+
+
+def artist_similarity(tagged: str | None, *candidates: str | None) -> float:
+    """Best match between the tagged artist(s) and a candidate's artist name(s).
+
+    Compares the full strings and also every individual artist, so a tag listing
+    several artists still matches a track whose primary artist is only one of them,
+    and a small misspelling ("Charlie" vs "Charli") does not sink the match.
+    """
+    target = normalize_artist(tagged)
+    names = [normalize_artist(name) for name in candidates if name]
+    best = max((similarity(target, name) for name in names), default=0.0)
+    tagged_parts = split_artists(tagged)
+    candidate_parts = [part for name in candidates for part in split_artists(name)]
+    for left in tagged_parts:
+        for right in candidate_parts:
+            best = max(best, similarity(left, right))
+    return best
+
+
 class TidalClient:
     """Small tidalapi wrapper with reusable OAuth credentials and safe logging."""
 
-    def __init__(self, session_file: Path, *, persist_session: bool = True, log: LogFunction = print):
+    class LoginRequired(RuntimeError):
+        """Raised by non-interactive clients when no usable saved session exists."""
+
+    def __init__(self, session_file: Path, *, persist_session: bool = True, log: LogFunction = print,
+                 interactive: bool = True):
+        self.interactive = interactive
         import tidalapi  # Imported only when TIDAL access is requested.
 
         self.tidalapi = tidalapi
@@ -257,7 +295,12 @@ class TidalClient:
 
     def _load_or_login(self) -> None:
         if self.load_saved_session():
-            return
+            # load_oauth_session may have refreshed an expired access token; keep it.
+            if self.session.check_login():
+                self.save_session()
+                return
+        if not self.interactive:
+            raise self.LoginRequired("TIDAL login is required; sign in once in LyricsTools.")
         self.log("TIDAL login is required. Opening the device authorization page...")
         login, future = self.session.login_oauth()
         raw_url = str(login.verification_uri_complete)
@@ -293,38 +336,61 @@ class TidalClient:
         artists = getattr(candidate, "artists", None) or []
         return " ".join(str(getattr(item, "name", "")) for item in artists).strip()
 
-    def find_by_search(self, artist, title, duration, tolerance):
-        query = f"{artist or ''} {title or ''}".strip()
-        if not query or not title:
-            return None
-        try:
-            results = self.session.search(query, models=[self.tidalapi.media.Track])
-            candidates = results.get("tracks", []) if isinstance(results, dict) else getattr(results, "tracks", [])
-        except Exception as exc:
-            self.log(f"[WARNING] TIDAL search failed for {query!r}: {exc}")
-            return None
+    @staticmethod
+    def search_queries(artist, title) -> list[str]:
+        """Queries from most to least specific; TIDAL's search is picky about extra words.
 
+        A tag listing several artists or a title carrying "feat. X" often returns nothing
+        useful, so also try the first artist alone and the bare title. Every candidate is
+        still checked against the full tags before it is accepted.
+        """
+        bare_title = re.sub(r"\s*[(\[](feat|ft|featuring|with)\b[^)\]]*[)\]]", "", title or "",
+                            flags=re.IGNORECASE)
+        bare_title = re.sub(r"\s+(feat\.?|featuring|ft\.)\s.*$", "", bare_title,
+                            flags=re.IGNORECASE).strip() or (title or "")
+        artists = split_artists(artist)
+        queries = [f"{artist or ''} {title or ''}".strip()]
+        if artists:
+            queries.append(f"{artists[0]} {bare_title}")
+        queries.append(bare_title)
+        return [query for query in dict.fromkeys(q.strip() for q in queries) if query]
+
+    def find_by_search(self, artist, title, duration, tolerance):
+        if not title:
+            return None
         target_title = normalize_title(title)
         target_artist = normalize_artist(artist)
-        best, best_score = None, 0.0
-        for candidate in candidates:
-            candidate_duration = getattr(candidate, "duration", None)
-            if duration is not None and candidate_duration is not None:
-                if abs(float(candidate_duration) - float(duration)) > tolerance:
-                    continue
-            title_score = similarity(target_title, normalize_title(getattr(candidate, "name", "")))
-            if title_score < 0.65:
+        for query in self.search_queries(artist, title):
+            try:
+                results = self.session.search(query, models=[self.tidalapi.media.Track])
+                candidates = (results.get("tracks", []) if isinstance(results, dict)
+                              else getattr(results, "tracks", []))
+            except Exception as exc:
+                self.log(f"[WARNING] TIDAL search failed for {query!r}: {exc}")
                 continue
-            if target_artist:
-                artist_score = similarity(target_artist, normalize_artist(self.candidate_artist(candidate)))
-                if artist_score < 0.5:
+            best, best_score = None, 0.0
+            for candidate in candidates:
+                candidate_duration = getattr(candidate, "duration", None)
+                if duration is not None and candidate_duration is not None:
+                    if abs(float(candidate_duration) - float(duration)) > tolerance:
+                        continue
+                title_score = similarity(target_title, normalize_title(getattr(candidate, "name", "")))
+                if title_score < 0.65:
                     continue
-                score = title_score * 0.7 + artist_score * 0.3
-            else:
-                score = title_score
-            if score > best_score:
-                best, best_score = candidate, score
-        return best if best_score >= 0.72 else None
+                if target_artist:
+                    all_artists = ", ".join(str(getattr(item, "name", ""))
+                                            for item in (getattr(candidate, "artists", None) or []))
+                    artist_score = artist_similarity(artist, self.candidate_artist(candidate), all_artists)
+                    if artist_score < 0.5:
+                        continue
+                    score = title_score * 0.7 + artist_score * 0.3
+                else:
+                    score = title_score
+                if score > best_score:
+                    best, best_score = candidate, score
+            if best_score >= 0.72:
+                return best
+        return None
 
     def fetch_lrc(self, track) -> str | None:
         self.last_lyrics_error = ""
@@ -355,12 +421,19 @@ class LrclibClient:
         request = urllib.request.Request(
             url, headers={"Accept": "application/json", "User-Agent": self.USER_AGENT})
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            self.last_error = f"HTTP {exc.code}"
+            for attempt in range(2):
+                try:
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        return json.load(response)
+                except urllib.error.HTTPError as exc:
+                    if exc.code == 404:
+                        return None
+                    # LRCLIB answers 502/503 when briefly overloaded; one retry usually works.
+                    if exc.code >= 500 and attempt == 0:
+                        time.sleep(1.5)
+                        continue
+                    self.last_error = f"HTTP {exc.code}"
+                    return None
             return None
         except (OSError, ValueError) as exc:
             self.last_error = str(exc)
@@ -391,32 +464,43 @@ class LrclibClient:
         if lyrics:
             return lyrics, status
 
-        results = self._get_json(
-            "search", {"artist_name": artist, "track_name": title})
-        if not isinstance(results, list):
-            return None, ""
+        # LRCLIB's search matches the artist field literally, so a tag listing several
+        # artists finds nothing; retry with the first artist alone, then as free text.
+        artists = split_artists(artist)
+        searches: list[dict[str, object]] = [{"artist_name": artist, "track_name": title}]
+        if len(artists) > 1:
+            searches.append({"artist_name": artists[0], "track_name": title})
+        searches.append({"q": f"{title} {artists[0] if artists else artist}"})
         target_title = normalize_title(title)
-        target_artist = normalize_artist(artist)
-        ranked = []
-        for record in results:
-            if not isinstance(record, dict):
+        answered = False
+        for search in searches:
+            results = self._get_json("search", search)
+            if not isinstance(results, list):
                 continue
-            record_duration = record.get("duration")
-            if duration and record_duration:
-                try:
-                    if abs(float(record_duration) - duration) > tolerance:
-                        continue
-                except (TypeError, ValueError):
+            answered = True
+            ranked = []
+            for record in results:
+                if not isinstance(record, dict):
                     continue
-            title_score = similarity(target_title, normalize_title(record.get("trackName")))
-            artist_score = similarity(target_artist, normalize_artist(record.get("artistName")))
-            score = title_score * 0.7 + artist_score * 0.3
-            if title_score >= 0.65 and artist_score >= 0.5:
-                ranked.append((score, record))
-        for _score, record in sorted(ranked, key=lambda item: item[0], reverse=True):
-            lyrics, status = self._lyrics(record)
-            if lyrics:
-                return lyrics, status + " search"
+                record_duration = record.get("duration")
+                if duration and record_duration:
+                    try:
+                        if abs(float(record_duration) - duration) > tolerance:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                title_score = similarity(target_title, normalize_title(record.get("trackName")))
+                artist_score = artist_similarity(artist, record.get("artistName"))
+                score = title_score * 0.7 + artist_score * 0.3
+                if title_score >= 0.65 and artist_score >= 0.5:
+                    ranked.append((score, record))
+            for _score, record in sorted(ranked, key=lambda item: item[0], reverse=True):
+                lyrics, status = self._lyrics(record)
+                if lyrics:
+                    self.last_error = ""
+                    return lyrics, status + " search"
+        if answered:
+            self.last_error = ""  # a clean miss is not an outage
         return None, ""
 
 

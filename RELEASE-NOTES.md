@@ -1,6 +1,12 @@
-# LRC Lyrics for VirtualDJ 0.9.0
+# LRC Lyrics for VirtualDJ 0.10.0
 
 ## Changes
+
+- New **LRC lyrics** window (Edit lyrics / Edit browsed): shows what the MP3 already contains, searches lyrics online with **Search TIDAL / LRCLIB** and reports where they were found, what they matched and whether they are timed. Found lyrics go into the editor for review; nothing is saved until **Save to MP3 tag**. Manual pasting/typing stays in the same window.
+- New `LrcHelper.exe`, installed next to the plugins: saving tags and online search no longer need a system Python, Mutagen or a particular LyricsTools location. Without it the plugin still searches LRCLIB on its own.
+- Better online matching (plugin and LyricsTools Online tab): titles such as "Guess featuring billie eilish" and tags listing several artists or a slightly misspelled one now match. TIDAL also retries with the first artist and the bare title; LRCLIB retries once when busy (HTTP 5xx) and with the first artist / free text.
+
+## 0.9.0
 
 - New **LRC Deck** video effect (Windows): shows each deck's own lyrics inside that deck's video, so the deck previews in the skin show exactly what the audience will see. It works on audio-only tracks too and is installed by LyricsTools into `Plugins64\VideoEffect`. See the README for an optional toggle pad and the `ONSONGLOAD` mapping that switches it on automatically for each loaded track.
 - LRC Master and LRC Deck now share all appearance and Settings-panel options (highlight whole line, countdown gap, show name included). A change saved in either one is applied to the others immediately, without restarting VirtualDJ.

@@ -124,7 +124,14 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   trying or applying a built-in preset. The top/bottom lyrics fade remains active
   with either a transparent or solid background.
 - **Next line** and **Previous line** move through plain untimed lyrics.
-- **Edit TXT** creates or opens the current track's same-name TXT file.
+- **Edit lyrics** / **Edit browsed** open the **LRC lyrics** window for the loaded
+  or browsed MP3. It shows which lyrics the MP3 already has, lets you paste or type
+  Timed/Untimed text, and **Search TIDAL / LRCLIB** finds lyrics online (TIDAL by
+  ISRC, then by artist/title/length, then LRCLIB). The window reports where the
+  lyrics were found, what they matched and whether they are timed; nothing is
+  written until **Save to MP3 tag**. TIDAL needs your own TIDAL account, signed in
+  once in LyricsTools (Online tab); LRCLIB needs no account. Without the bundled
+  helper the window still searches LRCLIB on its own.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
   after the track has been unloaded from all decks.
 - **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `# - uslt` for plain
@@ -264,7 +271,11 @@ The selected track has no lyrics supported by this plugin. Verify its embedded
 tags, or place a same-name LRC/TXT file beside the audio file. The diagnostic log
 is `%LOCALAPPDATA%\VirtualDJ\EmbeddedLyrics.log`.
 
-### Record timing or the MP3 tools do not work
+### Saving lyrics from the plugin does not work
+
+LyricsTools installs `LrcHelper.exe` next to the plugins; it saves tags and searches
+online without any system Python. Reinstall the plugin from LyricsTools if it is
+missing. Only without it does the plugin fall back to a system Python with Mutagen:
 
 Install current Python 3 from [python.org](https://www.python.org/downloads/windows/)
 and enable **Add Python to PATH** during setup. Then run:

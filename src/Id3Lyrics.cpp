@@ -295,6 +295,22 @@ void ForEachId3Frame(std::span<const unsigned char> tag, unsigned char version, 
 
 } // namespace
 
+BasicTrackTags ReadBasicTrackTags(const std::filesystem::path& audioPath) {
+    BasicTrackTags result;
+    const auto tagBody = ReadId3Tag(audioPath);
+    if (!tagBody.error.empty()) return result;
+    ForEachId3Frame(tagBody.tag, tagBody.version, [&](const std::string& id, std::span<const unsigned char> frame) {
+        if (frame.empty() || (id != "TPE1" && id != "TIT2")) return;
+        auto value = DecodeText(frame.subspan(1), frame[0]);
+        // Multiple values are NUL-separated in ID3v2.4; keep them readable.
+        for (auto& c : value) if (c == L'\0') c = L'/';
+        std::erase(value, L'\xFEFF');  // UTF-16 BOMs of each value
+        while (!value.empty() && (value.back() == L'/' || value.back() == L' ')) value.pop_back();
+        (id == "TPE1" ? result.artist : result.title) = std::move(value);
+    });
+    return result;
+}
+
 LyricsLoadResult LoadEmbeddedTimedLyrics(const std::filesystem::path& audioPath) {
     LyricsLoadResult result;
     const auto tagBody = ReadId3Tag(audioPath);

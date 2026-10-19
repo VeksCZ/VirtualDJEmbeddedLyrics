@@ -65,6 +65,11 @@ class EventQueue:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        try:
+            # Keeps the plugins' "Find online" pointing at this copy of LyricsTools.
+            vdj_setup.register_lookup_command()
+        except OSError:
+            pass
         self.title("MP3 & Lyrics Tools")
         self.geometry("860x760")
         self.minsize(760, 660)
@@ -1116,4 +1121,8 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 2 and sys.argv[1] == "--lookup-lyrics":
+        # Headless mode used by the VirtualDJ plugin's lyrics dialog: no window at all.
+        import lyrics_lookup
+        sys.exit(lyrics_lookup.main(sys.argv[2:]))
     App().mainloop()

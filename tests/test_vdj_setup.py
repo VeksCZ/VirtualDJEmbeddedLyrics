@@ -153,7 +153,8 @@ class PackageLayoutTests(unittest.TestCase):
                 b"  <recordVideoResolution>1280x720</recordVideoResolution>\r\n"
                 b"</settings>\r\n"
             )
-            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"), \
+                    mock.patch.object(vdj_setup, "register_lookup_command"):
                 backup = vdj_setup.reset_video_window_layout(
                     home, None, lambda _message: None)
             self.assertIsNotNone(backup)
@@ -213,7 +214,8 @@ class PackageLayoutTests(unittest.TestCase):
             legacy.write_bytes(b"legacy")
             layout = vdj_setup.PackageLayout(root=root, payload=payload, version="1.2.3")
 
-            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"), \
+                    mock.patch.object(vdj_setup, "register_lookup_command"):
                 vdj_setup.run_action(layout, "install", home, lambda _message: None)
                 overlay = home / "Plugins64" / "VideoOverlay"
                 self.assertTrue(all((overlay / name).is_file()
@@ -238,13 +240,17 @@ class PackageLayoutTests(unittest.TestCase):
             (home / "MyLists").mkdir(parents=True)
             self._touch_files(payload, vdj_setup.WINDOWS_PAYLOAD_FILES)
             self._touch_files(payload, vdj_setup.WINDOWS_DECK_PAYLOAD_FILES)
+            self._touch_files(payload, [vdj_setup.WINDOWS_HELPER_FILE])
             layout = vdj_setup.PackageLayout(root=root, payload=payload, version="1.2.3")
             deck = home / "Plugins64" / "VideoEffect"
+            helper = home / "Plugins64" / "VideoOverlay" / vdj_setup.WINDOWS_HELPER_FILE
 
-            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"):
+            with mock.patch.object(vdj_setup, "assert_virtualdj_closed"), \
+                    mock.patch.object(vdj_setup, "register_lookup_command"):
                 vdj_setup.run_action(layout, "install", home, lambda _message: None)
                 self.assertTrue(all((deck / name).is_file()
                                     for name in vdj_setup.WINDOWS_DECK_PAYLOAD_FILES))
+                self.assertTrue(helper.is_file())
                 manifest = json.loads(
                     (home / "LRC Lyrics Installation.json").read_text(encoding="utf-8"))
                 self.assertIn(str(Path("Plugins64") / "VideoEffect" / "LRCDeck.dll"),
@@ -253,6 +259,7 @@ class PackageLayoutTests(unittest.TestCase):
                 vdj_setup.run_action(layout, "uninstall", home, lambda _message: None)
                 self.assertFalse(any((deck / name).exists()
                                      for name in vdj_setup.WINDOWS_DECK_PAYLOAD_FILES))
+                self.assertFalse(helper.exists())
 
 
 if __name__ == "__main__":

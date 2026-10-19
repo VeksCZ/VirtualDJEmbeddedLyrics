@@ -116,9 +116,17 @@ $AppDist = Join-Path $BuildDirectory 'app-dist'
 if ($LASTEXITCODE -ne 0) { throw 'Standalone LyricsTools build failed.' }
 Copy-Item -LiteralPath (Join-Path $AppDist 'LyricsTools.exe') -Destination $PackageDirectory
 
+# Windowless helper the plugins start for tag writes and online lookups (no system Python).
+& $PythonCommand -m PyInstaller --noconfirm --clean --onefile --console --name LrcHelper `
+    --paths (Join-Path $ProjectRoot 'tools') --distpath $AppDist `
+    --workpath (Join-Path $BuildDirectory 'helper-build') --specpath (Join-Path $BuildDirectory 'helper-spec') `
+    (Join-Path $ProjectRoot 'tools\lrc_helper.py')
+if ($LASTEXITCODE -ne 0) { throw 'LrcHelper build failed.' }
+
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCDeck.dll') -Destination $PluginsDirectory
+Copy-Item -LiteralPath (Join-Path $AppDist 'LrcHelper.exe') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $InternalDirectory
 

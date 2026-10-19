@@ -119,7 +119,7 @@ public:
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 6 && editTextButton_) { std::thread([this] { OpenEmbeddedLyricsEditor(); }).detach(); editTextButton_ = 0; }
+        } else if (id == 6 && editTextButton_) { double length = 0.0; char lengthQuery[64]{}; std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1); if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0; std::thread([this, length] { OpenEmbeddedLyricsEditor(length); }).detach(); editTextButton_ = 0; }
         else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
@@ -577,7 +577,7 @@ private:
         return result;
     }
 
-    void OpenEmbeddedLyricsEditor() {
+    void OpenEmbeddedLyricsEditor(double durationSeconds) {
         // Snapshot the state the dialog needs, then release the lock before showing it: the
         // dialog runs a modal message loop on this (background) thread and can stay open for
         // a while, so we must not hold stateMutex_ across it or OnDraw on the render thread
@@ -593,7 +593,7 @@ private:
             currentPath = loadedPath_;
             synchronized = lyrics_.synchronized;
         }
-        EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true);
+        EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true, durationSeconds);
     }
     void OpenBrowsedLyricsEditor(const std::filesystem::path& browsed) {
         // get_browsed_filepath returns whatever the browser currently considers "browsed"; if
@@ -620,12 +620,26 @@ private:
         const auto timedPreview = LoadEmbeddedTimedLyrics(browsed);
         EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/false);
     }
-    void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay) {
+    void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay,
+                            double durationSeconds = 0.0) {
         Diagnostics::Info(L"EditEmbeddedLyrics targetPath=[" + targetPath.wstring() + L"]");
         auto timed = LoadEmbeddedTimedLyrics(targetPath);
         auto untimed = LoadEmbeddedUntimedLyrics(targetPath);
         EmbeddedLyricsEdit edit{LyricsText(timed.document, true), LyricsText(untimed.document, false), synchronized,
                                 targetPath.stem().wstring()};
+        edit.audioPath = targetPath;
+        edit.durationSeconds = durationSeconds;
+        if (const auto helper = HelperExecutable(); !helper.empty()) {
+            edit.lookupExecutable = helper.wstring();
+        } else {
+            // Older installs: LyricsTools registers itself here (install/update or start).
+            const auto ini = AdvancedSettingsPath().wstring();
+            wchar_t value[2048]{};
+            GetPrivateProfileStringW(L"Lookup", L"Executable", L"", value, 2048, ini.c_str());
+            edit.lookupExecutable = value;
+            GetPrivateProfileStringW(L"Lookup", L"Script", L"", value, 2048, ini.c_str());
+            edit.lookupScript = value;
+        }
         if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
         const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
         if (editedText.empty()) return;
@@ -722,13 +736,29 @@ private:
             if (SUCCEEDED(GetStringInfo(command,value,sizeof(value))) && std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(value))) == path) return true; }
         return false;
     }
+    // LrcHelper.exe (installed by LyricsTools) bundles Python, mutagen and tidalapi, so tag
+    // writes and online lookups need nothing else on the machine. LRC Deck lives in
+    // VideoEffect and shares the single copy installed next to LRC Master.
+    static std::filesystem::path HelperExecutable() {
+        const auto own = PluginDirectory();
+        for (const auto& directory : {own, own.parent_path() / L"VideoOverlay"}) {
+            std::error_code error;
+            const auto candidate = directory / L"LrcHelper.exe";
+            if (std::filesystem::is_regular_file(candidate, error)) return candidate;
+        }
+        return {};
+    }
+
     // Launches the tag-writer script without blocking OnDraw (the process runs in the
     // background; PollTagWriterScripts picks up its exit code and any stdout/stderr on a later
     // frame). Waiting here would stall the render thread for however long python.exe takes to
     // start and run, which is exactly the stutter the rest of this file works hard to avoid.
     void RunTagWriterScript(const std::wstring& arguments, const wchar_t* label) {
+        const auto helper = HelperExecutable();
         const auto script = PluginDirectory() / L"EmbeddedLyricsTagWriter.py";
-        const std::wstring command = L"py.exe \"" + script.wstring() + L"\" " + arguments;
+        const std::wstring command = !helper.empty()
+            ? L"\"" + helper.wstring() + L"\" " + arguments
+            : L"py.exe \"" + script.wstring() + L"\" " + arguments;
         Diagnostics::Info(std::wstring(L"Tag writer command for ") + label + L": [" + command + L"]");
 
         std::error_code fsError;

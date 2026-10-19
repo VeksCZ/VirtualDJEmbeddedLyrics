@@ -34,3 +34,10 @@ LyricsLoadResult LoadEmbeddedUntimedLyrics(const std::filesystem::path& audioPat
 LyricsLoadResult LoadLrc(const std::filesystem::path& lrcPath);
 LyricsLoadResult LoadPlainTextLyrics(const std::filesystem::path& textPath);
 LyricsLoadResult LoadLyricsForTrack(const std::filesystem::path& audioPath);
+
+// Artist (TPE1) and title (TIT2) from the file's ID3v2 tag; empty when missing.
+struct BasicTrackTags {
+    std::wstring artist;
+    std::wstring title;
+};
+BasicTrackTags ReadBasicTrackTags(const std::filesystem::path& audioPath);

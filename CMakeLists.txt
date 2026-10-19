@@ -84,6 +84,15 @@ if(BUILD_TESTING)
         endif()
         target_link_libraries(renderer_tests PRIVATE d3d11 d3dcompiler)
         add_test(NAME renderer_tests COMMAND renderer_tests)
+
+        add_executable(lrclib_tests tests/LrclibTests.cpp src/LrclibLookup.cpp)
+        target_include_directories(lrclib_tests PRIVATE src)
+        target_compile_definitions(lrclib_tests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+        if(MSVC)
+            target_compile_options(lrclib_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
+        endif()
+        target_link_libraries(lrclib_tests PRIVATE winhttp)
+        add_test(NAME lrclib_tests COMMAND lrclib_tests)
     endif()
 endif()
 
@@ -96,6 +105,7 @@ if(WIN32)
             add_library(${target} SHARED
                 src/AdvancedDialog.cpp
                 src/EmbeddedLyricsEditor.cpp
+                src/LrclibLookup.cpp
                 src/Plugin.cpp
                 src/TextTexture.cpp
                 src/VideoRenderer.cpp
@@ -111,7 +121,7 @@ if(WIN32)
                 target_compile_options(${target} PRIVATE /W4 /external:W0 /permissive- /EHsc)
                 set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
             endif()
-            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comctl32)
+            target_link_libraries(${target} PRIVATE lyrics_core d3d11 d3dcompiler gdi32 comctl32 winhttp)
             set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${output_name}")
         endfunction()
         add_win_lyrics_plugin(EmbeddedLyricsMaster LRCMaster)

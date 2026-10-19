@@ -39,8 +39,39 @@ WINDOWS_DECK_PAYLOAD_FILES = (
 )
 
 
+# Optional windowless helper (Windows only) with Python, mutagen and tidalapi bundled:
+# the plugins use it to save tags and to search lyrics online without a system Python.
+WINDOWS_HELPER_FILE = "LrcHelper.exe"
+
+
 def deck_effect_directory(virtualdj_home: Path) -> Path:
     return virtualdj_home / "Plugins64" / "VideoEffect"
+
+
+def plugin_settings_path() -> Path | None:
+    """The INI shared by the Windows plugins (same path the DLLs compute)."""
+    local = os.environ.get("LOCALAPPDATA")
+    return Path(local) / "VirtualDJ" / "LRC Advanced.ini" if local else None
+
+
+def lookup_command() -> tuple[str, str]:
+    """Executable (and script, when running from source) for the headless lookup mode."""
+    if getattr(sys, "frozen", False):
+        return sys.executable, ""
+    return sys.executable, str(Path(__file__).resolve().with_name("lyrics_tools_gui.py"))
+
+
+def register_lookup_command() -> bool:
+    """Tell the plugins how to start LyricsTools' online lyrics lookup (Windows only)."""
+    path = plugin_settings_path()
+    if sys.platform != "win32" or path is None:
+        return False
+    import ctypes
+    executable, script = lookup_command()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write = ctypes.windll.kernel32.WritePrivateProfileStringW
+    return bool(write("Lookup", "Executable", executable, str(path)) and
+                write("Lookup", "Script", script, str(path)))
 
 
 @dataclass(frozen=True)
@@ -618,9 +649,13 @@ def _run_action_windows(
     if (layout.payload / WINDOWS_DECK_PAYLOAD_FILES[0]).is_file():
         sources += list(WINDOWS_DECK_PAYLOAD_FILES)
         managed += deck_paths
+    helper_path = overlay / WINDOWS_HELPER_FILE
+    if (layout.payload / WINDOWS_HELPER_FILE).is_file():
+        sources.append(WINDOWS_HELPER_FILE)
+        managed.append(helper_path)
     manifest = virtualdj_home / "LRC Lyrics Installation.json"
     legacy = _windows_legacy_paths(virtualdj_home)
-    uninstall_paths = list(dict.fromkeys(managed + deck_paths + [
+    uninstall_paths = list(dict.fromkeys(managed + deck_paths + [helper_path,
         overlay / "LRC Master.dll", overlay / "LRC BlackOut.dll", manifest,
     ]))
     affected = uninstall_paths if action == "uninstall" else list(
@@ -675,6 +710,10 @@ def _run_action_windows(
         manifest.unlink(missing_ok=True)
         _restore_tree(backup, virtualdj_home)
         raise
+    try:
+        register_lookup_command()
+    except OSError as exc:
+        log(f"[WARNING] Online lyrics lookup could not be registered for the plugin: {exc}")
     log(f"LRC Lyrics {layout.version} was installed into: {overlay}")
     log(f"Backup: {backup}")
 
