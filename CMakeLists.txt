@@ -47,7 +47,7 @@ endif()
 if(APPLE)
     set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     function(add_mac_vdj_plugin target source output_name)
-        add_library(${target} MODULE ${source})
+        add_library(${target} MODULE ${source} ${ARGN})
         target_include_directories(${target} PRIVATE src)
         target_include_directories(${target} SYSTEM PRIVATE "${VDJ_SDK_DIR}")
         target_compile_definitions(${target} PRIVATE
@@ -58,7 +58,8 @@ if(APPLE)
         set_target_properties(${target} PROPERTIES
             PREFIX "" OUTPUT_NAME "${output_name}" BUNDLE TRUE BUNDLE_EXTENSION "bundle")
     endfunction()
-    add_mac_vdj_plugin(EmbeddedLyricsMaster src/MacLyricsPlugin.mm LRCMaster)
+    add_mac_vdj_plugin(EmbeddedLyricsMaster src/MacLyricsPlugin.mm LRCMaster
+        src/MacLyricsWindow.mm src/LrclibLookup.cpp src/LrclibHttpMac.mm)
     add_mac_vdj_plugin(Blackout src/MacBlackoutPlugin.mm LRCBlackOut)
 endif()
 
@@ -84,14 +85,22 @@ if(BUILD_TESTING)
         endif()
         target_link_libraries(renderer_tests PRIVATE d3d11 d3dcompiler)
         add_test(NAME renderer_tests COMMAND renderer_tests)
-
-        add_executable(lrclib_tests tests/LrclibTests.cpp src/LrclibLookup.cpp)
-        target_include_directories(lrclib_tests PRIVATE src)
+    endif()
+    # Built-in LRCLIB fallback: shared matching code plus each platform's HTTPS layer.
+    if(WIN32)
+        add_executable(lrclib_tests tests/LrclibTests.cpp src/LrclibLookup.cpp src/LrclibHttpWin.cpp)
         target_compile_definitions(lrclib_tests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
         if(MSVC)
             target_compile_options(lrclib_tests PRIVATE /W4 /permissive- /EHsc /utf-8)
         endif()
         target_link_libraries(lrclib_tests PRIVATE winhttp)
+    elseif(APPLE)
+        add_executable(lrclib_tests tests/LrclibTests.cpp src/LrclibLookup.cpp src/LrclibHttpMac.mm)
+        target_compile_options(lrclib_tests PRIVATE -Wall -Wextra -fobjc-arc)
+        target_link_libraries(lrclib_tests PRIVATE "-framework Foundation")
+    endif()
+    if(TARGET lrclib_tests)
+        target_include_directories(lrclib_tests PRIVATE src)
         add_test(NAME lrclib_tests COMMAND lrclib_tests)
     endif()
 endif()
@@ -105,6 +114,7 @@ if(WIN32)
             add_library(${target} SHARED
                 src/AdvancedDialog.cpp
                 src/EmbeddedLyricsEditor.cpp
+                src/LrclibHttpWin.cpp
                 src/LrclibLookup.cpp
                 src/Plugin.cpp
                 src/TextTexture.cpp

@@ -1,15 +1,55 @@
 #include "LrclibLookup.hpp"
-#ifdef _WIN32
-#include <windows.h>
-#include <winhttp.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <cwctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cwchar>
 #include <string>
+#include <thread>
 #include <vector>
 
+// Portable on purpose (Windows and macOS): no locale-dependent <cwctype> classification,
+// because the "C" locale on macOS treats every non-ASCII letter as punctuation.
 namespace {
+bool IsSpace(wchar_t c) { return c == L' ' || c == L'\t' || c == L'\r' || c == L'\n'; }
+bool IsDigit(wchar_t c) { return c >= L'0' && c <= L'9'; }
+
+// Letters and digits for matching purposes: ASCII alnum plus every non-ASCII character
+// except the common punctuation/symbol blocks.
+bool IsWordChar(wchar_t c) {
+    if (c < 0x80) return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || IsDigit(c) || c == L'_';
+    if (c >= 0x80 && c <= 0xBF) return c == 0xAA || c == 0xB5 || c == 0xBA;  // Latin-1 symbols
+    if (c == 0xD7 || c == 0xF7) return false;                               // × ÷
+    if (c >= 0x2000 && c <= 0x206F) return false;                           // general punctuation
+    if (c >= 0x3000 && c <= 0x303F) return false;                           // CJK punctuation
+    if (c >= 0xFF00 && c <= 0xFF0F) return false;                           // fullwidth punctuation
+    return true;
+}
+
+wchar_t ToLower(wchar_t c) {
+    if (c >= L'A' && c <= L'Z') return static_cast<wchar_t>(c + 32);
+    if (c < 0xC0) return c;
+    if ((c >= 0xC0 && c <= 0xDE) && c != 0xD7) return static_cast<wchar_t>(c + 32);  // Latin-1
+    if (c >= 0x100 && c <= 0x137 && (c % 2) == 0) return static_cast<wchar_t>(c + 1);  // Latin Ext-A
+    if (c >= 0x139 && c <= 0x148 && (c % 2) == 1) return static_cast<wchar_t>(c + 1);
+    if (c >= 0x14A && c <= 0x177 && (c % 2) == 0) return static_cast<wchar_t>(c + 1);
+    if (c == 0x178) return 0xFF;
+    if (c >= 0x179 && c <= 0x17E && (c % 2) == 1) return static_cast<wchar_t>(c + 1);
+    if (c >= 0x391 && c <= 0x3AB && c != 0x3A2) return static_cast<wchar_t>(c + 32);  // Greek
+    if (c >= 0x410 && c <= 0x42F) return static_cast<wchar_t>(c + 32);                 // Cyrillic
+    if (c >= 0x400 && c <= 0x40F) return static_cast<wchar_t>(c + 80);
+    return c;
+}
+
+std::wstring Lower(std::wstring text) {
+    for (auto& c : text) c = ToLower(c);
+    return text;
+}
+
 // ---- Minimal JSON reader (objects, arrays, strings, numbers, literals) -------------
 struct Json {
     enum class Type { Null, Bool, Number, String, Array, Object } type{Type::Null};
@@ -44,7 +84,7 @@ public:
     bool Parse(Json& out) { return Value(out, 0) && (Skip(), p_ == s_.size()); }
 
 private:
-    void Skip() { while (p_ < s_.size() && std::iswspace(s_[p_])) ++p_; }
+    void Skip() { while (p_ < s_.size() && IsSpace(s_[p_])) ++p_; }
     bool Literal(const wchar_t* word) {
         const std::wstring w(word);
         if (s_.compare(p_, w.size(), w) != 0) return false;
@@ -63,7 +103,7 @@ private:
         if (Literal(L"false")) { out.type = Json::Type::Bool; return true; }
         if (Literal(L"null")) { out.type = Json::Type::Null; return true; }
         const std::size_t start = p_;
-        while (p_ < s_.size() && (std::iswdigit(s_[p_]) || std::wcschr(L"+-.eE", s_[p_]))) ++p_;
+        while (p_ < s_.size() && (IsDigit(s_[p_]) || std::wcschr(L"+-.eE", s_[p_]))) ++p_;
         if (start == p_) return false;
         out.type = Json::Type::Number;
         out.number = std::wcstod(s_.substr(start, p_ - start).c_str(), nullptr);
@@ -111,12 +151,27 @@ private:
         for (int i = 0; i < 4; ++i) {
             const wchar_t h = s_[p_++];
             value <<= 4;
-            if (h >= L'0' && h <= L'9') value |= h - L'0';
-            else if (h >= L'a' && h <= L'f') value |= h - L'a' + 10;
-            else if (h >= L'A' && h <= L'F') value |= h - L'A' + 10;
+            if (h >= L'0' && h <= L'9') value |= static_cast<unsigned>(h - L'0');
+            else if (h >= L'a' && h <= L'f') value |= static_cast<unsigned>(h - L'a' + 10);
+            else if (h >= L'A' && h <= L'F') value |= static_cast<unsigned>(h - L'A' + 10);
             else return false;
         }
         return true;
+    }
+    void Append(std::wstring& out, unsigned code) {
+        if constexpr (sizeof(wchar_t) == 2) {
+            out += static_cast<wchar_t>(code);  // surrogate halves pass through unchanged
+        } else {
+            // UTF-32 wchar_t (macOS): join 🎵 style surrogate pairs.
+            if (code >= 0xDC00 && code <= 0xDFFF && !out.empty()) {
+                const auto high = static_cast<unsigned>(out.back());
+                if (high >= 0xD800 && high <= 0xDBFF) {
+                    out.back() = static_cast<wchar_t>(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00));
+                    return;
+                }
+            }
+            out += static_cast<wchar_t>(code);
+        }
     }
     bool String(std::wstring& out) {
         ++p_;  // opening quote
@@ -135,7 +190,7 @@ private:
             case L'u': {
                 unsigned code = 0;
                 if (!Hex4(code)) return false;
-                out += static_cast<wchar_t>(code);  // UTF-16 surrogates pass through as-is
+                Append(out, code);
                 break;
             }
             default: out += e; break;  // \" \\ \/
@@ -148,111 +203,45 @@ private:
 };
 
 // ---- HTTP -------------------------------------------------------------------------
-std::string Utf8(const std::wstring& value) {
-    if (value.empty()) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
-                                         nullptr, 0, nullptr, nullptr);
-    std::string result(static_cast<std::size_t>(std::max(0, size)), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size,
-                        nullptr, nullptr);
-    return result;
-}
-
-std::wstring Widen(const std::string& value) {
-    if (value.empty()) return {};
-    const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
-    std::wstring result(static_cast<std::size_t>(std::max(0, size)), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size);
-    return result;
-}
-
-std::wstring UrlEncode(const std::wstring& value) {
+std::string UrlEncode(const std::wstring& value) {
     static constexpr char kHex[] = "0123456789ABCDEF";
-    std::wstring out;
-    for (unsigned char c : Utf8(value)) {
+    std::string out;
+    for (unsigned char c : LrclibUtf8(value)) {
         if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
             c == '-' || c == '_' || c == '.' || c == '~') {
-            out += static_cast<wchar_t>(c);
+            out += static_cast<char>(c);
         } else {
-            out += L'%';
-            out += static_cast<wchar_t>(kHex[c >> 4]);
-            out += static_cast<wchar_t>(kHex[c & 15]);
+            out += '%';
+            out += kHex[c >> 4];
+            out += kHex[c & 15];
         }
     }
     return out;
 }
 
-struct HttpResult { DWORD status{}; std::wstring body; std::wstring error; };
-
-HttpResult Get(const std::wstring& pathAndQuery) {
-    HttpResult result;
-    HINTERNET session = WinHttpOpen(
-        L"VirtualDJEmbeddedLyrics (https://github.com/VeksCZ/VirtualDJEmbeddedLyrics)",
-        WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!session) { result.error = L"WinHTTP unavailable"; return result; }
-    WinHttpSetTimeouts(session, 10000, 10000, 15000, 15000);
-    HINTERNET connection = WinHttpConnect(session, L"lrclib.net", INTERNET_DEFAULT_HTTPS_PORT, 0);
-    HINTERNET request = connection
-        ? WinHttpOpenRequest(connection, L"GET", pathAndQuery.c_str(), nullptr, WINHTTP_NO_REFERER,
-                             WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
-        : nullptr;
-    std::string body;
-    if (request &&
-        WinHttpSendRequest(request, L"Accept: application/json\r\n", static_cast<DWORD>(-1L),
-                           WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
-        WinHttpReceiveResponse(request, nullptr)) {
-        DWORD size = sizeof(result.status);
-        WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                            WINHTTP_HEADER_NAME_BY_INDEX, &result.status, &size, WINHTTP_NO_HEADER_INDEX);
-        for (DWORD available = 0; WinHttpQueryDataAvailable(request, &available) && available;) {
-            std::string chunk(available, '\0');
-            DWORD read = 0;
-            if (!WinHttpReadData(request, chunk.data(), available, &read) || !read) break;
-            body.append(chunk.data(), read);
-            if (body.size() > 8 * 1024 * 1024) break;
-        }
-        result.body = Widen(body);
-    } else {
-        result.error = L"network error " + std::to_wstring(GetLastError());
-    }
-    if (request) WinHttpCloseHandle(request);
-    if (connection) WinHttpCloseHandle(connection);
-    WinHttpCloseHandle(session);
-    return result;
-}
-
 // One retry on 5xx, like the Python client: LRCLIB returns 502/503 when briefly overloaded.
-bool GetJson(const std::wstring& pathAndQuery, Json& out, std::wstring& error) {
+bool GetJson(const std::string& pathAndQuery, Json& out, std::wstring& error) {
     for (int attempt = 0; attempt < 2; ++attempt) {
-        const auto response = Get(pathAndQuery);
-        if (GetEnvironmentVariableW(L"LRCLIB_DEBUG", nullptr, 0)) {
-            Json probe;
-            const bool parsed = JsonParser(response.body).Parse(probe);
-            fwprintf(stderr, L"[lrclib] %ls -> %lu, %zu chars, parsed=%d items=%zu %ls\n", pathAndQuery.c_str(),
-                     response.status, response.body.size(), parsed, probe.items.size(), response.error.c_str());
-        }
+        const auto response = LrclibHttpGet(pathAndQuery);
         if (!response.error.empty()) { error = response.error; return false; }
         if (response.status == 404) return false;
-        if (response.status >= 500 && attempt == 0) { Sleep(1500); continue; }
+        if (response.status >= 500 && attempt == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+            continue;
+        }
         if (response.status != 200) { error = L"HTTP " + std::to_wstring(response.status); return false; }
-        if (!JsonParser(response.body).Parse(out)) { error = L"unreadable LRCLIB answer"; return false; }
+        if (!JsonParser(LrclibWiden(response.body)).Parse(out)) { error = L"unreadable LRCLIB answer"; return false; }
         return true;
     }
     return false;
 }
 
 // ---- Matching (same rules as tools/lrc_tool.py) ------------------------------------
-std::wstring Lower(std::wstring text) {
-    if (!text.empty())
-        CharLowerBuffW(text.data(), static_cast<DWORD>(text.size()));
-    return text;
-}
-
 std::wstring Words(const std::wstring& text) {
     std::wstring out;
     bool space = false;
     for (wchar_t c : text) {
-        if (std::iswalnum(c) || c == L'_') {
+        if (IsWordChar(c)) {
             if (space && !out.empty()) out += L' ';
             out += c;
             space = false;
@@ -267,13 +256,13 @@ bool StartsWord(const std::wstring& text, std::size_t at, const wchar_t* word) {
     const std::wstring w(word);
     if (text.compare(at, w.size(), w) != 0) return false;
     const std::size_t end = at + w.size();
-    return end >= text.size() || !std::iswalnum(text[end]);
+    return end >= text.size() || !IsWordChar(text[end]);
 }
 
 std::wstring NormalizeArtist(std::wstring text) {
     text = Lower(std::move(text));
     for (std::size_t i = 0; i < text.size(); ++i) {
-        if ((i == 0 || !std::iswalnum(text[i - 1])) &&
+        if ((i == 0 || !IsWordChar(text[i - 1])) &&
             (StartsWord(text, i, L"feat") || StartsWord(text, i, L"featuring") || StartsWord(text, i, L"ft"))) {
             text.resize(i);
             break;
@@ -297,7 +286,7 @@ std::vector<std::wstring> SplitArtists(const std::wstring& text) {
     for (std::size_t i = 0; i < lower.size(); ++i) {
         const wchar_t c = lower[i];
         if (std::wcschr(L",;/&+", c)) { flush(); continue; }
-        const bool boundary = i == 0 || !std::iswalnum(lower[i - 1]);
+        const bool boundary = i == 0 || !IsWordChar(lower[i - 1]);
         bool joined = false;
         if (boundary) {
             for (const wchar_t* word : {L"x", L"and", L"with", L"vs", L"feat", L"featuring", L"ft"}) {
@@ -317,18 +306,22 @@ std::vector<std::wstring> SplitArtists(const std::wstring& text) {
 
 std::wstring FormatDuration(double seconds) {
     if (seconds <= 0) return {};
-    const int total = static_cast<int>(std::lround(seconds));
+    const long total = std::lround(seconds);
     wchar_t buffer[16]{};
-    swprintf_s(buffer, L"%d:%02d", total / 60, total % 60);
+    std::swprintf(buffer, 16, L"%ld:%02ld", total / 60, total % 60);
     return buffer;
+}
+
+bool HasText(const std::wstring& text) {
+    return std::any_of(text.begin(), text.end(), [](wchar_t c) { return !IsSpace(c); });
 }
 
 bool Lyrics(const Json& record, LrclibMatch& match, const wchar_t* suffix) {
     if (record.type != Json::Type::Object || record.Flag(L"instrumental")) return false;
     auto synced = record.Text(L"syncedLyrics");
     auto plain = record.Text(L"plainLyrics");
-    const bool timed = synced.find_first_not_of(L" \r\n\t") != std::wstring::npos;
-    if (!timed && plain.find_first_not_of(L" \r\n\t") == std::wstring::npos) return false;
+    const bool timed = HasText(synced);
+    if (!timed && !HasText(plain)) return false;
     match.found = true;
     match.synchronized = timed;
     match.text = timed ? synced : plain;
@@ -339,6 +332,74 @@ bool Lyrics(const Json& record, LrclibMatch& match, const wchar_t* suffix) {
     return true;
 }
 }  // namespace
+
+std::string LrclibUtf8(const std::wstring& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        auto code = static_cast<std::uint32_t>(value[i]);
+        if constexpr (sizeof(wchar_t) == 2) {
+            if (code >= 0xD800 && code <= 0xDBFF && i + 1 < value.size()) {
+                const auto low = static_cast<std::uint32_t>(value[i + 1]);
+                if (low >= 0xDC00 && low <= 0xDFFF) {
+                    code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                    ++i;
+                }
+            }
+        }
+        if (code < 0x80) {
+            out += static_cast<char>(code);
+        } else if (code < 0x800) {
+            out += static_cast<char>(0xC0 | (code >> 6));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else if (code < 0x10000) {
+            out += static_cast<char>(0xE0 | (code >> 12));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (code >> 18));
+            out += static_cast<char>(0x80 | ((code >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (code & 0x3F));
+        }
+    }
+    return out;
+}
+
+std::wstring LrclibWiden(const std::string& utf8) {
+    std::wstring out;
+    out.reserve(utf8.size());
+    for (std::size_t i = 0; i < utf8.size();) {
+        const auto lead = static_cast<unsigned char>(utf8[i]);
+        std::uint32_t code = 0xFFFD;
+        std::size_t length = 1;
+        if (lead < 0x80) { code = lead; }
+        else if ((lead >> 5) == 0x6) { length = 2; code = lead & 0x1F; }
+        else if ((lead >> 4) == 0xE) { length = 3; code = lead & 0x0F; }
+        else if ((lead >> 3) == 0x1E) { length = 4; code = lead & 0x07; }
+        if (length > 1) {
+            if (i + length > utf8.size()) { code = 0xFFFD; length = 1; }
+            else {
+                for (std::size_t k = 1; k < length; ++k) {
+                    const auto next = static_cast<unsigned char>(utf8[i + k]);
+                    if ((next >> 6) != 0x2) { code = 0xFFFD; length = 1; break; }
+                    code = (code << 6) | (next & 0x3F);
+                }
+            }
+        }
+        i += length;
+        if constexpr (sizeof(wchar_t) == 2) {
+            if (code >= 0x10000) {
+                code -= 0x10000;
+                out += static_cast<wchar_t>(0xD800 + (code >> 10));
+                out += static_cast<wchar_t>(0xDC00 + (code & 0x3FF));
+                continue;
+            }
+        }
+        out += static_cast<wchar_t>(code);
+    }
+    return out;
+}
 
 double LrclibSimilarity(const std::wstring& a, const std::wstring& b) {
     // 2*LCS/(|a|+|b|): close to difflib's ratio for short strings like titles.
@@ -391,27 +452,27 @@ LrclibMatch LookupLrclib(const std::wstring& artist, const std::wstring& title,
         match.error = L"the MP3 has no artist or title tag";
         return match;
     }
-    const auto base = L"artist_name=" + UrlEncode(artist) + L"&track_name=" + UrlEncode(title);
-    std::wstring query = L"/api/get?" + base;
+    const auto base = "artist_name=" + UrlEncode(artist) + "&track_name=" + UrlEncode(title);
+    std::string query = "/api/get?" + base;
     if (durationSeconds >= 1 && durationSeconds <= 3600)
-        query += L"&duration=" + std::to_wstring(std::lround(durationSeconds));
+        query += "&duration=" + std::to_string(std::lround(durationSeconds));
     Json exact;
     if (GetJson(query, exact, match.error) && Lyrics(exact, match, L"")) return match;
 
     // LRCLIB's search matches the artist field literally, so a tag listing several artists
     // ("Charlie Xcx, Billie Eilish") finds nothing; retry with the first artist alone and
     // then as free text. Every candidate is still checked against the full tags.
-    std::vector<std::wstring> searches{base};
+    std::vector<std::string> searches{base};
     const auto artists = SplitArtists(artist);
     if (artists.size() > 1)
-        searches.push_back(L"artist_name=" + UrlEncode(artists.front()) + L"&track_name=" + UrlEncode(title));
-    searches.push_back(L"q=" + UrlEncode(title + L" " + (artists.empty() ? artist : artists.front())));
+        searches.push_back("artist_name=" + UrlEncode(artists.front()) + "&track_name=" + UrlEncode(title));
+    searches.push_back("q=" + UrlEncode(title + L" " + (artists.empty() ? artist : artists.front())));
     const auto targetTitle = NormalizeLrclibTitle(title);
     std::wstring searchError;
     bool answered = false;
     for (const auto& search : searches) {
         Json results;
-        if (!GetJson(L"/api/search?" + search, results, searchError)) continue;
+        if (!GetJson("/api/search?" + search, results, searchError)) continue;
         if (results.type != Json::Type::Array) continue;
         answered = true;
         std::vector<std::pair<double, const Json*>> ranked;
@@ -433,4 +494,3 @@ LrclibMatch LookupLrclib(const std::wstring& artist, const std::wstring& title,
     else if (!searchError.empty()) match.error = searchError;
     return match;
 }
-#endif

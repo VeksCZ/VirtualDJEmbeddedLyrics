@@ -34,6 +34,12 @@ mkdir -p "$package_dir"
     --distpath "$work_dir/app-dist" --workpath "$work_dir/app-build" \
     --specpath "$work_dir/app-spec" "$project_root/tools/lyrics_tools_gui.py"
 cp -R "$work_dir/app-dist/LyricsTools.app" "$package_dir/LyricsTools.app"
+# Windowless helper the plugin starts to save tags and search lyrics online.
+"$python_bin" -m PyInstaller --noconfirm --clean --onefile --console \
+    --name LrcHelper --paths "$project_root/tools" \
+    --distpath "$work_dir/helper-dist" --workpath "$work_dir/helper-build" \
+    --specpath "$work_dir/helper-spec" "$project_root/tools/lrc_helper.py"
+"$work_dir/helper-dist/LrcHelper" --help >/dev/null 2>&1 || test $? -eq 2
 app="$package_dir/LyricsTools.app"
 resources="$app/Contents/Resources/LRC"
 mkdir -p "$resources/Plugins"
@@ -50,6 +56,8 @@ fi
 /usr/bin/nm -gU "$blackout_bundle/Contents/MacOS/LRCBlackOut" | /usr/bin/grep -q ' _DllGetClassObject$'
 cp -R "$master_bundle" "$resources/Plugins/LRCMaster.bundle"
 cp -R "$blackout_bundle" "$resources/Plugins/LRCBlackOut.bundle"
+cp "$work_dir/helper-dist/LrcHelper" "$resources/Plugins/LrcHelper"
+chmod 755 "$resources/Plugins/LrcHelper"
 cp "$project_root/VERSION" "$resources/VERSION"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 

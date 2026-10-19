@@ -42,6 +42,7 @@ WINDOWS_DECK_PAYLOAD_FILES = (
 # Optional windowless helper (Windows only) with Python, mutagen and tidalapi bundled:
 # the plugins use it to save tags and to search lyrics online without a system Python.
 WINDOWS_HELPER_FILE = "LrcHelper.exe"
+MAC_HELPER_FILE = "LrcHelper"
 
 
 def deck_effect_directory(virtualdj_home: Path) -> Path:
@@ -751,7 +752,8 @@ def _run_action_mac(
 
     overlay = plugin_directory(virtualdj_home)
     managed = [overlay / name for name in MAC_PAYLOAD_FILES]
-    changed = action == "install" or any(path.exists() for path in managed)
+    helper = overlay / MAC_HELPER_FILE
+    changed = action == "install" or any(path.exists() for path in managed + [helper])
     if not changed:
         log("LRC Lyrics is already uninstalled.")
         return
@@ -759,7 +761,7 @@ def _run_action_mac(
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
     backup = backups_root / f"{timestamp}-before-{action}"
     backup.mkdir(parents=True)
-    for path in managed:
+    for path in managed + [helper]:
         _backup_item(path, virtualdj_home, backup)
     manifest_path = virtualdj_home / "LRC Lyrics Installation.json"
     _backup_item(manifest_path, virtualdj_home, backup)
@@ -770,6 +772,7 @@ def _run_action_mac(
                 shutil.rmtree(path)
             else:
                 path.unlink(missing_ok=True)
+        helper.unlink(missing_ok=True)
         manifest_path.unlink(missing_ok=True)
         log(f"LRC Lyrics was uninstalled. Backup: {backup}")
         return
@@ -792,6 +795,17 @@ def _run_action_mac(
             os.replace(staging, destination)
             staging_paths.remove(staging)
             installed.append(destination)
+        # Windowless helper for saving tags and searching lyrics online (optional payload).
+        helper_source = layout.payload / MAC_HELPER_FILE
+        if helper_source.is_file():
+            staging = overlay / f".{MAC_HELPER_FILE}.{uuid.uuid4().hex}.installing"
+            staging_paths.append(staging)
+            shutil.copyfile(helper_source, staging)  # copyfile: no quarantine xattr carried over
+            staging.chmod(0o755)
+            os.replace(staging, helper)
+            staging_paths.remove(staging)
+            installed.append(helper)
+            managed = managed + [helper]
         _atomic_json(manifest_path, {
             "Version": layout.version,
             "Platform": "macOS",
@@ -801,9 +815,13 @@ def _run_action_mac(
         for staging in staging_paths:
             if staging.is_dir():
                 shutil.rmtree(staging)
+            else:
+                staging.unlink(missing_ok=True)
         for destination in installed:
             if destination.is_dir():
                 shutil.rmtree(destination)
+            else:
+                destination.unlink(missing_ok=True)
         for source in backup.rglob("*"):
             if source.is_file():
                 destination = virtualdj_home / source.relative_to(backup)

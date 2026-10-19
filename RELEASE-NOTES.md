@@ -1,6 +1,11 @@
-# LRC Lyrics for VirtualDJ 0.10.0
+# LRC Lyrics for VirtualDJ 0.11.0
 
 ## Changes
+
+- **macOS:** LRC Master now has **Edit lyrics** and **Edit browsed** with the same **LRC lyrics** window as Windows: what the MP3 already contains, **Search TIDAL / LRCLIB** with the source/match/timed report, the Timed/Untimed editor and **Save to MP3 tag**. LyricsTools installs `LrcHelper` next to the macOS plugin bundles for saving and TIDAL search; without it the window still searches LRCLIB on its own.
+- The built-in LRCLIB fallback is now shared C++ for Windows and macOS (WinHTTP / NSURLSession), with its matching tests running on both platforms.
+
+## 0.10.0
 
 - New **LRC lyrics** window (Edit lyrics / Edit browsed): shows what the MP3 already contains, searches lyrics online with **Search TIDAL / LRCLIB** and reports where they were found, what they matched and whether they are timed. Found lyrics go into the editor for review; nothing is saved until **Save to MP3 tag**. Manual pasting/typing stays in the same window.
 - New `LrcHelper.exe`, installed next to the plugins: saving tags and online search no longer need a system Python, Mutagen or a particular LyricsTools location. Without it the plugin still searches LRCLIB on its own.

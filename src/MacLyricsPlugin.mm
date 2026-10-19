@@ -4,10 +4,13 @@
 
 #include "AsyncLyricsLoader.hpp"
 #include "LyricsTiming.hpp"
+#include "MacLyricsWindow.hpp"
 #include "MasterDeckSelector.hpp"
 #include "vdjVideo8.h"
 
 #include <algorithm>
+#include <atomic>
+#include <dlfcn.h>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -239,7 +242,10 @@ public:
             DeclareParameterButton(&nextLine_, 7, "Next line", "Next") != S_OK ||
             DeclareParameterButton(&previousLine_, 8, "Previous line", "Prev") != S_OK ||
             DeclareParameterButton(&advanced_, 10, "Advanced settings", "Advanced") != S_OK ||
-            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #sylt / # - uslt to User 1", "Auto-tag lyrics", true) != S_OK)
+            DeclareParameterSwitch(&autoTagLrc_, 11, "Add #sylt / # - uslt to User 1", "Auto-tag lyrics", true) != S_OK ||
+            DeclareParameterButton(&editLyrics_, 12, "Edit or find lyrics for the playing song", "Edit lyrics") != S_OK ||
+            DeclareParameterButton(&editBrowsed_, 13, "Edit or find lyrics for the song selected in the browser",
+                                   "Edit browsed") != S_OK)
             return -1;
         return S_OK;
     }
@@ -256,6 +262,22 @@ public:
         } else if (id == 10 && advanced_) {
             OpenAdvancedDialog();
             advanced_ = 0;
+        } else if (id == 12 && editLyrics_) {
+            editLyrics_ = 0;
+            const int deck = selector_.Current() > 0 ? selector_.Current() : 1;
+            char command[128]{}, value[4096]{};
+            std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
+            double length = 0.0;
+            if (GetStringInfo(command, value, sizeof(value)) == S_OK) {
+                std::snprintf(command, sizeof(command), "deck %d get_songlength", deck);
+                if (GetInfo(command, &length) != S_OK) length = 0.0;
+                OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, length);
+            }
+        } else if (id == 13 && editBrowsed_) {
+            editBrowsed_ = 0;
+            char value[4096]{};
+            if (GetStringInfo("get_browsed_filepath", value, sizeof(value)) == S_OK)
+                OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, 0.0);
         }
         return S_OK;
     }
@@ -291,6 +313,7 @@ public:
         const std::filesystem::path path{std::u8string(
             reinterpret_cast<const char8_t*>(pathBuffer))};
         if (path.empty()) return S_OK;
+        if (reloadRequested_.exchange(false)) loadedPath_.clear();  // tags were just edited
         if (path != loadedPath_) {
             loadedPath_ = path;
             lyrics_ = {};
@@ -338,6 +361,35 @@ public:
     }
 
 private:
+    // LrcHelper sits next to the plugin bundles (installed by LyricsTools):
+    // .../VideoOverlay/LRCMaster.bundle/Contents/MacOS/LRCMaster -> .../VideoOverlay/LrcHelper
+    static std::filesystem::path HelperExecutable() {
+        Dl_info info{};
+        if (!dladdr(reinterpret_cast<const void*>(&HelperExecutable), &info) || !info.dli_fname) return {};
+        const auto candidate = std::filesystem::path(info.dli_fname).parent_path().parent_path()
+                                   .parent_path().parent_path() / "LrcHelper";
+        std::error_code error;
+        return std::filesystem::is_regular_file(candidate, error) ? candidate : std::filesystem::path{};
+    }
+
+    void OpenLyricsWindow(const std::filesystem::path& audio, double durationSeconds) {
+        std::string extension = audio.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (audio.empty() || extension != ".mp3") {
+            NSAlert* alert = [[NSAlert alloc] init];
+            alert.messageText = @"LRC lyrics";
+            alert.informativeText = @"Load an MP3 on the deck, or select an MP3 song row in the browser first.";
+            [alert runModal];
+            return;
+        }
+        MacLyricsRequest request;
+        request.audioPath = audio;
+        request.helper = HelperExecutable();
+        request.durationSeconds = durationSeconds;
+        if (ShowMacLyricsWindow(request)) reloadRequested_ = true;
+    }
+
     void OpenAdvancedDialog() {
         @autoreleasepool {
             NSAlert* alert = [[NSAlert alloc] init];
@@ -450,6 +502,9 @@ private:
     int previousLine_{};
     int advanced_{};
     int autoTagLrc_{1};
+    int editLyrics_{};
+    int editBrowsed_{};
+    std::atomic<bool> reloadRequested_{false};
     int background_{};
     float backgroundColor_{};
 };

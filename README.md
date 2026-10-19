@@ -131,7 +131,8 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   lyrics were found, what they matched and whether they are timed; nothing is
   written until **Save to MP3 tag**. TIDAL needs your own TIDAL account, signed in
   once in LyricsTools (Online tab); LRCLIB needs no account. Without the bundled
-  helper the window still searches LRCLIB on its own.
+  helper the window still searches LRCLIB on its own. On macOS the same window
+  opens from LRC Master's **Edit lyrics** / **Edit browsed** buttons.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
   after the track has been unloaded from all decks.
 - **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `# - uslt` for plain
