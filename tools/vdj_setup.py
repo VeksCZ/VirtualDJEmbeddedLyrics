@@ -43,6 +43,8 @@ WINDOWS_DECK_PAYLOAD_FILES = (
 # the plugins use it to save tags and to search lyrics online without a system Python.
 WINDOWS_HELPER_FILE = "LrcHelper.exe"
 MAC_HELPER_FILE = "LrcHelper"
+# Optional per-deck video effect on macOS; installed next to VideoOverlay in VideoEffect.
+MAC_DECK_BUNDLE = "LRCDeck.bundle"
 
 
 def deck_effect_directory(virtualdj_home: Path) -> Path:
@@ -753,7 +755,8 @@ def _run_action_mac(
     overlay = plugin_directory(virtualdj_home)
     managed = [overlay / name for name in MAC_PAYLOAD_FILES]
     helper = overlay / MAC_HELPER_FILE
-    changed = action == "install" or any(path.exists() for path in managed + [helper])
+    deck_bundle = overlay.parent / "VideoEffect" / MAC_DECK_BUNDLE
+    changed = action == "install" or any(path.exists() for path in managed + [helper, deck_bundle])
     if not changed:
         log("LRC Lyrics is already uninstalled.")
         return
@@ -761,7 +764,7 @@ def _run_action_mac(
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
     backup = backups_root / f"{timestamp}-before-{action}"
     backup.mkdir(parents=True)
-    for path in managed + [helper]:
+    for path in managed + [helper, deck_bundle]:
         _backup_item(path, virtualdj_home, backup)
     manifest_path = virtualdj_home / "LRC Lyrics Installation.json"
     _backup_item(manifest_path, virtualdj_home, backup)
@@ -773,6 +776,8 @@ def _run_action_mac(
             else:
                 path.unlink(missing_ok=True)
         helper.unlink(missing_ok=True)
+        if deck_bundle.is_dir():
+            shutil.rmtree(deck_bundle)
         manifest_path.unlink(missing_ok=True)
         log(f"LRC Lyrics was uninstalled. Backup: {backup}")
         return
@@ -806,6 +811,21 @@ def _run_action_mac(
             staging_paths.remove(staging)
             installed.append(helper)
             managed = managed + [helper]
+        # LRC Deck: lyrics inside one deck's video (and its preview), optional payload.
+        deck_source = layout.payload / MAC_DECK_BUNDLE
+        if deck_source.is_dir():
+            deck_bundle.parent.mkdir(parents=True, exist_ok=True)
+            staging = deck_bundle.parent / f".{MAC_DECK_BUNDLE}.{uuid.uuid4().hex}.installing"
+            staging_paths.append(staging)
+            shutil.copytree(deck_source, staging)
+            if deck_bundle.is_dir():
+                shutil.rmtree(deck_bundle)
+            elif deck_bundle.exists():
+                deck_bundle.unlink()
+            os.replace(staging, deck_bundle)
+            staging_paths.remove(staging)
+            installed.append(deck_bundle)
+            managed = managed + [deck_bundle]
         _atomic_json(manifest_path, {
             "Version": layout.version,
             "Platform": "macOS",

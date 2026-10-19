@@ -46,16 +46,21 @@ mkdir -p "$resources/Plugins"
 
 master_bundle="$(find "$build_dir" -type d -name 'LRCMaster.bundle' -print -quit)"
 blackout_bundle="$(find "$build_dir" -type d -name 'LRCBlackOut.bundle' -print -quit)"
+deck_bundle="$(find "$build_dir" -type d -name 'LRCDeck.bundle' -print -quit)"
+test -n "$deck_bundle" || { echo 'LRCDeck.bundle was not built' >&2; exit 1; }
 if [[ -z "$master_bundle" || -z "$blackout_bundle" ]]; then
     echo "The macOS plugin bundles were not produced." >&2
     exit 1
 fi
 /usr/bin/lipo "$master_bundle/Contents/MacOS/LRCMaster" -verify_arch arm64 x86_64
 /usr/bin/lipo "$blackout_bundle/Contents/MacOS/LRCBlackOut" -verify_arch arm64 x86_64
+/usr/bin/lipo "$deck_bundle/Contents/MacOS/LRCDeck" -verify_arch arm64 x86_64
 /usr/bin/nm -gU "$master_bundle/Contents/MacOS/LRCMaster" | /usr/bin/grep -q ' _DllGetClassObject$'
 /usr/bin/nm -gU "$blackout_bundle/Contents/MacOS/LRCBlackOut" | /usr/bin/grep -q ' _DllGetClassObject$'
+/usr/bin/nm -gU "$deck_bundle/Contents/MacOS/LRCDeck" | /usr/bin/grep -q ' _DllGetClassObject$'
 cp -R "$master_bundle" "$resources/Plugins/LRCMaster.bundle"
 cp -R "$blackout_bundle" "$resources/Plugins/LRCBlackOut.bundle"
+cp -R "$deck_bundle" "$resources/Plugins/LRCDeck.bundle"
 cp "$work_dir/helper-dist/LrcHelper" "$resources/Plugins/LrcHelper"
 chmod 755 "$resources/Plugins/LrcHelper"
 cp "$project_root/VERSION" "$resources/VERSION"

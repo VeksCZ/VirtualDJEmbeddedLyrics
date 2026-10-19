@@ -170,7 +170,7 @@ class PackageLayoutTests(unittest.TestCase):
             home = root / "VirtualDJ"
             payload = root / "Plugins"
             (home / "MyLists").mkdir(parents=True)
-            for name in vdj_setup.MAC_PAYLOAD_FILES:
+            for name in vdj_setup.MAC_PAYLOAD_FILES + (vdj_setup.MAC_DECK_BUNDLE,):
                 executable = payload / name / "Contents" / "MacOS" / name.removesuffix(".bundle")
                 executable.parent.mkdir(parents=True)
                 executable.write_bytes(f"new-{name}".encode())
@@ -184,6 +184,8 @@ class PackageLayoutTests(unittest.TestCase):
                 overlay = home / "PluginsArm" / "VideoOverlay"
                 for name in vdj_setup.MAC_PAYLOAD_FILES:
                     self.assertTrue((overlay / name / "Contents" / "MacOS").is_dir())
+                deck = home / "PluginsArm" / "VideoEffect" / vdj_setup.MAC_DECK_BUNDLE
+                self.assertTrue((deck / "Contents" / "MacOS" / "LRCDeck").is_file())
                 self.assertIn(
                     '"Platform": "macOS"',
                     (home / "LRC Lyrics Installation.json").read_text(encoding="utf-8"),
@@ -191,6 +193,7 @@ class PackageLayoutTests(unittest.TestCase):
 
                 vdj_setup.run_action(layout, "uninstall", home, lambda _message: None)
                 self.assertFalse(any((overlay / name).exists() for name in vdj_setup.MAC_PAYLOAD_FILES))
+                self.assertFalse(deck.exists())
                 vdj_setup.run_action(layout, "restore", home, lambda _message: None)
                 self.assertTrue(all((overlay / name).is_dir() for name in vdj_setup.MAC_PAYLOAD_FILES))
 

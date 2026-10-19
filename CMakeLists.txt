@@ -54,12 +54,16 @@ if(APPLE)
             NODLLEXPORT LRC_PLUGIN_VERSION="${PROJECT_VERSION}")
         target_compile_options(${target} PRIVATE -Wall -Wextra -fobjc-arc)
         target_link_libraries(${target} PRIVATE lyrics_core
-            "-framework Cocoa" "-framework Metal")
+            "-framework Cocoa" "-framework Metal" "-framework CoreText")
         set_target_properties(${target} PROPERTIES
             PREFIX "" OUTPUT_NAME "${output_name}" BUNDLE TRUE BUNDLE_EXTENSION "bundle")
     endfunction()
-    add_mac_vdj_plugin(EmbeddedLyricsMaster src/MacLyricsPlugin.mm LRCMaster
-        src/MacLyricsWindow.mm src/LrclibLookup.cpp src/LrclibHttpMac.mm)
+    set(LRC_MAC_LYRICS_SOURCES
+        src/MacTextLayer.mm src/MacLyricsWindow.mm src/LrclibLookup.cpp src/LrclibHttpMac.mm)
+    add_mac_vdj_plugin(EmbeddedLyricsMaster src/MacLyricsPlugin.mm LRCMaster ${LRC_MAC_LYRICS_SOURCES})
+    # Same source as LRC Master, built as an ordinary deck video FX (Plugins*/VideoEffect).
+    add_mac_vdj_plugin(EmbeddedLyricsDeck src/MacLyricsPlugin.mm LRCDeck ${LRC_MAC_LYRICS_SOURCES})
+    target_compile_definitions(EmbeddedLyricsDeck PRIVATE LRC_DECK_VARIANT=1)
     add_mac_vdj_plugin(Blackout src/MacBlackoutPlugin.mm LRCBlackOut)
 endif()
 
