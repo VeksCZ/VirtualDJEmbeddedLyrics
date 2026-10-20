@@ -282,6 +282,7 @@ public:
         id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)encoderPointer;
         SyncSharedSettings();
         TryCommitPendingRecording();
+        SuppressVirtualDjLyrics();
 #ifdef LRC_DECK_VARIANT
         const int deck = OwnDeck();
 #else
@@ -466,6 +467,30 @@ private:
         return lyricsLayer_.UpdateTimed(device, visible, active, highlightProgress, scrollProgress, width, height,
                                         FontScale(), VerticalPosition(), subdued, style,
                                         static_cast<std::size_t>(settings_.timedLines));
+    }
+
+    // Pad "VDJ lyrics off" sets $lrcnovdjlyrics: VirtualDJ's own lyrics video effect switches
+    // itself on for songs with lyrics (e.g. a same-name .lrc), so keep it off while the
+    // variable is set. Checked once a second; costs a few GetInfo calls.
+    void SuppressVirtualDjLyrics() {
+        const auto now = std::chrono::steady_clock::now();
+        if (now < nextLyricsSuppressCheck_) return;
+        nextLyricsSuppressCheck_ = now + std::chrono::seconds(1);
+        double off = 0.0;
+        if (GetInfo("get_var '$lrcnovdjlyrics'", &off) != S_OK || off < 0.5) return;
+        double decks = 2.0;
+        if (GetInfo("get_decks", &decks) != S_OK || decks < 1.0) decks = 2.0;
+        auto suppress = [this](const std::string& target) {
+            for (const char* effect : {"lyrics", "karaoke"}) {
+                const auto query = target + " effect_active '" + effect + "'";
+                double active = 0.0;
+                if (GetInfo(query.c_str(), &active) == S_OK && active >= 0.5)
+                    SendCommand((query + " off").c_str());
+            }
+        };
+        for (int deck = 1; deck <= static_cast<int>(decks) && deck <= 4; ++deck)
+            suppress("deck " + std::to_string(deck));
+        suppress("deck master");
     }
 
     void BeginUntimedScroll(std::size_t target) {
@@ -726,6 +751,7 @@ private:
     std::size_t scrollFromLine_{};
     bool untimedScrollActive_{};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
+    std::chrono::steady_clock::time_point nextLyricsSuppressCheck_{};
     int currentDeck_{};
     std::atomic<bool> reloadRequested_{false};
     bool recordTiming_{};

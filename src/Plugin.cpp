@@ -209,6 +209,7 @@ public:
         const auto deck = VisibleVideoDeck();
 #endif
         TryCommitPendingRecording();
+        SuppressVirtualDjLyrics();
         currentDeck_ = deck;
         if (!drawContextLogged_) {
             Diagnostics::Info(std::wstring(LRC_PLUGIN_WNAME) + L" draw context: deck=" +
@@ -492,6 +493,30 @@ private:
     }
     int BackdropStrength() const noexcept {
         return static_cast<int>(DiscreteIndex(backdropStrengthParameter_, std::size(kStrengthNames)));
+    }
+
+    // Pad "VDJ lyrics off" sets $lrcnovdjlyrics: VirtualDJ's own lyrics video effect switches
+    // itself on for songs with lyrics (e.g. a same-name .lrc), so keep it off while the
+    // variable is set. Checked once a second; costs a few GetInfo calls.
+    void SuppressVirtualDjLyrics() {
+        const auto now = std::chrono::steady_clock::now();
+        if (now < nextLyricsSuppressCheck_) return;
+        nextLyricsSuppressCheck_ = now + std::chrono::seconds(1);
+        double off = 0.0;
+        if (GetInfo("get_var '$lrcnovdjlyrics'", &off) != S_OK || off < 0.5) return;
+        double decks = 2.0;
+        if (GetInfo("get_decks", &decks) != S_OK || decks < 1.0) decks = 2.0;
+        auto suppress = [this](const std::string& target) {
+            for (const char* effect : {"lyrics", "karaoke"}) {
+                const auto query = target + " effect_active '" + effect + "'";
+                double active = 0.0;
+                if (GetInfo(query.c_str(), &active) == S_OK && active >= 0.5)
+                    SendCommand((query + " off").c_str());
+            }
+        };
+        for (int deck = 1; deck <= static_cast<int>(decks) && deck <= 4; ++deck)
+            suppress("deck " + std::to_string(deck));
+        suppress("deck master");
     }
 
     void BeginUntimedScroll(std::size_t target) {
@@ -1028,6 +1053,7 @@ private:
 
     std::size_t activeLine_{}; std::size_t scrollFromLine_{}; bool untimedScrollActive_{};
     std::chrono::steady_clock::time_point untimedScrollStarted_{};
+    std::chrono::steady_clock::time_point nextLyricsSuppressCheck_{};
     std::vector<std::int64_t> recordedTimes_; std::size_t recordingNextLine_{}; int currentDeck_{};
     bool pendingTimingWrite_{}; std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     bool pendingEditorWrite_{}; bool pendingEditorSynchronized_{};
