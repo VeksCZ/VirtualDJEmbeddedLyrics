@@ -190,8 +190,7 @@ LineBitmap RenderLineBitmap(const LineJob& job) {
             if (NSMaxRange(range) <= glyph) break;
             glyph = NSMaxRange(range);
         }
-        line.pixels = std::move(canvas.pixels);
-        canvas.pixels.clear();
+        line.pixels = canvas.pixels;   // copy: the bitmap context still points at canvas.pixels
     }
     return line;
 }
