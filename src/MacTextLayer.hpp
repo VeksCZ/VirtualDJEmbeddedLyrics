@@ -4,12 +4,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 // macOS counterpart of TextTexture (Windows): renders the lyric timeline, a one-off message
 // or the "Artist - Title" banner into a BGRA bitmap with CoreText/AppKit and draws it as a
 // full-frame Metal quad. Rendering is cached by a key, so unchanged frames cost nothing.
+// Like on Windows, every lyric line is drawn once (on a background queue) and frames are only
+// composed from those cached line bitmaps, so highlighting/scrolling never runs AppKit text
+// drawing on VirtualDJ's render thread.
 struct MacRgb { double red{1}, green{1}, blue{1}; };
 
 struct MacTextStyle {
@@ -38,7 +42,16 @@ public:
                       const MacTextStyle& style);
     bool Draw(id<MTLRenderCommandEncoder> encoder);
 
+    MacTextLayer();
+    ~MacTextLayer();
+    MacTextLayer(const MacTextLayer&) = delete;
+    MacTextLayer& operator=(const MacTextLayer&) = delete;
+
 private:
+    struct Lines;                       // line cache + background renderer (MacTextLayer.mm)
+    std::shared_ptr<Lines> lines_;
+    bool missingLines_{};
+    std::vector<std::uint8_t> frame_;
     bool Upload(id<MTLDevice> device, const std::vector<std::uint8_t>& pixels, int width, int height,
                 std::wstring key);
 
