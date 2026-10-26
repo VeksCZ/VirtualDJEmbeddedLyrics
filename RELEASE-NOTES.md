@@ -1,6 +1,10 @@
-# LRC Lyrics for VirtualDJ 0.12.0
+# LRC Lyrics for VirtualDJ 0.12.1
 
 ## Changes
+
+- **Much faster lyrics rendering (Windows):** highlighting and scrolling no longer redraw every line with GDI on each frame (40-190 ms per 1080p frame, which made VirtualDJ's video stutter, worst with a strong outline/shadow and with LRC Master and LRC Deck together). Each line is now rendered once on a background thread and frames are composed from these cached lines in a reused texture: about 5-9 ms in the worst frame, with the same look. A newly loaded track shows its lyrics a frame or two later instead of blocking the video.
+
+## 0.12.0
 
 - **macOS now has everything the Windows plugins have:**
   - **LRC Deck** for macOS (lyrics inside one deck's video and its preview), installed by LyricsTools into `VideoEffect` next to `VideoOverlay`.
