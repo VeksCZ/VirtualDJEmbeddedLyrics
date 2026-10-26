@@ -1,16 +1,28 @@
 #pragma once
 
 #ifdef _WIN32
+#include <windows.h>
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 
 class TextTexture {
 public:
+    TextTexture() = default;
+    TextTexture(const TextTexture&) = delete;
+    TextTexture& operator=(const TextTexture&) = delete;
+    ~TextTexture();
     bool Initialize(ID3D11Device* device);
     void Reset();
     bool Update(const std::wstring& current, const std::wstring& next,
@@ -50,6 +62,48 @@ public:
     ID3D11ShaderResourceView* View() const noexcept { return view_.Get(); }
 
 private:
+    struct WrappedLine { std::vector<std::wstring> rows; std::vector<int> widths; };
+    // One lyrics line (all its wrapped rows) rendered once with outline/shadow, alpha finalized.
+    struct LineBitmap { int width{}, height{}, originX{}, originY{}; std::vector<std::uint32_t> pixels; };
+    using LinePtr = std::shared_ptr<const LineBitmap>;
+    // Everything needed to render one line without touching this object's GDI state, so the
+    // prefetch worker can do it off the render thread.
+    struct LineJob {
+        std::wstring key, text;
+        std::vector<std::wstring> rows;
+        std::uint32_t color{};
+        int fontSize{}, spacing{}, maxTextWidth{}, fontFamily{}, backdropStyle{}, backdropStrength{};
+        unsigned generation{};
+    };
+    static LineBitmap RenderLineBitmap(const LineJob& job);
+    LineJob MakeJob(const std::wstring& text, const WrappedLine& wrapped, std::uint32_t color) const;
+    void Prefetch(LineJob job);
+    void WorkerLoop();
+    bool PrepareStyle(int height, int fontSize, int maxTextWidth, int fontFamily,
+                      int backdropStyle, int backdropStrength);
+    void ReleaseStyle();
+    const WrappedLine& Wrap(const std::wstring& text, int maxTextWidth);
+    LinePtr RenderLine(const std::wstring& text, const WrappedLine& wrapped, std::uint32_t color);
+
+    HDC measureDc_{};
+    HFONT font_{};
+    HGDIOBJ measureOldFont_{};
+    std::wstring styleKey_;
+    std::unordered_map<std::wstring, WrappedLine> wrapCache_;
+    // Style of the current lines (set by PrepareStyle), used to build LineJobs.
+    int fontSize_{}, spacing_{}, maxTextWidth_{}, fontFamily_{}, backdropStyle_{}, backdropStrength_{};
+    std::mutex cacheMutex_;               // guards lineCache_, jobs_, queued_, generation_, stop_
+    std::condition_variable wake_;
+    std::unordered_map<std::wstring, LinePtr> lineCache_;
+    std::deque<LineJob> jobs_;
+    std::unordered_set<std::wstring> queued_;
+    unsigned generation_{};
+    bool stop_{};
+    std::thread worker_;
+    std::vector<std::uint32_t> frame_;
+    bool dynamic_{};
+    bool missingLines_{};   // last frame left out lines still being rendered
+    int textureWidth_{}, textureHeight_{};
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view_;

@@ -141,6 +141,16 @@ if(WIN32)
         add_win_lyrics_plugin(EmbeddedLyricsMaster LRCMaster)
         add_win_lyrics_plugin(EmbeddedLyricsDeck LRCDeck LRC_DECK_VARIANT=1)
 
+        # Render-cost benchmark for the lyrics bitmap (not a test; run by hand).
+        add_executable(texture_bench tests/TextureBench.cpp src/TextTexture.cpp src/VideoRenderer.cpp)
+        target_include_directories(texture_bench PRIVATE src)
+        target_include_directories(texture_bench SYSTEM PRIVATE "${VDJ_SDK_DIR}")
+        target_compile_definitions(texture_bench PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+        if(MSVC)
+            target_compile_options(texture_bench PRIVATE /EHsc /utf-8)
+        endif()
+        target_link_libraries(texture_bench PRIVATE lyrics_core d3d11 d3dcompiler gdi32)
+
         add_library(Blackout SHARED
             src/BlackoutRenderer.cpp
             src/BlackoutPlugin.cpp
