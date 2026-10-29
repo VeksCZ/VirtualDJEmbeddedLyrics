@@ -1,6 +1,12 @@
-# LRC Lyrics for VirtualDJ 0.12.2
+# LRC Lyrics for VirtualDJ 0.12.3
 
 ## Changes
+
+- **Start here** (new button in the LRC Master / LRC Deck panel): when downloaded timed lyrics start at the wrong moment, press it where the vocals really begin. Every timestamp moves by the same amount so the first line starts there; it is shown at once and saved to the MP3 tag (right away, or after the track is unloaded when VirtualDJ holds the file).
+- **LRC lyrics window (Windows):** new *First line at* field (prefilled with the current playback position) and *Shift timing* button that moves all timestamps the same way before you save.
+- Fixed the pause countdown number blinking at every change since 0.12.1/0.12.2: short texts are drawn immediately instead of on the background thread.
+
+## 0.12.2
 
 - **macOS: the same faster lyrics rendering as 0.12.1 on Windows.** Each line is drawn once with AppKit on a background queue; highlighting and scrolling only compose frames from these cached lines, so VirtualDJ's render thread no longer redraws text every frame. Built and checked by CI for Apple Silicon and Intel; not yet tried in VirtualDJ on a real Mac.
 

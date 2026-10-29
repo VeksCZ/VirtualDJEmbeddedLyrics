@@ -136,6 +136,9 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   once in LyricsTools (Online tab); LRCLIB needs no account. Without the bundled
   helper the window still searches LRCLIB on its own. On macOS the same window
   opens from LRC Master's **Edit lyrics** / **Edit browsed** buttons.
+- **Start here** fixes timed lyrics that start at the wrong moment: press it where the vocals
+  begin and all timestamps move so the first line starts there (saved to the MP3 tag). The
+  LRC lyrics window has the same as *First line at* + *Shift timing*.
 - **Record timing** timestamps plain lyrics and writes synchronized MP3 tags
   after the track has been unloaded from all decks.
 - **Auto-tag lyrics** adds `#sylt` for synchronized lyrics or `# - uslt` for plain
