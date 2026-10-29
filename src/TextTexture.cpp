@@ -248,9 +248,21 @@ TextTexture::LinePtr TextTexture::RenderLine(const std::wstring& text, const Wra
         if (auto found = lineCache_.find(job.key); found != lineCache_.end()) return found->second;
         if (lineCache_.size() > 256) lineCache_.clear();  // a song has far fewer; just a bound
     }
-    // Not ready yet (a new track, a seek, a new countdown number): never draw it on VirtualDJ's
-    // render thread -- queue it for the worker and leave it out of this frame. It shows up a
-    // frame or two later, which is invisible next to the stutter a 20-100 ms GDI pass causes.
+    // Short texts (the countdown number, "...") change while they are on screen and are cheap
+    // to draw: render them right here so they never blink.
+    if (text.size() <= 16) {
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex_);
+            job.generation = generation_;
+        }
+        auto line = std::make_shared<const LineBitmap>(RenderLineBitmap(job));
+        std::lock_guard<std::mutex> lock(cacheMutex_);
+        if (job.generation == generation_ && !line->pixels.empty()) lineCache_[job.key] = line;
+        return line;
+    }
+    // Not ready yet (a new track, a seek): never draw a long line on VirtualDJ's render thread --
+    // queue it for the worker and leave it out of this frame. It shows up a frame or two later,
+    // which is invisible next to the stutter a 20-100 ms GDI pass causes.
     Prefetch(std::move(job));
     missingLines_ = true;
     return nullptr;

@@ -5,6 +5,7 @@
 #include "AsyncLyricsLoader.hpp"
 #include "LrclibLookup.hpp"
 #include "LyricsLayout.hpp"
+#include "LrcShift.hpp"
 #include "LyricsTiming.hpp"
 #include "MacLyricsWindow.hpp"
 #include "MacTextLayer.hpp"
@@ -196,7 +197,9 @@ public:
             DeclareParameterSlider(&timingOffsetParameter_, 14, "Lyrics timing offset (-5 to +5 seconds)",
                                    "Timing offset", 0.5f) != S_OK ||
             DeclareParameterSwitch(&showHeadingParameter_, 15, "Show track name and artist", "Show name",
-                                   settings_.showHeading) != S_OK)
+                                   settings_.showHeading) != S_OK ||
+            DeclareParameterButton(&startHereButton_, 16,
+                                   "Timed lyrics: move all lines so the first one starts now", "Start here") != S_OK)
             return -1;
         return S_OK;
     }
@@ -219,6 +222,9 @@ public:
                 if (GetInfo(command, &length) != S_OK) length = 0.0;
                 OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, length);
             }
+        } else if (id == 16 && startHereButton_) {
+            startHereButton_ = 0;
+            StartLyricsHere();
         } else if (id == 11 && editBrowsedButton_) {
             editBrowsedButton_ = 0;
             char value[4096]{};
@@ -608,6 +614,54 @@ private:
         return false;
     }
 
+    // "Start here": the vocals start now -> move every timestamp by the same amount so the first
+    // line starts at the current position; shown at once and saved to the MP3 tag by LrcHelper.
+    void StartLyricsHere() {
+        if (loadedPath_.empty() || lyrics_.empty() || !lyrics_.synchronized || currentDeck_ <= 0) return;
+        char command[128]{};
+        std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", currentDeck_);
+        double elapsed = 0.0;
+        if (GetInfo(command, &elapsed) != S_OK) return;
+        std::wstring text;
+        for (const auto& line : lyrics_.lines) {
+            const auto ms = std::max<std::int64_t>(0, line.timeMs);
+            wchar_t stamp[32]{};
+            std::swprintf(stamp, 32, L"[%02lld:%02lld.%02lld]", static_cast<long long>(ms / 60000),
+                          static_cast<long long>((ms / 1000) % 60), static_cast<long long>((ms % 1000) / 10));
+            text += stamp + line.text + L"\n";
+        }
+        std::int64_t delta = 0;
+        if (!ShiftLrcTimestamps(text, static_cast<std::int64_t>(elapsed), &delta)) return;
+        for (auto& line : lyrics_.lines) {
+            line.timeMs = std::max<std::int64_t>(0, line.timeMs + delta);
+            for (auto& token : line.tokens) token.timeMs = std::max<std::int64_t>(0, token.timeMs + delta);
+        }
+        timingOffsetParameter_ = 0.5f;   // the shift replaces any temporary offset
+        lyricsLayer_.Reset();
+        const auto helper = HelperExecutable();
+        if (helper.empty()) return;
+        std::string extension = loadedPath_.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (extension != ".mp3") return;
+        const char* tmp = std::getenv("TMPDIR");
+        const auto textPath = std::filesystem::path(tmp && *tmp ? tmp : "/tmp") /
+            ("EmbeddedLyrics-start-" + std::to_string(std::hash<std::string>{}(loadedPath_.string())) + ".txt");
+        {
+            std::ofstream output(textPath, std::ios::binary | std::ios::trunc);
+            output << LrclibUtf8(text);
+        }
+        const auto audio = loadedPath_;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSTask* task = [[NSTask alloc] init];
+            task.executableURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:helper.c_str()]];
+            task.arguments = @[@"--write-editor-text", [NSString stringWithUTF8String:audio.c_str()],
+                               [NSString stringWithUTF8String:textPath.c_str()], @"timed"];
+            NSError* error = nil;
+            if ([task launchAndReturnError:&error]) [task waitUntilExit];
+        });
+    }
+
     void TryCommitPendingRecording() {
         if (!pendingTimingWrite_ || TrackLoadedAnywhere(pendingAudioPath_)) return;
         pendingTimingWrite_ = false;
@@ -734,6 +788,7 @@ private:
     bool pendingTimingWrite_{};
     std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     int editTextButton_{}, nextLineButton_{}, previousLineButton_{}, advancedButton_{}, editBrowsedButton_{};
+    int startHereButton_{};
     int wholeLineParameter_{}, showHeadingParameter_{1};
     float countdownGapParameter_{2.0f / 7.0f};
     float timingOffsetParameter_{0.5f};

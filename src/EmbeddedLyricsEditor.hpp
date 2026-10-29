@@ -15,6 +15,7 @@ struct EmbeddedLyricsEdit {
     std::wstring lookupExecutable;
     std::wstring lookupScript;
     double durationSeconds{};  // 0 when unknown; narrows the built-in LRCLIB search
+    double positionSeconds{-1};  // current playback position; prefills "First line at"
 };
 
 bool ShowEmbeddedLyricsEditor(HWND owner, EmbeddedLyricsEdit& edit);

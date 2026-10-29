@@ -2,6 +2,7 @@
 #include "Lyrics.hpp"
 #include "AdvancedDialog.hpp"
 #include "EmbeddedLyricsEditor.hpp"
+#include "LrcShift.hpp"
 #include "LyricsTiming.hpp"
 #include "LyricsLayout.hpp"
 #include "AsyncLyricsLoader.hpp"
@@ -105,7 +106,9 @@ public:
             FAILED(DeclareParameterSlider(&timingOffsetParameter_, 14,
                 "Lyrics timing offset (-5 to +5 seconds)", "Timing offset", 0.5f)) ||
             FAILED(DeclareParameterSwitch(&showHeadingParameter_, 15,
-                "Show track name and artist", "Show name", true))) return E_FAIL;
+                "Show track name and artist", "Show name", true)) ||
+            FAILED(DeclareParameterButton(&startHereButton_, 16,
+                   "Timed lyrics: move all lines so the first one starts now", "Start here"))) return E_FAIL;
         LoadAdvancedSettings();
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
@@ -119,7 +122,8 @@ public:
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 6 && editTextButton_) { double length = 0.0; char lengthQuery[64]{}; std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1); if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0; std::thread([this, length] { OpenEmbeddedLyricsEditor(length); }).detach(); editTextButton_ = 0; }
+        } else if (id == 6 && editTextButton_) { double length = 0.0; char lengthQuery[64]{}; std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1); if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0; const double position = CurrentPositionMs() / 1000.0; std::thread([this, length, position] { OpenEmbeddedLyricsEditor(length, position); }).detach(); editTextButton_ = 0; }
+        else if (id == 16 && startHereButton_) { startHereButton_ = 0; StartLyricsHere(); }
         else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
@@ -577,7 +581,35 @@ private:
         return result;
     }
 
-    void OpenEmbeddedLyricsEditor(double durationSeconds) {
+    // Playback position of the deck shown (or owned, for LRC Deck), in ms; -1 when unknown.
+    double CurrentPositionMs() {
+        const int deck = currentDeck_ > 0 ? currentDeck_ : 1;
+        char query[64]{};
+        std::snprintf(query, sizeof(query), "deck %d get_time 'elapsed' 'absolute'", deck);
+        double elapsed = 0.0;
+        return SUCCEEDED(GetInfo(query, &elapsed)) ? elapsed : -1.0;
+    }
+
+    // "Start here": the vocals start now -> move every timestamp by the same amount so the first
+    // line starts at the current position, show it at once and save it to the MP3 tag (written
+    // right away, or after the track is unloaded when VirtualDJ holds the file).
+    void StartLyricsHere() {
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+        if (loadedPath_.empty() || lyrics_.empty() || !lyrics_.synchronized) {
+            Diagnostics::Error(L"Start here needs timed lyrics on the playing track");
+            return;
+        }
+        const double position = CurrentPositionMs();
+        if (position < 0) return;
+        auto text = LyricsText(lyrics_, true);
+        std::int64_t delta = 0;
+        if (!ShiftLrcTimestamps(text, static_cast<std::int64_t>(position), &delta)) return;
+        timingOffsetParameter_ = 0.5f;   // the shift replaces any temporary offset
+        SaveEditedLyrics(loadedPath_, text, true, /*applyLiveDisplay=*/true);
+        Diagnostics::Info(L"Start here: timestamps moved by " + std::to_wstring(delta) + L" ms");
+    }
+
+    void OpenEmbeddedLyricsEditor(double durationSeconds, double positionSeconds = -1.0) {
         // Snapshot the state the dialog needs, then release the lock before showing it: the
         // dialog runs a modal message loop on this (background) thread and can stay open for
         // a while, so we must not hold stateMutex_ across it or OnDraw on the render thread
@@ -593,7 +625,7 @@ private:
             currentPath = loadedPath_;
             synchronized = lyrics_.synchronized;
         }
-        EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true, durationSeconds);
+        EditEmbeddedLyrics(currentPath, synchronized, /*applyLiveDisplay=*/true, durationSeconds, positionSeconds);
     }
     void OpenBrowsedLyricsEditor(const std::filesystem::path& browsed) {
         // get_browsed_filepath returns whatever the browser currently considers "browsed"; if
@@ -621,7 +653,7 @@ private:
         EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/false);
     }
     void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay,
-                            double durationSeconds = 0.0) {
+                            double durationSeconds = 0.0, double positionSeconds = -1.0) {
         Diagnostics::Info(L"EditEmbeddedLyrics targetPath=[" + targetPath.wstring() + L"]");
         auto timed = LoadEmbeddedTimedLyrics(targetPath);
         auto untimed = LoadEmbeddedUntimedLyrics(targetPath);
@@ -629,6 +661,7 @@ private:
                                 targetPath.stem().wstring()};
         edit.audioPath = targetPath;
         edit.durationSeconds = durationSeconds;
+        edit.positionSeconds = positionSeconds;
         if (const auto helper = HelperExecutable(); !helper.empty()) {
             edit.lookupExecutable = helper.wstring();
         } else {
@@ -643,6 +676,14 @@ private:
         if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
         const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
         if (editedText.empty()) return;
+        SaveEditedLyrics(targetPath, editedText, edit.synchronized, applyLiveDisplay);
+    }
+
+    // Validates lyrics text, writes it to the MP3 tag (now, or after unload when the file is in
+    // use) and, for the loaded track, shows it right away.
+    void SaveEditedLyrics(const std::filesystem::path& targetPath, const std::wstring& editedText,
+                          bool synchronized, bool applyLiveDisplay) {
+        struct { bool synchronized; } edit{synchronized};
         std::error_code error;
         const auto pendingTextPath = std::filesystem::temp_directory_path(error) /
             (L"EmbeddedLyrics-" + std::to_wstring(std::hash<std::wstring>{}(targetPath.wstring())) + L".lyrics");
@@ -1015,7 +1056,7 @@ private:
     bool drawContextLogged_{};
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{}; int editBrowsedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
-    float verticalPositionParameter_{0.5f}; int editTextButton_{};
+    float verticalPositionParameter_{0.5f}; int editTextButton_{}; int startHereButton_{};
     int untimedLines_{7}; int timedLines_{7};
     int wholeLineHighlightParameter_{};
     float countdownGapParameter_{2.0f / 7.0f};

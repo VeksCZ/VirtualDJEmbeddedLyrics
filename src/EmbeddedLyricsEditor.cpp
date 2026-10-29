@@ -1,5 +1,6 @@
 #include "EmbeddedLyricsEditor.hpp"
 #ifdef _WIN32
+#include "LrcShift.hpp"
 #include "LrclibLookup.hpp"
 #include "Lyrics.hpp"
 #include <algorithm>
@@ -15,6 +16,7 @@
 namespace {
 constexpr wchar_t kClass[] = L"EmbeddedLyricsEditorDialog";
 constexpr int kMode = 100, kText = 101, kSearch = 102, kStatus = 103, kCurrent = 104;
+constexpr int kStartAt = 105, kShift = 106;
 constexpr UINT kLookupDone = WM_APP + 1;
 constexpr DWORD kLookupTimeoutMs = 90000;
 
@@ -279,6 +281,12 @@ void Create(HWND w, State& s) {
         26, 262, 700, 336, kText);
     SendDlgItemMessageW(w, kText, EM_SETLIMITTEXT, 1024 * 1024, 0);
 
+    // Timing fix: move every timestamp so the first line starts where the vocals really start.
+    Add(w, L"STATIC", L"First line at", 0, 16, 629, 76, 20);
+    const auto startAt = s.value.positionSeconds >= 0
+        ? FormatLyricsTime(static_cast<std::int64_t>(s.value.positionSeconds * 1000.0)) : std::wstring{};
+    Add(w, L"EDIT", startAt.c_str(), WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 94, 625, 80, 24, kStartAt);
+    Add(w, L"BUTTON", L"Shift timing", BS_PUSHBUTTON | WS_TABSTOP, 180, 622, 110, 30, kShift);
     Add(w, L"BUTTON", L"Save to MP3 tag", BS_DEFPUSHBUTTON | WS_TABSTOP, 500, 622, 140, 30, IDOK);
     Add(w, L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, 648, 622, 92, 30, IDCANCEL);
 
@@ -306,6 +314,37 @@ LRESULT CALLBACK Proc(HWND w, UINT m, WPARAM a, LPARAM b) {
             return 0;
         }
         if (LOWORD(a) == kSearch) { StartSearch(w, *s); return 0; }
+        if (LOWORD(a) == kShift) {
+            wchar_t value[64]{};
+            GetDlgItemTextW(w, kStartAt, value, 64);
+            const auto target = ParseLyricsTime(value);
+            if (target < 0) {
+                MessageBoxW(w, L"Enter the time where the first line starts, e.g. 0:23.40 (the current "
+                               L"playback position is filled in when the window opens).", L"Shift timing",
+                            MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            if (!TimedSelected(w)) {
+                SendDlgItemMessageW(w, kMode, CB_SETCURSEL, 0, 0);
+                Store(w, *s, false);
+                Show(w, *s);
+            }
+            auto text = EditorText(w);
+            std::int64_t delta = 0;
+            if (!ShiftLrcTimestamps(text, target, &delta)) {
+                MessageBoxW(w, L"The Timed text has no [mm:ss.xx] timestamps to shift.", L"Shift timing",
+                            MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+            SetDlgItemTextW(w, kText, text.c_str());
+            Store(w, *s, true);
+            wchar_t status[160]{};
+            std::swprintf(status, std::size(status),
+                          L"All timestamps moved by %+.2f s; first line now at %ls. Save to MP3 tag to keep it.",
+                          static_cast<double>(delta) / 1000.0, FormatLyricsTime(target).c_str());
+            SetDlgItemTextW(w, kStatus, status);
+            return 0;
+        }
         if (LOWORD(a) == IDOK) {
             Store(w, *s, TimedSelected(w));
             s->value.synchronized = TimedSelected(w);

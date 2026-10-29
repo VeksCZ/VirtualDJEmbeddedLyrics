@@ -244,6 +244,14 @@ struct MacTextLayer::Lines {
             if (auto found = self->cache.find(job.key); found != self->cache.end()) return found->second;
             if (self->cache.size() > 256) self->cache.clear();
         }
+        if (job.text.size() <= 16) {
+            // Countdown numbers and "..." change while on screen and are cheap: draw them now
+            // so they never blink.
+            auto line = std::make_shared<const LineBitmap>(RenderLineBitmap(job));
+            std::lock_guard<std::mutex> lock(self->mutex);
+            if (!line->pixels.empty()) self->cache[job.key] = line;
+            return line;
+        }
         Prefetch(self, job);
         return nullptr;
     }
