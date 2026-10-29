@@ -199,7 +199,14 @@ public:
             DeclareParameterSwitch(&showHeadingParameter_, 15, "Show track name and artist", "Show name",
                                    settings_.showHeading) != S_OK ||
             DeclareParameterButton(&startHereButton_, 16,
-                                   "Timed lyrics: move all lines so the first one starts now", "Start here") != S_OK)
+                                   "Timed lyrics: move all lines so the first one starts now", "Start here") != S_OK ||
+            DeclareParameterButton(&earlierButton_, 17, "Lyrics 0.1 s earlier (temporary, like Timing offset)",
+                                   "Earlier 0.1s") != S_OK ||
+            DeclareParameterButton(&laterButton_, 18, "Lyrics 0.1 s later (temporary, like Timing offset)",
+                                   "Later 0.1s") != S_OK ||
+            DeclareParameterButton(&saveOffsetButton_, 19,
+                                   "Save the current Timing offset into the MP3 tag (moves all timestamps)",
+                                   "Save offset") != S_OK)
             return -1;
         return S_OK;
     }
@@ -220,11 +227,24 @@ public:
             if (GetStringInfo(command, value, sizeof(value)) == S_OK) {
                 std::snprintf(command, sizeof(command), "deck %d get_songlength", deck);
                 if (GetInfo(command, &length) != S_OK) length = 0.0;
-                OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, length);
+                double position = -1000.0;
+                std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", deck);
+                if (GetInfo(command, &position) != S_OK) position = -1000.0;
+                OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, length,
+                                 position / 1000.0);
             }
         } else if (id == 16 && startHereButton_) {
             startHereButton_ = 0;
             StartLyricsHere();
+        } else if ((id == 17 && earlierButton_) || (id == 18 && laterButton_)) {
+            // 0.1 s on the +-5 s Timing offset slider; positive offset = lyrics later.
+            timingOffsetParameter_ = std::clamp(timingOffsetParameter_ + (id == 18 ? 0.01f : -0.01f), 0.0f, 1.0f);
+            earlierButton_ = laterButton_ = 0;
+        } else if (id == 19 && saveOffsetButton_) {
+            saveOffsetButton_ = 0;
+            const int offset = TimingOffsetMs();
+            if (offset != 0 && !lyrics_.empty() && lyrics_.synchronized)
+                ShiftLyricsTo(lyrics_.lines.front().timeMs + offset);
         } else if (id == 11 && editBrowsedButton_) {
             editBrowsedButton_ = 0;
             char value[4096]{};
@@ -544,7 +564,7 @@ private:
         return {};
     }
 
-    void OpenLyricsWindow(const std::filesystem::path& audio, double durationSeconds) {
+    void OpenLyricsWindow(const std::filesystem::path& audio, double durationSeconds, double positionSeconds = -1.0) {
         std::string extension = audio.extension().string();
         std::transform(extension.begin(), extension.end(), extension.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -559,6 +579,7 @@ private:
         request.audioPath = audio;
         request.helper = HelperExecutable();
         request.durationSeconds = durationSeconds;
+        request.positionSeconds = positionSeconds;
         if (ShowMacLyricsWindow(request)) reloadRequested_ = true;
     }
 
@@ -617,11 +638,17 @@ private:
     // "Start here": the vocals start now -> move every timestamp by the same amount so the first
     // line starts at the current position; shown at once and saved to the MP3 tag by LrcHelper.
     void StartLyricsHere() {
-        if (loadedPath_.empty() || lyrics_.empty() || !lyrics_.synchronized || currentDeck_ <= 0) return;
+        if (currentDeck_ <= 0) return;
         char command[128]{};
         std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", currentDeck_);
         double elapsed = 0.0;
         if (GetInfo(command, &elapsed) != S_OK) return;
+        ShiftLyricsTo(static_cast<std::int64_t>(elapsed));
+    }
+
+    // Moves every timestamp so the first line starts at firstMs; shown at once, saved by LrcHelper.
+    void ShiftLyricsTo(std::int64_t firstMs) {
+        if (loadedPath_.empty() || lyrics_.empty() || !lyrics_.synchronized) return;
         std::wstring text;
         for (const auto& line : lyrics_.lines) {
             const auto ms = std::max<std::int64_t>(0, line.timeMs);
@@ -631,7 +658,7 @@ private:
             text += stamp + line.text + L"\n";
         }
         std::int64_t delta = 0;
-        if (!ShiftLrcTimestamps(text, static_cast<std::int64_t>(elapsed), &delta)) return;
+        if (!ShiftLrcTimestamps(text, firstMs, &delta)) return;
         for (auto& line : lyrics_.lines) {
             line.timeMs = std::max<std::int64_t>(0, line.timeMs + delta);
             for (auto& token : line.tokens) token.timeMs = std::max<std::int64_t>(0, token.timeMs + delta);
@@ -788,7 +815,7 @@ private:
     bool pendingTimingWrite_{};
     std::filesystem::path pendingAudioPath_, pendingTimingPath_;
     int editTextButton_{}, nextLineButton_{}, previousLineButton_{}, advancedButton_{}, editBrowsedButton_{};
-    int startHereButton_{};
+    int startHereButton_{}, earlierButton_{}, laterButton_{}, saveOffsetButton_{};
     int wholeLineParameter_{}, showHeadingParameter_{1};
     float countdownGapParameter_{2.0f / 7.0f};
     float timingOffsetParameter_{0.5f};

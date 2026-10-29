@@ -108,7 +108,13 @@ public:
             FAILED(DeclareParameterSwitch(&showHeadingParameter_, 15,
                 "Show track name and artist", "Show name", true)) ||
             FAILED(DeclareParameterButton(&startHereButton_, 16,
-                   "Timed lyrics: move all lines so the first one starts now", "Start here"))) return E_FAIL;
+                   "Timed lyrics: move all lines so the first one starts now", "Start here")) ||
+            FAILED(DeclareParameterButton(&earlierButton_, 17,
+                   "Lyrics 0.1 s earlier (temporary, like Timing offset)", "Earlier 0.1s")) ||
+            FAILED(DeclareParameterButton(&laterButton_, 18,
+                   "Lyrics 0.1 s later (temporary, like Timing offset)", "Later 0.1s")) ||
+            FAILED(DeclareParameterButton(&saveOffsetButton_, 19,
+                   "Save the current Timing offset into the MP3 tag (moves all timestamps)", "Save offset"))) return E_FAIL;
         LoadAdvancedSettings();
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
@@ -124,6 +130,12 @@ public:
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
         } else if (id == 6 && editTextButton_) { double length = 0.0; char lengthQuery[64]{}; std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1); if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0; const double position = CurrentPositionMs() / 1000.0; std::thread([this, length, position] { OpenEmbeddedLyricsEditor(length, position); }).detach(); editTextButton_ = 0; }
         else if (id == 16 && startHereButton_) { startHereButton_ = 0; StartLyricsHere(); }
+        else if ((id == 17 && earlierButton_) || (id == 18 && laterButton_)) {
+            // 0.1 s on the +-5 s Timing offset slider; positive offset = lyrics later.
+            timingOffsetParameter_ = std::clamp(timingOffsetParameter_ + (id == 18 ? 0.01f : -0.01f), 0.0f, 1.0f);
+            earlierButton_ = laterButton_ = 0;
+        }
+        else if (id == 19 && saveOffsetButton_) { saveOffsetButton_ = 0; SaveOffsetToTag(); }
         else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
@@ -213,6 +225,30 @@ public:
         const auto deck = VisibleVideoDeck();
 #endif
         TryCommitPendingRecording();
+#ifdef LRC_PROBE_TO_LYRICS
+        {   // TEMP probe: what does VirtualDJ report about its own lyrics timing?
+            static auto next = std::chrono::steady_clock::now();
+            if (std::chrono::steady_clock::now() >= next && deck > 0) {
+                next = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);
+                std::wstring line = L"PROBE deck " + std::to_wstring(deck);
+                for (const char* q : {"get_time 'elapsed' 'absolute'", "get_time 'to_lyrics'",
+                                      "get_time 'to_lyrics' 'absolute'", "get_time 'to_lyrics' 'remain'",
+                                      "has_lyrics", "get_lyrics_language", "get_time 'lyrics'"}) {
+                    char cmd[128]{}; std::snprintf(cmd, sizeof(cmd), "deck %d %s", deck, q);
+                    double v = -999999; const HRESULT hr = GetInfo(cmd, &v);
+                    char s[256]{}; const HRESULT hs = GetStringInfo(cmd, s, sizeof(s));
+                    line += L" | " + WideFromUtf8(q) + L" = " + (SUCCEEDED(hr) ? std::to_wstring(v) : L"ERR") +
+                            L" [" + (SUCCEEDED(hs) ? WideFromUtf8(s) : std::wstring(L"ERR")) + L"]";
+                }
+                for (const char* q : {"get_decks", "deck 1 get_deck", "deck 2 get_deck", "deck 3 get_deck",
+                                      "deck 4 get_deck", "deck 3 loaded", "deck 4 loaded"}) {
+                    double v = -999999; const HRESULT hr = GetInfo(q, &v);
+                    line += L" | " + WideFromUtf8(q) + L" = " + (SUCCEEDED(hr) ? std::to_wstring(v) : L"ERR");
+                }
+                Diagnostics::Info(line);
+            }
+        }
+#endif
         currentDeck_ = deck;
         if (!drawContextLogged_) {
             Diagnostics::Info(std::wstring(LRC_PLUGIN_WNAME) + L" draw context: deck=" +
@@ -607,6 +643,21 @@ private:
         timingOffsetParameter_ = 0.5f;   // the shift replaces any temporary offset
         SaveEditedLyrics(loadedPath_, text, true, /*applyLiveDisplay=*/true);
         Diagnostics::Info(L"Start here: timestamps moved by " + std::to_wstring(delta) + L" ms");
+    }
+
+    // "Save offset": make the temporary Timing offset permanent -- every timestamp moves by it
+    // (a line shown at elapsed - offset really belongs at its time + offset) and it resets to 0.
+    void SaveOffsetToTag() {
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+        const int offset = TimingOffsetMs();
+        if (offset == 0 || loadedPath_.empty() || lyrics_.empty() || !lyrics_.synchronized) return;
+        auto text = LyricsText(lyrics_, true);
+        const auto first = lyrics_.lines.front().timeMs;
+        std::int64_t delta = 0;
+        if (!ShiftLrcTimestamps(text, first + offset, &delta)) return;
+        timingOffsetParameter_ = 0.5f;
+        SaveEditedLyrics(loadedPath_, text, true, /*applyLiveDisplay=*/true);
+        Diagnostics::Info(L"Save offset: timestamps moved by " + std::to_wstring(delta) + L" ms");
     }
 
     void OpenEmbeddedLyricsEditor(double durationSeconds, double positionSeconds = -1.0) {
@@ -1057,6 +1108,7 @@ private:
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{}; int editBrowsedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{}; int startHereButton_{};
+    int earlierButton_{}; int laterButton_{}; int saveOffsetButton_{};
     int untimedLines_{7}; int timedLines_{7};
     int wholeLineHighlightParameter_{};
     float countdownGapParameter_{2.0f / 7.0f};

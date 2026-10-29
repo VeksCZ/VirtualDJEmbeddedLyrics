@@ -2,6 +2,7 @@
 #ifdef __APPLE__
 #import <Cocoa/Cocoa.h>
 
+#include "LrcShift.hpp"
 #include "LrclibLookup.hpp"
 #include "Lyrics.hpp"
 
@@ -149,6 +150,7 @@ std::wstring Field(const LookupResult& r, const wchar_t* key) {
 @property(nonatomic, strong) NSTextField* status;
 @property(nonatomic, strong) NSButton* searchButton;
 @property(nonatomic, strong) NSButton* saveButton;
+@property(nonatomic, strong) NSTextField* startAt;
 @property(nonatomic) BOOL saved;
 @property(nonatomic) BOOL busy;
 @end
@@ -232,6 +234,17 @@ std::wstring Field(const LookupResult& r, const wchar_t* key) {
     self.editor.autoresizingMask = NSViewWidthSizable;
     scroll.documentView = self.editor;
     [content addSubview:scroll];
+
+    // Timing fix: move every timestamp so the first line starts where the vocals really start.
+    [self label:@"First line at" frame:NSMakeRect(16, 20, 84, 18)];
+    self.startAt = [[NSTextField alloc] initWithFrame:NSMakeRect(102, 16, 80, 24)];
+    self.startAt.stringValue = _request.positionSeconds >= 0
+        ? NS(FormatLyricsTime(static_cast<std::int64_t>(_request.positionSeconds * 1000.0))) : @"";
+    self.startAt.placeholderString = @"0:23.40";
+    [content addSubview:self.startAt];
+    NSButton* shift = [NSButton buttonWithTitle:@"Shift timing" target:self action:@selector(shiftTiming:)];
+    shift.frame = NSMakeRect(188, 14, 120, 30);
+    [content addSubview:shift];
 
     self.saveButton = [NSButton buttonWithTitle:@"Save to MP3 tag" target:self action:@selector(save:)];
     self.saveButton.frame = NSMakeRect(500, 14, 150, 30);
@@ -330,6 +343,33 @@ std::wstring Field(const LookupResult& r, const wchar_t* key) {
     if (!query.empty()) text += L"\nLooked for: " + query;
     text += L"\nLoaded into the editor below. Check it, then Save to MP3 tag.";
     self.status.stringValue = NS(text);
+}
+
+- (void)shiftTiming:(id)sender {
+    (void)sender;
+    if (self.busy) return;
+    const auto target = ParseLyricsTime(W(self.startAt.stringValue));
+    if (target < 0) {
+        self.status.stringValue = @"Enter the time where the first line starts, e.g. 0:23.40 (the current "
+                                   "playback position is filled in when the window opens).";
+        return;
+    }
+    [self store];
+    if (self.mode.indexOfSelectedItem != 0) {
+        [self.mode selectItemAtIndex:0];
+        [self show];
+    }
+    auto text = _timed;
+    std::int64_t delta = 0;
+    if (!ShiftLrcTimestamps(text, target, &delta)) {
+        self.status.stringValue = @"The Timed text has no [mm:ss.xx] timestamps to shift.";
+        return;
+    }
+    _timed = text;
+    [self show];
+    self.status.stringValue = [NSString stringWithFormat:@"All timestamps moved by %+.2f s; first line now at %@. "
+                                                         "Save to MP3 tag to keep it.",
+                               static_cast<double>(delta) / 1000.0, NS(FormatLyricsTime(target))];
 }
 
 - (void)save:(id)sender {

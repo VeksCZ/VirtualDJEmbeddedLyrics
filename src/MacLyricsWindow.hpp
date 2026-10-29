@@ -10,6 +10,7 @@ struct MacLyricsRequest {
     std::filesystem::path audioPath;
     std::filesystem::path helper;  // empty when LrcHelper is not installed
     double durationSeconds{};      // 0 when unknown
+    double positionSeconds{-1};    // playback position; prefills "First line at" (-1 = unknown)
 };
 
 // Returns true when the MP3 was changed (the caller should reload its lyrics).
