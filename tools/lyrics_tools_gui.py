@@ -13,6 +13,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import lrc_tool
+import lyrics_editor_tab
 import lyrics_issues
 import lyrics_tag_converter
 import restore_lrc
@@ -26,7 +27,7 @@ APP_DATA_DIR = lrc_tool.default_runtime_dir()
 SETTINGS_FILE = APP_DATA_DIR / "gui_settings.json"
 SESSION_FILE = APP_DATA_DIR / "tidal_session.json"
 REPORT_FILE = APP_DATA_DIR / "lyrics_report.csv"
-TAB_NAMES = ("plugin", "playlist_sync", "import", "mark", "tidal", "issues", "restore")
+TAB_NAMES = ("plugin", "playlist_sync", "import", "mark", "editor", "tidal", "issues", "restore")
 
 
 def parse_launch_arguments():
@@ -115,6 +116,11 @@ class App(tk.Tk):
         except (TypeError, ValueError):
             saved_threshold = 5
         self.opt_english_threshold = tk.IntVar(value=min(50, max(1, saved_threshold)))
+        try:
+            saved_workers = int(settings.get("opt_workers", lrc_tool.DEFAULT_WORKERS))
+        except (TypeError, ValueError):
+            saved_workers = lrc_tool.DEFAULT_WORKERS
+        self.opt_workers = tk.IntVar(value=min(16, max(1, saved_workers)))
 
         try:
             self.package_layout = vdj_setup.locate_package_layout(
@@ -157,6 +163,7 @@ class App(tk.Tk):
             "opt_sylt": self.opt_sylt.get(),
             "opt_overwrite_restore": self.opt_overwrite_restore.get(),
             "opt_english_threshold": self.opt_english_threshold.get(),
+            "opt_workers": self.opt_workers.get(),
         }
 
     def _save_settings(self) -> None:
@@ -206,6 +213,7 @@ class App(tk.Tk):
         self.notebook.add(self.tabs["playlist_sync"], text="Playlists")
         self.notebook.add(self.tabs["import"], text="Local: Import")
         self.notebook.add(self.tabs["mark"], text="Local: Tags")
+        self.notebook.add(self.tabs["editor"], text="Edit lyrics")
         self.notebook.add(self.tabs["tidal"], text="Online")
         self.notebook.add(self.tabs["issues"], text="Problems")
         self.notebook.add(self.tabs["restore"], text="Recovery")
@@ -315,6 +323,12 @@ class App(tk.Tk):
             issue_list, orient="vertical", command=self.issue_tree.yview)
         issue_scrollbar.grid(row=0, column=1, sticky="ns")
         self.issue_tree.configure(yscrollcommand=issue_scrollbar.set)
+        self.issue_tree.bind("<Double-1>", self._edit_selected_issue)
+
+        self.editor = lyrics_editor_tab.LyricsEditorTab(
+            self.tabs["editor"],
+            ensure_vdj_closed=lambda: vdj_setup.assert_virtualdj_closed(self.package_layout),
+            on_saved=lambda path: self.events.log(f"Embedded lyrics saved: {path.name}"))
 
         tidal_tab = self.tabs["tidal"]
         self._folder_panel(tidal_tab, include_backup=True)
@@ -341,6 +355,11 @@ class App(tk.Tk):
         ttk.Label(threshold_row, text="English-language detection threshold:").pack(side="left")
         ttk.Spinbox(threshold_row, from_=1, to=50, width=5,
                     textvariable=self.opt_english_threshold).pack(side="left", padx=6)
+        workers_row = ttk.Frame(tidal_tab)
+        workers_row.pack(anchor="w", pady=3)
+        ttk.Label(workers_row, text="Parallel online lookups:").pack(side="left")
+        ttk.Spinbox(workers_row, from_=1, to=16, width=5,
+                    textvariable=self.opt_workers).pack(side="left", padx=6)
 
         restore_tab = self.tabs["restore"]
         self._folder_panel(restore_tab, include_backup=True)
@@ -601,6 +620,7 @@ class App(tk.Tk):
             "playlist_sync": "Preview / sync playlists",
             "import": "Import LRC / TXT",
             "mark": "Scan / mark lyrics tags",
+            "editor": "Save to MP3 tag",
             "tidal": "Download / normalize lyrics",
             "issues": "Scan for problems",
             "restore": "Restore LRC sidecars",
@@ -736,6 +756,19 @@ class App(tk.Tk):
                 self.events.done()
         threading.Thread(target=worker, daemon=False, name="lyrics-update-download").start()
 
+    def _edit_selected_issue(self, _event=None) -> None:
+        selection = self.issue_tree.selection()
+        if not selection:
+            return
+        index = self.issue_tree.index(selection[0])
+        if index >= len(self.issue_results):
+            return
+        path = self.issue_results[index].path
+        if path.suffix.casefold() != ".mp3":
+            return
+        self.notebook.select(self.tabs["editor"])
+        self.editor.open_file(path)
+
     def _export_issues(self) -> None:
         if not self.issue_results:
             messagebox.showinfo("Problem queue", "Run a problem scan first.")
@@ -865,6 +898,9 @@ class App(tk.Tk):
         dry_run = self.opt_dryrun.get()
         if tab == "plugin":
             self._run_plugin_action("install")
+            return
+        if tab == "editor":
+            self.editor.save()
             return
         if tab == "issues":
             library = self._validated_library()
@@ -999,8 +1035,9 @@ class App(tk.Tk):
             write_sylt = self.opt_sylt.get()
             try:
                 english_threshold = self.opt_english_threshold.get()
+                workers = self.opt_workers.get()
             except tk.TclError:
-                messagebox.showerror("Invalid value", "The English-language threshold must be an integer.")
+                messagebox.showerror("Invalid value", "The threshold and parallel lookups must be integers.")
                 return
 
             def job() -> None:
@@ -1009,7 +1046,8 @@ class App(tk.Tk):
                 lrc_tool.run_library(
                     library, backup, session_file=SESSION_FILE, report_path=REPORT_FILE,
                     do_tidal=do_tidal, do_dedupe=do_dedupe, write_sylt=write_sylt,
-                    english_threshold=english_threshold, dry_run=dry_run, log=self.events.log,
+                    english_threshold=english_threshold, dry_run=dry_run,
+                    workers=workers, log=self.events.log,
                 )
                 return sync_user1_after_tag_write()
         else:

@@ -117,7 +117,10 @@ For each MP3, the tool tries:
 4. LRCLIB exact lookup, followed by a conservatively matched LRCLIB search.
 5. Existing embedded USLT frames, when normalization is enabled.
 
-LRCLIB is queried sequentially with a short delay between requests. TIDAL always
+Online lookups run in parallel (default 4, adjustable 1-16 in the Online tab or
+with `--workers`); LRCLIB requests share one rate limit and are retried after
+temporary errors, and duplicate tracks are looked up only once. Files are still
+written one at a time in library order. TIDAL always
 has priority; LRCLIB prefers synchronized lyrics and falls back to plain lyrics.
 
 The selected text is stored as USLT. When timestamps are present and the SYLT
@@ -191,3 +194,11 @@ VirtualDJ does not provide a supported external API for adding files to Search
 DB. This tool therefore validates the XML, requires VirtualDJ to be closed,
 writes atomically, and backs up every changed per-drive database. Keep the Search
 DB option disabled if you prefer to add files from inside VirtualDJ itself.
+
+
+## Edit lyrics tab
+
+The **Edit lyrics** tab (Windows and macOS) opens one MP3 and edits its embedded
+lyrics. Timed (SYLT, `[mm:ss.xx] text`) and Untimed (USLT) keep separate texts;
+saving writes exactly one frame of the selected type and requires VirtualDJ to be
+closed. Double-clicking an MP3 in the **Problems** list opens it in this tab.

@@ -24,6 +24,7 @@
 #endif
 
 namespace {
+constexpr int kCountdownGapSeconds = 5;
 struct BackgroundChoice { const char* name; CGFloat red, green, blue; };
 constexpr BackgroundChoice kBackgrounds[] = {
     {"Black", 0.0, 0.0, 0.0}, {"White", 1.0, 1.0, 1.0},
@@ -40,6 +41,13 @@ NSString* ToNSString(const std::wstring& value) {
                                   encoding:NSUTF32LittleEndianStringEncoding];
 }
 
+std::wstring WideFromUtf8(const char* value) {
+    NSString* text = value ? [NSString stringWithUTF8String:value] : nil;
+    if (!text) return {};
+    NSData* data = [text dataUsingEncoding:NSUTF32LittleEndianStringEncoding];
+    return std::wstring(static_cast<const wchar_t*>(data.bytes), data.length / sizeof(wchar_t));
+}
+
 class MetalTextOverlay {
 public:
     void Reset() {
@@ -52,14 +60,14 @@ public:
     bool Update(id<MTLDevice> device, const std::vector<std::wstring>& lines,
                 std::size_t activeLine, int width, int height,
                 float fontScale, float verticalPosition, bool backgroundEnabled,
-                std::size_t backgroundIndex) {
+                std::size_t backgroundIndex, bool plain = false) {
         if (!device || lines.empty() || activeLine >= lines.size() || width <= 0 || height <= 0)
             return false;
         std::wstring key = std::to_wstring(activeLine) + L":" + std::to_wstring(width) + L"x" +
                            std::to_wstring(height) + L":" + std::to_wstring(fontScale) + L":" +
                            std::to_wstring(verticalPosition) + L":" +
                            std::to_wstring(backgroundEnabled) + L":" +
-                           std::to_wstring(backgroundIndex);
+                           std::to_wstring(backgroundIndex) + L":" + std::to_wstring(plain);
         for (const auto& line : lines) key += L"\n" + line;
         if (device_ == device && texture_ && key == cacheKey_) return true;
 
@@ -120,7 +128,9 @@ public:
             y = std::clamp(y, minimumY, maximumY);
 
             for (std::size_t index = 0; index < lines.size(); ++index) {
-                NSColor* color = index < activeLine
+                NSColor* color = plain
+                    ? NSColor.whiteColor
+                    : index < activeLine
                     ? [NSColor colorWithCalibratedWhite:0.58 alpha:1.0]
                     : index == activeLine
                         ? [NSColor colorWithCalibratedRed:1.0 green:0.82 blue:0.0 alpha:1.0]
@@ -246,7 +256,8 @@ public:
 
     HRESULT VDJ_API OnParameter(int id) override {
         if (id == 7 && nextLine_) {
-            if (!lyrics_.synchronized && activeLine_ + 1 < lyrics_.lines.size()) ++activeLine_;
+            if (introVisible_ && !lyrics_.synchronized) introVisible_ = false;
+            else if (!lyrics_.synchronized && activeLine_ + 1 < lyrics_.lines.size()) ++activeLine_;
             nextLine_ = 0;
             overlay_.Reset();
         } else if (id == 8 && previousLine_) {
@@ -293,6 +304,8 @@ public:
         if (path.empty()) return S_OK;
         if (path != loadedPath_) {
             loadedPath_ = path;
+            LoadTrackHeading(deck);
+            introVisible_ = true;
             lyrics_ = {};
             activeLine_ = 0;
             overlay_.Reset();
@@ -306,8 +319,12 @@ public:
 
         std::vector<std::wstring> visible;
         std::size_t visibleActive = 0;
+        bool intro = false;
         if (lyrics_.empty()) {
             visible.push_back(L"...");
+        } else if (!lyrics_.synchronized && introVisible_ && !trackHeading_.empty()) {
+            visible = IntroLines(lyrics_.lines.front().text);
+            intro = true;
         } else if (!lyrics_.synchronized) {
             const std::size_t first = activeLine_ > 2 ? activeLine_ - 2 : 0;
             const std::size_t end = std::min(lyrics_.lines.size(), first + PageSize());
@@ -319,21 +336,31 @@ public:
             std::snprintf(command, sizeof(command), "deck %d get_time 'elapsed' 'absolute'", deck);
             if (GetInfo(command, &elapsed) != S_OK) return S_OK;
             const auto now = static_cast<std::int64_t>(elapsed);
-            const auto iterator = std::upper_bound(
-                lyrics_.lines.begin(), lyrics_.lines.end(), now,
-                [](std::int64_t value, const LyricLine& line) { return value < line.timeMs; });
-            activeLine_ = iterator == lyrics_.lines.begin() ? 0
-                : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), iterator) - 1);
-            const std::size_t first = activeLine_ > 2 ? activeLine_ - 2 : 0;
-            const std::size_t end = std::min(lyrics_.lines.size(), activeLine_ + TimedLineCount());
-            for (std::size_t index = first; index < end; ++index)
-                visible.push_back(lyrics_.lines[index].text);
-            visibleActive = activeLine_ - first;
+            const auto firstLyricTime = lyrics_.lines.front().timeMs;
+            if (now < firstLyricTime && !trackHeading_.empty()) {
+                const auto remaining = firstLyricTime - now;
+                std::wstring upcoming = lyrics_.lines.front().text;
+                if (ShowLyricCountdown(remaining, kCountdownGapSeconds))
+                    upcoming = L"> " + std::to_wstring(LyricCountdown(remaining)) + L" <";
+                visible = IntroLines(std::move(upcoming));
+                intro = true;
+            } else {
+                const auto iterator = std::upper_bound(
+                    lyrics_.lines.begin(), lyrics_.lines.end(), now,
+                    [](std::int64_t value, const LyricLine& line) { return value < line.timeMs; });
+                activeLine_ = iterator == lyrics_.lines.begin() ? 0
+                    : static_cast<std::size_t>(std::distance(lyrics_.lines.begin(), iterator) - 1);
+                const std::size_t first = activeLine_ > 2 ? activeLine_ - 2 : 0;
+                const std::size_t end = std::min(lyrics_.lines.size(), activeLine_ + TimedLineCount());
+                for (std::size_t index = first; index < end; ++index)
+                    visible.push_back(lyrics_.lines[index].text);
+                visibleActive = activeLine_ - first;
+            }
         }
 
         if (!overlay_.Update(encoder.device, visible, visibleActive, width, height,
                              FontScale(), VerticalPosition(), background_ != 0,
-                             BackgroundIndex())) return S_FALSE;
+                             BackgroundIndex(), intro)) return S_FALSE;
         return overlay_.Draw(encoder) ? S_OK : S_FALSE;
     }
 
@@ -375,6 +402,27 @@ private:
                 SaveAdvancedSettings();
             }
         }
+    }
+
+    std::vector<std::wstring> IntroLines(std::wstring upcoming) const {
+        std::vector<std::wstring> lines = trackHeading_;
+        lines.push_back(L"");
+        lines.push_back(std::move(upcoming));
+        return lines;
+    }
+
+    void LoadTrackHeading(int deck) {
+        char command[128]{}, value[4096]{};
+        std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'artist'", deck);
+        const auto artist = GetStringInfo(command, value, sizeof(value)) == S_OK
+            ? WideFromUtf8(value) : std::wstring{};
+        value[0] = '\0';
+        std::snprintf(command, sizeof(command), "deck %d get_loaded_song 'title'", deck);
+        const auto title = GetStringInfo(command, value, sizeof(value)) == S_OK
+            ? WideFromUtf8(value) : std::wstring{};
+        trackHeading_.clear();
+        if (!artist.empty()) trackHeading_.push_back(artist);
+        if (!title.empty()) trackHeading_.push_back(title);
     }
 
     void LoadAdvancedSettings() {
@@ -441,6 +489,8 @@ private:
     std::filesystem::path loadedPath_;
     LyricsDocument lyrics_;
     std::size_t activeLine_{};
+    std::vector<std::wstring> trackHeading_;
+    bool introVisible_{true};
     float fontSize_{1.0f / 3.0f};
     float timedLines_{2.0f / 7.0f};
     float pageLines_{2.0f / 7.0f};

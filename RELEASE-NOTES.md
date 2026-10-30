@@ -1,13 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.8.6
+# LRC Lyrics for VirtualDJ 0.8.7
 
 ## Changes
 
-- Timed and Untimed now keep separate contents in the embedded-lyrics editor. Switching type shows the actual corresponding MP3 tag, or an empty editor when that tag does not exist.
-- Added **Edit browser** for preparing the MP3 selected in the VirtualDJ browser without changing the master output.
-- Improved the Windows track intro: artist and title are white, and the intro joins the lyric time line so it scrolls away smoothly with the first lyrics.
+- macOS: LRC Master now shows the track intro (artist, title and the first lyric line or countdown) before the lyrics start, like the Windows plugin.
+- New **Edit lyrics** tab in LyricsTools for Windows and macOS: edit timed (SYLT) and untimed (USLT) embedded lyrics of any MP3. Double-click an MP3 in **Problems** to open it there.
+- Online lyrics download is much faster: lookups run in parallel (adjustable, default 4), LRCLIB requests share one rate limit and retry temporary errors, and duplicate tracks are looked up once. MP3 writes remain sequential and in library order.
+- Diagnostic ZIPs now also redact Linux and home-relative paths.
 
-## Windows download
+## Download
 
-Extract the complete LyricsTools-Windows-v0.8.6.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete ZIP for your system, open LyricsTools and choose Install / update plugin. On Windows keep the _internal folder beside the EXE.
 
-These new editor and track-intro improvements are currently Windows-specific.
+The in-VirtualDJ lyrics editor button (Edit text / Edit browser) is still Windows-only; macOS users edit lyrics in the LyricsTools app.

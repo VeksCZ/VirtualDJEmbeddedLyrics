@@ -18,11 +18,14 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 from mutagen.id3 import ID3, ID3NoHeaderError, SYLT, USLT, Encoding
@@ -213,9 +216,17 @@ class TidalClient:
         self.session_file = session_file.expanduser().resolve()
         self.persist_session = persist_session
         self.log = log
-        self.last_lyrics_error = ""
+        self._local = threading.local()
         self.session = tidalapi.Session()
         self._load_or_login()
+
+    @property
+    def last_lyrics_error(self) -> str:
+        return getattr(self._local, "lyrics_error", "")
+
+    @last_lyrics_error.setter
+    def last_lyrics_error(self, value: str) -> None:
+        self._local.lyrics_error = value
 
     @staticmethod
     def parse_expiry(value):
@@ -338,35 +349,60 @@ class TidalClient:
 
 
 class LrclibClient:
-    """Small rate-limited LRCLIB reader used only after TIDAL misses."""
+    """Small rate-limited, thread-safe LRCLIB reader used only after TIDAL misses."""
 
     API_ROOT = "https://lrclib.net/api"
     USER_AGENT = "VirtualDJEmbeddedLyrics/0.8.0 (https://github.com/VeksCZ/VirtualDJEmbeddedLyrics)"
+    MIN_INTERVAL = 0.12
+    RETRIES = 2
 
     def __init__(self):
-        self.last_error = ""
         self.last_request = 0.0
+        self._lock = threading.Lock()
+        self._local = threading.local()
+
+    @property
+    def last_error(self) -> str:
+        return getattr(self._local, "error", "")
+
+    @last_error.setter
+    def last_error(self, value: str) -> None:
+        self._local.error = value
+
+    def _wait_for_slot(self) -> None:
+        """Reserve the next request slot so parallel workers share one rate limit."""
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self.last_request + self.MIN_INTERVAL)
+            self.last_request = slot
+        if slot > now:
+            time.sleep(slot - now)
 
     def _get_json(self, endpoint: str, parameters: dict[str, object]):
-        delay = 0.3 - (time.monotonic() - self.last_request)
-        if delay > 0:
-            time.sleep(delay)
         url = f"{self.API_ROOT}/{endpoint}?{urllib.parse.urlencode(parameters)}"
         request = urllib.request.Request(
             url, headers={"Accept": "application/json", "User-Agent": self.USER_AGENT})
-        try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            self.last_error = f"HTTP {exc.code}"
-            return None
-        except (OSError, ValueError) as exc:
-            self.last_error = str(exc)
-            return None
-        finally:
-            self.last_request = time.monotonic()
+        for attempt in range(self.RETRIES + 1):
+            self._wait_for_slot()
+            retry_after = 0.0
+            try:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                self.last_error = f"HTTP {exc.code}"
+                if exc.code not in (429, 500, 502, 503, 504):
+                    return None
+                try:
+                    retry_after = float(exc.headers.get("Retry-After", 0))
+                except (TypeError, ValueError):
+                    retry_after = 0.0
+            except (OSError, ValueError) as exc:
+                self.last_error = str(exc)
+            if attempt < self.RETRIES:
+                time.sleep(min(10.0, max(retry_after, 0.5 * 2 ** attempt)))
+        return None
 
     @staticmethod
     def _lyrics(record) -> tuple[str | None, str]:
@@ -505,10 +541,98 @@ def remove_sidecar_after_success(sidecar: Path, backup_path: Path, dry_run: bool
         sidecar.unlink()
 
 
+@dataclass
+class Lookup:
+    artist: str | None = None
+    title: str | None = None
+    isrc: str | None = None
+    duration: float | None = None
+    error: str | None = None
+    sidecar: Path | None = None
+    lrc_text: str | None = None
+    status: str = ""
+
+
+class LookupCache:
+    """Share online results between duplicate tracks within one run."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._items: dict[tuple, tuple[str | None, str]] = {}
+
+    @staticmethod
+    def key(artist, title, duration) -> tuple:
+        return (normalize_artist(artist), normalize_title(title),
+                int(round(duration)) if duration else 0)
+
+    def get(self, key):
+        with self._lock:
+            return self._items.get(key)
+
+    def put(self, key, value) -> None:
+        with self._lock:
+            self._items[key] = value
+
+
+def lookup_file(mp3_path: Path, tidal: "TidalClient | None", lrclib: "LrclibClient | None",
+                tolerance: float, cache: LookupCache | None = None) -> Lookup:
+    """Read tags and find lyrics without writing anything (safe to run in threads)."""
+    result = Lookup()
+    try:
+        result.sidecar = mp3_path.with_suffix(".lrc")
+        result.artist, result.title, result.isrc, result.duration, result.error = read_tags(mp3_path)
+        if result.error:
+            return result
+        if result.sidecar.exists():
+            result.lrc_text, result.status = read_lrc_file(result.sidecar).strip(), "local LRC"
+            return result
+        key = LookupCache.key(result.artist, result.title, result.duration)
+        cached = cache.get(key) if cache is not None and any(key[:2]) else None
+        if cached is not None:
+            result.lrc_text, result.status = cached
+            if result.lrc_text:
+                result.status += " (cached)"
+            return result
+
+        if tidal is not None:
+            track = tidal.find_by_isrc(result.isrc) if result.isrc else None
+            result.status = "TIDAL ISRC" if track else ""
+            if not track:
+                track = tidal.find_by_search(result.artist, result.title, result.duration, tolerance)
+                result.status = "TIDAL search" if track else ""
+            if track:
+                result.lrc_text = tidal.fetch_lrc(track)
+                if not result.lrc_text:
+                    result.status = "track found without lyrics"
+                    if tidal.last_lyrics_error:
+                        result.status += f" ({tidal.last_lyrics_error})"
+        if not result.lrc_text and lrclib is not None:
+            text, status = lrclib.find_lyrics(result.artist, result.title, result.duration, tolerance)
+            if text:
+                result.lrc_text, result.status = text, status
+            elif lrclib.last_error:
+                suffix = f"LRCLIB unavailable ({lrclib.last_error})"
+                result.status = f"{result.status}; {suffix}" if result.status else suffix
+            elif result.status:
+                result.status += "; LRCLIB not found"
+            else:
+                result.status = "LRCLIB not found"
+        transient = "unavailable" in result.status
+        if cache is not None and any(key[:2]) and not transient:
+            cache.put(key, (result.lrc_text, result.status))
+    except Exception as exc:
+        result.error = str(exc)
+    return result
+
+
+DEFAULT_WORKERS = 4
+
+
 def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, report_path: Path,
                 do_tidal: bool = True, do_dedupe: bool = True, write_sylt: bool = True,
                 duration_tolerance: float = 3.0, english_threshold: int = 5,
-                dry_run: bool = False, log: LogFunction = print):
+                dry_run: bool = False, workers: int = DEFAULT_WORKERS,
+                log: LogFunction = print):
     library_dir, backup_dir = validate_directories(library_dir, backup_dir)
     mp3_files = iter_mp3_files(library_dir, backup_dir)
     if not mp3_files:
@@ -522,82 +646,63 @@ def run_library(library_dir: Path, backup_dir: Path, *, session_file: Path, repo
     log("")
 
     tidal = None
-    lrclib = LrclibClient() if do_tidal else None
     tidal_unavailable: str | None = None
+    lrclib = LrclibClient() if do_tidal else None
+    if do_tidal and any(not path.with_suffix(".lrc").exists() for path in mp3_files):
+        try:
+            tidal = TidalClient(session_file, persist_session=not dry_run, log=log)
+        except Exception as exc:
+            tidal_unavailable = str(exc)
+            log(f"[ERROR] TIDAL is unavailable for this run: {exc}")
+    workers = max(1, min(int(workers), 16)) if do_tidal else 1
+    cache = LookupCache()
+
     rows: list[list[object]] = []
     resolved_count = 0
-    for mp3_path in mp3_files:
-        artist = title = isrc = None
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lyrics") as pool:
+        futures = [pool.submit(lookup_file, path, tidal, lrclib, duration_tolerance, cache)
+                   for path in mp3_files]
         try:
-            sidecar = mp3_path.with_suffix(".lrc")
-            artist, title, isrc, duration, error = read_tags(mp3_path)
-            if error:
-                raise ValueError(error)
-            existing_uslt = read_existing_uslt(mp3_path)
-            duplicate_note = f"{len(existing_uslt)} USLT frames" if len(existing_uslt) > 1 else ""
-            lrc_text, status, ambiguous = None, "", False
+            for mp3_path, future in zip(mp3_files, futures):
+                found = future.result()
+                artist, title, isrc = found.artist, found.title, found.isrc
+                try:
+                    if found.error:
+                        raise ValueError(found.error)
+                    existing_uslt = read_existing_uslt(mp3_path)
+                    duplicate_note = f"{len(existing_uslt)} USLT frames" if len(existing_uslt) > 1 else ""
+                    lrc_text, status, ambiguous = found.lrc_text, found.status, False
+                    sidecar = found.sidecar
 
-            if sidecar.exists():
-                lrc_text, status = read_lrc_file(sidecar).strip(), "local LRC"
-            elif do_tidal and tidal_unavailable is None:
-                if tidal is None:
-                    try:
-                        tidal = TidalClient(session_file, persist_session=not dry_run, log=log)
-                    except Exception as exc:
-                        tidal_unavailable = str(exc)
-                        log(f"[ERROR] TIDAL is unavailable for this run: {exc}")
-                if tidal is not None:
-                    track = tidal.find_by_isrc(isrc) if isrc else None
-                    status = "TIDAL ISRC" if track else ""
-                    if not track:
-                        track = tidal.find_by_search(artist, title, duration, duration_tolerance)
-                        status = "TIDAL search" if track else ""
-                    if track:
-                        lrc_text = tidal.fetch_lrc(track)
-                        if not lrc_text:
-                            status = "track found without lyrics"
-                            if tidal.last_lyrics_error:
-                                status += f" ({tidal.last_lyrics_error})"
+                    if not lrc_text and do_dedupe and existing_uslt:
+                        lrc_text, ambiguous = choose_best_existing_uslt(existing_uslt)
+                        status = "normalized existing USLT"
+                        if ambiguous:
+                            status += " (different texts; review required)"
+                    if not lrc_text:
+                        status = status or ("TIDAL unavailable" if tidal_unavailable else "NOT FOUND")
+                        rows.append([mp3_path, artist, title, isrc, status, "manual review required"])
+                        log(f"[MISSING] {mp3_path.name} <- {status}")
+                        continue
 
-            if not lrc_text and lrclib is not None:
-                lrclib_text, lrclib_status = lrclib.find_lyrics(
-                    artist, title, duration, duration_tolerance)
-                if lrclib_text:
-                    lrc_text, status = lrclib_text, lrclib_status
-                elif lrclib.last_error:
-                    suffix = f"LRCLIB unavailable ({lrclib.last_error})"
-                    status = f"{status}; {suffix}" if status else suffix
-                elif status:
-                    status += "; LRCLIB not found"
-                else:
-                    status = "LRCLIB not found"
-
-            if not lrc_text and do_dedupe and existing_uslt:
-                lrc_text, ambiguous = choose_best_existing_uslt(existing_uslt)
-                status = "normalized existing USLT"
-                if ambiguous:
-                    status += " (different texts; review required)"
-            if not lrc_text:
-                status = status or ("TIDAL unavailable" if tidal_unavailable else "NOT FOUND")
-                rows.append([mp3_path, artist, title, isrc, status, "manual review required"])
-                log(f"[MISSING] {mp3_path.name} <- {status}")
-                continue
-
-            backup_path = backup_lrc(mp3_path, lrc_text, library_dir, backup_dir, dry_run)
-            lang_used = embed_lyrics(mp3_path, lrc_text, write_sylt, dry_run, english_threshold)
-            remove_sidecar_after_success(sidecar, backup_path, dry_run)
-            notes = [str(backup_path)]
-            if duplicate_note:
-                notes.append(f"{duplicate_note} normalized")
-            if ambiguous:
-                notes.append("source USLT frames differed")
-            rows.append([mp3_path, artist, title, isrc, status, "; ".join(notes)])
-            resolved_count += 1
-            prefix = "[WOULD UPDATE]" if dry_run else "[OK]"
-            log(f"{prefix} {mp3_path.name} <- {status} [lang={lang_used}]")
-        except Exception as exc:
-            rows.append([mp3_path, artist, title, isrc, "ERROR", str(exc)])
-            log(f"[ERROR] {mp3_path}: {exc}")
+                    backup_path = backup_lrc(mp3_path, lrc_text, library_dir, backup_dir, dry_run)
+                    lang_used = embed_lyrics(mp3_path, lrc_text, write_sylt, dry_run, english_threshold)
+                    remove_sidecar_after_success(sidecar, backup_path, dry_run)
+                    notes = [str(backup_path)]
+                    if duplicate_note:
+                        notes.append(f"{duplicate_note} normalized")
+                    if ambiguous:
+                        notes.append("source USLT frames differed")
+                    rows.append([mp3_path, artist, title, isrc, status, "; ".join(notes)])
+                    resolved_count += 1
+                    prefix = "[WOULD UPDATE]" if dry_run else "[OK]"
+                    log(f"{prefix} {mp3_path.name} <- {status} [lang={lang_used}]")
+                except Exception as exc:
+                    rows.append([mp3_path, artist, title, isrc, "ERROR", str(exc)])
+                    log(f"[ERROR] {mp3_path}: {exc}")
+        finally:
+            for future in futures:
+                future.cancel()
 
     if dry_run:
         log(f"\nDry run complete. Report would be written to: {report_path}")
@@ -621,6 +726,8 @@ def main() -> None:
     parser.add_argument("--no-dedupe", action="store_true", help="Do not normalize existing USLT frames")
     parser.add_argument("--duration-tolerance", type=float, default=3.0, metavar="SECONDS")
     parser.add_argument("--english-threshold", type=int, default=5, metavar="WORDS")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS, metavar="N",
+                        help="Parallel online lookups (1-16, default 4)")
     parser.add_argument("--dry-run", action="store_true", help="Do not write media, backups, credentials, or reports")
     args = parser.parse_args()
     backup_dir = args.backup_dir or args.library_dir / "_lrc_backup"
@@ -628,7 +735,8 @@ def main() -> None:
                 report_path=args.report, do_tidal=not args.no_tidal,
                 do_dedupe=not args.no_dedupe, write_sylt=not args.no_sylt,
                 duration_tolerance=args.duration_tolerance,
-                english_threshold=args.english_threshold, dry_run=args.dry_run)
+                english_threshold=args.english_threshold, dry_run=args.dry_run,
+                workers=args.workers)
 
 
 if __name__ == "__main__":

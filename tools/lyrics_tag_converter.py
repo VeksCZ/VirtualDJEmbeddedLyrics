@@ -497,13 +497,58 @@ def write_recording(mp3_path: Path, timing_path: Path) -> int:
     return 0
 
 
-def write_editor_text(mp3_path: Path, text_path: Path, synchronized: bool) -> int:
-    """Replace embedded lyrics with the text saved by the VirtualDJ plugin editor."""
+def format_lrc_timestamp(milliseconds: int) -> str:
+    total = max(0, int(milliseconds))
+    return f"[{total // 60000:02d}:{(total // 1000) % 60:02d}.{(total % 1000) // 10:02d}]"
+
+
+def timed_lines_to_text(lines) -> str:
+    return "\n".join(f"{format_lrc_timestamp(ms)} {text}" for text, ms in lines)
+
+
+def read_editor_texts(mp3_path: Path) -> tuple[str, str, bool]:
+    """Return (timed text, untimed text, synchronized) for the embedded-lyrics editor."""
+    _, ID3, ID3NoHeaderError, _, _, _, _ = load_mutagen()
     try:
-        Encoding, ID3, ID3NoHeaderError, SYLT, _, _, USLT = load_mutagen()
-        content = text_path.read_text(encoding="utf-8-sig")
-    except (ImportError, OSError, UnicodeError):
-        return 2
+        tags = ID3(mp3_path)
+    except ID3NoHeaderError:
+        return "", "", False
+    timed = ""
+    for frame in tags.getall("SYLT"):
+        if getattr(frame, "text", None):
+            timed = timed_lines_to_text(frame.text)
+            break
+    untimed = ""
+    for frame in tags.getall("USLT"):
+        text = str(getattr(frame, "text", "")).strip()
+        if not text:
+            continue
+        if parse_timestamped_text(text):
+            timed = timed or text
+        else:
+            untimed = untimed or text
+        if timed and untimed:
+            break
+    for frame in tags.getall("TXXX"):
+        if frame.desc.upper() in {"SYNCEDLYRICS", "LYRICS", "USLT"} and not timed:
+            text = "\n".join(str(value) for value in frame.text)
+            if parse_timestamped_text(text):
+                timed = text
+        elif frame.desc.upper() == "UNSYNCEDLYRICS" and not untimed:
+            untimed = sanitize_untimed_text("\n".join(str(value) for value in frame.text))
+    return timed, untimed, bool(timed)
+
+
+EDITOR_ERRORS = {
+    3: "Timed lyrics need at least one line starting with a [mm:ss.xx] timestamp.",
+    4: "The untimed lyrics are empty.",
+    5: "The MP3 tag could not be verified after saving.",
+}
+
+
+def save_editor_text(mp3_path: Path, content: str, synchronized: bool) -> int:
+    """Replace embedded lyrics with edited text; returns 0 or a nonzero error code."""
+    Encoding, ID3, ID3NoHeaderError, SYLT, _, _, USLT = load_mutagen()
     try:
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
@@ -534,10 +579,22 @@ def write_editor_text(mp3_path: Path, text_path: Path, synchronized: bool) -> in
     verify = ID3(mp3_path)
     valid = bool(verify.getall("SYLT")) and not verify.getall("USLT") if synchronized else (
         bool(verify.getall("USLT")) and not verify.getall("SYLT"))
-    if not valid:
-        return 5
-    text_path.unlink(missing_ok=True)
-    return 0
+    return 0 if valid else 5
+
+
+def write_editor_text(mp3_path: Path, text_path: Path, synchronized: bool) -> int:
+    """Replace embedded lyrics with the text saved by the VirtualDJ plugin editor."""
+    try:
+        load_mutagen()
+        content = text_path.read_text(encoding="utf-8-sig")
+    except (ImportError, OSError, UnicodeError):
+        return 2
+    result = save_editor_text(mp3_path, content, synchronized)
+    if result == 0:
+        text_path.unlink(missing_ok=True)
+    return result
+
+
 def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "--write-recording":
         return write_recording(Path(sys.argv[2]), Path(sys.argv[3]))
