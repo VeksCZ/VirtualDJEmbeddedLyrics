@@ -209,11 +209,12 @@ def create_diagnostic_zip(destination: Path, *, app_name: str, version: str,
     destination = destination.expanduser().resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
     home = str(Path.home())
+    sanitized = recent_log.replace(home, "<USER_HOME>")
     sanitized = re.sub(
-        r"(?i)(?:[A-Z]:\\|/Volumes/|/Users/)[^\r\n]+",
+        r"(?i)(?:[A-Z]:\\|/Volumes/|/Users/|/home/|/root/|<USER_HOME>[\\/])[^\r\n]+",
         "<REDACTED_PATH>",
-        recent_log,
-    ).replace(home, "<USER_HOME>")
+        sanitized,
+    )
     details = {
         "app": app_name,
         "version": version,
