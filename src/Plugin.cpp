@@ -90,6 +90,34 @@ std::wstring WideFromUtf8(const char* value) {
 }
 }
 
+// "Lyrics of this file were just edited" -- shared by every plugin instance in the process,
+// including the other DLL (LRC Master vs. LRC Deck), without any VirtualDJ API call, so the
+// editor's background thread may publish it. The text itself goes through a temp file: the
+// MP3 tag is written asynchronously (or only after unload), so re-reading the tag could still
+// return the old lyrics.
+struct LiveEditBlock {
+    volatile LONG revision;
+    wchar_t path[2048];
+};
+LiveEditBlock* LiveEdit() {
+    static LiveEditBlock* block = [] {
+        const HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                                  sizeof(LiveEditBlock), L"Local\\LrcLyricsLiveEdit");
+        return mapping ? static_cast<LiveEditBlock*>(
+                             MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LiveEditBlock)))
+                       : nullptr;
+    }();
+    return block;
+}
+std::filesystem::path LiveEditTextPath() {
+    std::error_code error;
+    return std::filesystem::temp_directory_path(error) / L"LrcLyricsLiveEdit.lyrics";
+}
+bool SameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
+    return !a.empty() && !b.empty() &&
+           _wcsicmp(a.lexically_normal().c_str(), b.lexically_normal().c_str()) == 0;
+}
+
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
@@ -116,10 +144,41 @@ public:
             FAILED(DeclareParameterButton(&saveOffsetButton_, 19,
                    "Save the current Timing offset into the MP3 tag (moves all timestamps)", "Save offset"))) return E_FAIL;
         LoadAdvancedSettings();
+        if (auto* block = LiveEdit()) seenLiveEdit_ = block->revision;   // only edits from now on
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
     }
+    // Buttons that act on "the playing track" may be pressed on an instance whose OnDraw isn't
+    // running (LRC Master while LRC Deck draws, or the video window closed): then loadedPath_ is
+    // empty or stale and the button did nothing. OnParameter runs on VirtualDJ's thread, so ask
+    // VirtualDJ directly and load the lyrics synchronously if the track differs.
+    void ResolveButtonTrack() {
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+#ifdef LRC_DECK_VARIANT
+        const int deck = currentDeck_ > 0 ? currentDeck_ : OwnDeck();
+#else
+        const int deck = VisibleVideoDeck();
+#endif
+        if (deck <= 0) return;
+        char pathBuffer[4096]{};
+        char command[64]{};
+        std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
+        if (FAILED(GetStringInfo(command, pathBuffer, sizeof(pathBuffer))) || !pathBuffer[0]) return;
+        const std::filesystem::path path{std::u8string(reinterpret_cast<const char8_t*>(pathBuffer))};
+        currentDeck_ = deck;
+        if (path == loadedPath_ && !lyrics_.empty()) return;
+        loadedPath_ = path;
+        LoadTrackHeading(deck);
+        lyrics_ = LoadLyricsForTrack(path).document;
+        activeLine_ = 0;
+        untimedScrollActive_ = false;
+        timingOffsetParameter_ = 0.5f;
+        texture_.Reset();
+        Diagnostics::Info(L"Button track resolved (deck " + std::to_wstring(deck) + L"): " + path.wstring());
+    }
     HRESULT VDJ_API OnParameter(int id) override {
+        if ((id == 6 && editTextButton_) || (id == 16 && startHereButton_) ||
+            (id == 19 && saveOffsetButton_)) ResolveButtonTrack();
         if (id == 7 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
         else if (id == 8 && previousLineButton_) {
             if (!lyrics_.synchronized && activeLine_ > 0) BeginUntimedScroll(activeLine_ - 1);
@@ -300,6 +359,7 @@ public:
                 if (autoTagLrcParameter_) EnsureLyricsHashtag(deck, lyrics_.synchronized);
             }
         }
+        ApplyLiveEdit();
         if (lyrics_.empty()) {
             if (!texture_.UpdateMessage(L"...", width, height, FontScale(), VerticalPosition(),
                                         backgroundParameter_ != 0, BackgroundColor()) ||
@@ -701,7 +761,9 @@ private:
         // thread's whole editing session and would immediately stomp any temporary override
         // back to the actually-playing track. Default to whichever type this file already has.
         const auto timedPreview = LoadEmbeddedTimedLyrics(browsed);
-        EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/false);
+        // applyLiveDisplay: if the browsed song is the one playing, show the edit at once
+        // (SaveEditedLyrics checks that under the lock and tells the other instances too).
+        EditEmbeddedLyrics(browsed, !timedPreview.document.empty(), /*applyLiveDisplay=*/true);
     }
     void EditEmbeddedLyrics(const std::filesystem::path& targetPath, bool synchronized, bool applyLiveDisplay,
                             double durationSeconds = 0.0, double positionSeconds = -1.0) {
@@ -795,16 +857,44 @@ private:
             }
             // Only refresh the on-screen lyrics if the track being edited is still the one
             // actually loaded; it may have changed on deck while the dialog was open.
-            if (applyLiveDisplay && targetPath == loadedPath_) {
+            if (applyLiveDisplay && SameFile(targetPath, loadedPath_)) {
                 lyrics_ = validation.document;
                 activeLine_ = 0;
                 untimedScrollActive_ = false;
                 texture_.Reset();
                 if (currentDeck_ > 0) EnsureLyricsHashtag(currentDeck_, edit.synchronized);
             }
+            PublishLiveEdit(targetPath, editedText);
         }
         Diagnostics::Info(fileIsFree ? L"Embedded lyrics updated; writing tag now"
                                      : L"Embedded lyrics updated; tag write waits for track unload");
+    }
+    // Tell every other instance (and the other DLL) that this file's lyrics changed.
+    void PublishLiveEdit(const std::filesystem::path& targetPath, const std::wstring& text) {
+        auto* block = LiveEdit();
+        if (!block) return;
+        std::ofstream live(LiveEditTextPath(), std::ios::binary | std::ios::trunc);
+        live << Utf8(text);
+        if (!live) return;
+        live.close();
+        wcsncpy_s(block->path, targetPath.c_str(), _TRUNCATE);
+        seenLiveEdit_ = InterlockedIncrement(&block->revision);   // own display is already updated
+    }
+    // OnDraw: pick up an edit made in another instance for the track shown here.
+    void ApplyLiveEdit() {
+        auto* block = LiveEdit();
+        if (!block) return;
+        const LONG revision = block->revision;
+        if (revision == seenLiveEdit_) return;
+        seenLiveEdit_ = revision;
+        if (!SameFile(std::filesystem::path{block->path}, loadedPath_)) return;
+        auto edited = LoadPlainTextLyrics(LiveEditTextPath());
+        if (edited.document.empty()) return;
+        lyrics_ = std::move(edited.document);
+        activeLine_ = 0;
+        untimedScrollActive_ = false;
+        texture_.Reset();
+        Diagnostics::Info(L"Lyrics edited in another instance applied: " + loadedPath_.wstring());
     }
     void QueueTimingRecording() {
         auto extension = loadedPath_.extension().wstring();
@@ -1135,6 +1225,7 @@ private:
     AdvancedAppearanceSettings customAppearance_{};
     bool settingsSynced_{};
     int seenSettingsRevision_{};
+    LONG seenLiveEdit_{-1};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {
