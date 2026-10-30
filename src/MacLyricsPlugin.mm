@@ -184,28 +184,26 @@ public:
         settings_ = LoadSettings();
         ApplySettingsToParameters();
         // Same parameter set and ids as the Windows plugin.
-        if (DeclareParameterButton(&editTextButton_, 6, "Edit or find lyrics for the playing song", "Edit lyrics") != S_OK ||
+        if (DeclareParameterButton(&editTextButton_, 6,
+                                   "Edit or find lyrics: the song selected in the browser, otherwise the playing one",
+                                   "Edit lyrics") != S_OK ||
             DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line") != S_OK ||
             DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous") != S_OK ||
             DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced") != S_OK ||
-            DeclareParameterButton(&editBrowsedButton_, 11, "Edit or find lyrics for the song selected in the browser",
-                                   "Edit browsed") != S_OK ||
             DeclareParameterSwitch(&wholeLineParameter_, 12, "Highlight whole active line", "Whole line",
                                    settings_.wholeLine) != S_OK ||
             DeclareParameterSlider(&countdownGapParameter_, 13, "Countdown gap (3-10 seconds)", "Countdown gap",
                                    countdownGapParameter_) != S_OK ||
-            DeclareParameterSlider(&timingOffsetParameter_, 14, "Lyrics timing offset (-5 to +5 seconds)",
-                                   "Timing offset", 0.5f) != S_OK ||
             DeclareParameterSwitch(&showHeadingParameter_, 15, "Show track name and artist", "Show name",
                                    settings_.showHeading) != S_OK ||
             DeclareParameterButton(&startHereButton_, 16,
                                    "Timed lyrics: move all lines so the first one starts now", "Start here") != S_OK ||
-            DeclareParameterButton(&earlierButton_, 17, "Lyrics 0.1 s earlier (temporary, like Timing offset)",
+            DeclareParameterButton(&earlierButton_, 17, "Lyrics 0.1 s earlier (temporary; Save offset keeps it)",
                                    "Earlier 0.1s") != S_OK ||
-            DeclareParameterButton(&laterButton_, 18, "Lyrics 0.1 s later (temporary, like Timing offset)",
+            DeclareParameterButton(&laterButton_, 18, "Lyrics 0.1 s later (temporary; Save offset keeps it)",
                                    "Later 0.1s") != S_OK ||
             DeclareParameterButton(&saveOffsetButton_, 19,
-                                   "Save the current Timing offset into the MP3 tag (moves all timestamps)",
+                                   "Save the Earlier/Later shift into the MP3 tag (moves all timestamps)",
                                    "Save offset") != S_OK)
             return -1;
         return S_OK;
@@ -221,10 +219,20 @@ public:
         else if (id == 6 && editTextButton_) {
             editTextButton_ = 0;
             const int deck = currentDeck_ > 0 ? currentDeck_ : 1;
-            char command[128]{}, value[4096]{};
+            char command[128]{}, value[4096]{}, browsed[4096]{};
             std::snprintf(command, sizeof(command), "deck %d get_filepath", deck);
             double length = 0.0;
-            if (GetStringInfo(command, value, sizeof(value)) == S_OK) {
+            const bool hasLoaded = GetStringInfo(command, value, sizeof(value)) == S_OK && value[0];
+            // The song selected in the browser wins, unless it is the playing one (then the
+            // editor also gets the playing position for "First line at").
+            std::filesystem::path selected;
+            if (GetStringInfo("get_browsed_filepath", browsed, sizeof(browsed)) == S_OK)
+                selected = std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(browsed))};
+            auto extension = selected.extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+            if (extension == ".mp3" && (!hasLoaded || std::strcmp(browsed, value) != 0)) {
+                OpenLyricsWindow(selected, 0.0);
+            } else if (hasLoaded) {
                 std::snprintf(command, sizeof(command), "deck %d get_songlength", deck);
                 if (GetInfo(command, &length) != S_OK) length = 0.0;
                 double position = -1000.0;
@@ -245,11 +253,6 @@ public:
             const int offset = TimingOffsetMs();
             if (offset != 0 && !lyrics_.empty() && lyrics_.synchronized)
                 ShiftLyricsTo(lyrics_.lines.front().timeMs + offset);
-        } else if (id == 11 && editBrowsedButton_) {
-            editBrowsedButton_ = 0;
-            char value[4096]{};
-            if (GetStringInfo("get_browsed_filepath", value, sizeof(value)) == S_OK)
-                OpenLyricsWindow(std::filesystem::path{std::u8string(reinterpret_cast<const char8_t*>(value))}, 0.0);
         } else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
             // Panel options are shared settings: persist and tell the other instances.
             settings_.wholeLine = wholeLineParameter_ != 0;
@@ -269,7 +272,7 @@ public:
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%d s", CountdownGapSeconds());
             return S_OK;
         }
-        if (id == 14) {
+        if (id == 17 || id == 18 || id == 19) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%+d ms", TimingOffsetMs());
             return S_OK;
         }

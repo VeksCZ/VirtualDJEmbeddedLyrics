@@ -98,11 +98,16 @@ std::wstring WideFromUtf8(const char* value) {
 struct LiveEditBlock {
     volatile LONG revision;
     wchar_t path[2048];
+    // Earlier/Later nudges: pressed in LRC Master while LRC Deck draws must still move the
+    // lyrics on screen, so the temporary offset is shared the same way.
+    volatile LONG offsetRevision;
+    volatile LONG offsetMs;
+    wchar_t offsetPath[2048];
 };
 LiveEditBlock* LiveEdit() {
     static LiveEditBlock* block = [] {
         const HANDLE mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
-                                                  sizeof(LiveEditBlock), L"Local\\LrcLyricsLiveEdit");
+                                                  sizeof(LiveEditBlock), L"Local\\LrcLyricsLiveEdit2");
         return mapping ? static_cast<LiveEditBlock*>(
                              MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(LiveEditBlock)))
                        : nullptr;
@@ -121,9 +126,12 @@ bool SameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
     HRESULT VDJ_API OnLoad() override {
-        if (FAILED(DeclareParameterButton(&editTextButton_, 6, "Edit embedded lyrics", "Edit lyrics")) ||
-            FAILED(DeclareParameterButton(&editBrowsedButton_, 11,
-                "Edit lyrics for the song selected in the browser", "Edit browsed")) ||
+        // One edit button: the song selected in the browser, else the playing one. (The old
+        // separate "Edit browsed" (11) and the Timing offset slider (14) are gone; Earlier/Later
+        // still nudge the hidden offset and Save offset makes it permanent.)
+        if (FAILED(DeclareParameterButton(&editTextButton_, 6,
+                "Edit or find lyrics: the song selected in the browser, otherwise the playing one",
+                "Edit lyrics")) ||
             FAILED(DeclareParameterButton(&nextLineButton_, 7, "Next line", "Next line")) ||
             FAILED(DeclareParameterButton(&previousLineButton_, 8, "Previous line", "Previous")) ||
             FAILED(DeclareParameterButton(&advancedButton_, 10, "Advanced", "Advanced")) ||
@@ -131,20 +139,21 @@ public:
                 "Highlight whole active line", "Whole line", false)) ||
             FAILED(DeclareParameterSlider(&countdownGapParameter_, 13,
                 "Countdown gap (3-10 seconds)", "Countdown gap", 2.0f / 7.0f)) ||
-            FAILED(DeclareParameterSlider(&timingOffsetParameter_, 14,
-                "Lyrics timing offset (-5 to +5 seconds)", "Timing offset", 0.5f)) ||
             FAILED(DeclareParameterSwitch(&showHeadingParameter_, 15,
                 "Show track name and artist", "Show name", true)) ||
             FAILED(DeclareParameterButton(&startHereButton_, 16,
                    "Timed lyrics: move all lines so the first one starts now", "Start here")) ||
             FAILED(DeclareParameterButton(&earlierButton_, 17,
-                   "Lyrics 0.1 s earlier (temporary, like Timing offset)", "Earlier 0.1s")) ||
+                   "Lyrics 0.1 s earlier (temporary; Save offset keeps it)", "Earlier 0.1s")) ||
             FAILED(DeclareParameterButton(&laterButton_, 18,
-                   "Lyrics 0.1 s later (temporary, like Timing offset)", "Later 0.1s")) ||
+                   "Lyrics 0.1 s later (temporary; Save offset keeps it)", "Later 0.1s")) ||
             FAILED(DeclareParameterButton(&saveOffsetButton_, 19,
-                   "Save the current Timing offset into the MP3 tag (moves all timestamps)", "Save offset"))) return E_FAIL;
+                   "Save the Earlier/Later shift into the MP3 tag (moves all timestamps)", "Save offset"))) return E_FAIL;
         LoadAdvancedSettings();
-        if (auto* block = LiveEdit()) seenLiveEdit_ = block->revision;   // only edits from now on
+        if (auto* block = LiveEdit()) {   // only edits from now on
+            seenLiveEdit_ = block->revision;
+            seenLiveOffset_ = block->offsetRevision;
+        }
         Diagnostics::Info(L"Embedded Lyrics loaded");
         return S_OK;
     }
@@ -187,15 +196,39 @@ public:
             recordedTimes_.assign(lyrics_.lines.size(), -1);
             recordingNextLine_ = 0;
             if (recordTimingParameter_ && !lyrics_.synchronized) activeLine_ = 0;
-        } else if (id == 6 && editTextButton_) { double length = 0.0; char lengthQuery[64]{}; std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1); if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0; const double position = CurrentPositionMs() / 1000.0; std::thread([this, length, position] { OpenEmbeddedLyricsEditor(length, position); }).detach(); editTextButton_ = 0; }
+        } else if (id == 6 && editTextButton_) {
+            editTextButton_ = 0;
+            char browserPath[4096]{};
+            if (FAILED(GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)))) browserPath[0] = 0;
+            const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))};
+            auto extension = selected.extension().wstring();
+            std::transform(extension.begin(), extension.end(), extension.begin(), ::towlower);
+            if (extension == L".mp3" && !SameFile(selected, loadedPath_)) {
+                Diagnostics::Info(L"Edit lyrics (browser selection): " + selected.wstring());
+                std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach();
+            } else {
+                double length = 0.0; char lengthQuery[64]{};
+                std::snprintf(lengthQuery, sizeof(lengthQuery), "deck %d get_songlength", currentDeck_ > 0 ? currentDeck_ : 1);
+                if (FAILED(GetInfo(lengthQuery, &length))) length = 0.0;
+                const double position = CurrentPositionMs() / 1000.0;
+                std::thread([this, length, position] { OpenEmbeddedLyricsEditor(length, position); }).detach();
+            }
+        }
         else if (id == 16 && startHereButton_) { startHereButton_ = 0; StartLyricsHere(); }
         else if ((id == 17 && earlierButton_) || (id == 18 && laterButton_)) {
             // 0.1 s on the +-5 s Timing offset slider; positive offset = lyrics later.
+            ResolveButtonTrack();
+            std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
             timingOffsetParameter_ = std::clamp(timingOffsetParameter_ + (id == 18 ? 0.01f : -0.01f), 0.0f, 1.0f);
             earlierButton_ = laterButton_ = 0;
+            if (auto* block = LiveEdit(); block && !loadedPath_.empty()) {
+                wcsncpy_s(block->offsetPath, loadedPath_.c_str(), _TRUNCATE);
+                InterlockedExchange(&block->offsetMs, TimingOffsetMs());
+                seenLiveOffset_ = InterlockedIncrement(&block->offsetRevision);
+            }
+            Diagnostics::Info(L"Timing offset now " + std::to_wstring(TimingOffsetMs()) + L" ms");
         }
         else if (id == 19 && saveOffsetButton_) { saveOffsetButton_ = 0; SaveOffsetToTag(); }
-        else if (id == 11 && editBrowsedButton_) { char browserPath[4096]{}; GetStringInfo("get_browsed_filepath", browserPath, sizeof(browserPath)); const std::filesystem::path selected{std::u8string(reinterpret_cast<const char8_t*>(browserPath))}; Diagnostics::Info(L"Edit browsed lyrics: raw filepath=[" + std::wstring(WideFromUtf8(browserPath)) + L"] parsed path=[" + selected.wstring() + L"]"); std::thread([this, selected] { OpenBrowsedLyricsEditor(selected); }).detach(); editBrowsedButton_ = 0; }
         else if (id == 10 && advancedButton_) { OpenAdvancedDialog(); advancedButton_ = 0; }
         else if ((id == 12 || id == 13 || id == 15) && settingsSynced_) {
             // Shared settings: persist and tell the other instances. Ignored until the first
@@ -224,7 +257,9 @@ public:
         } else if (id == 13) {
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%d s", CountdownGapSeconds());
             return S_OK;
-        } else if (id == 14) {
+        } else if (id == 17 || id == 18 || id == 19) {
+            // No offset slider any more: show the nudged amount on the buttons (if the skin
+            // displays button values) -- "0 ms" means nothing to save.
             std::snprintf(output, static_cast<std::size_t>(outputSize), "%+d ms", TimingOffsetMs());
             return S_OK;
         } else return E_NOTIMPL;
@@ -884,6 +919,11 @@ private:
     void ApplyLiveEdit() {
         auto* block = LiveEdit();
         if (!block) return;
+        if (const LONG offsetRevision = block->offsetRevision; offsetRevision != seenLiveOffset_) {
+            seenLiveOffset_ = offsetRevision;
+            if (SameFile(std::filesystem::path{block->offsetPath}, loadedPath_))
+                timingOffsetParameter_ = std::clamp(0.5f + block->offsetMs / 10000.0f, 0.0f, 1.0f);
+        }
         const LONG revision = block->revision;
         if (revision == seenLiveEdit_) return;
         seenLiveEdit_ = revision;
@@ -893,6 +933,7 @@ private:
         lyrics_ = std::move(edited.document);
         activeLine_ = 0;
         untimedScrollActive_ = false;
+        timingOffsetParameter_ = 0.5f;   // Start here / Save offset already moved the timestamps
         texture_.Reset();
         Diagnostics::Info(L"Lyrics edited in another instance applied: " + loadedPath_.wstring());
     }
@@ -1226,6 +1267,7 @@ private:
     bool settingsSynced_{};
     int seenSettingsRevision_{};
     LONG seenLiveEdit_{-1};
+    LONG seenLiveOffset_{-1};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {
