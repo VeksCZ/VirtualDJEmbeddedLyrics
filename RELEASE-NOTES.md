@@ -8,6 +8,12 @@
 - The diagnostics log collapses identical repeating errors, is capped at 1 MB (rotating to `.old`) and never throws.
 - macOS: callbacks are wrapped in exception handlers (built by CI, not tried on a real Mac).
 
+## Unreleased
+
+- New **Edit lyrics** tab in LyricsTools for Windows and macOS: edit the timed (SYLT) and untimed (USLT) embedded lyrics of any MP3. Double-click an MP3 in **Problems** to open it there. Saving uses the same verified, restore-on-failure tag write as the plugin.
+- Online lyrics download is much faster: lookups run in parallel (adjustable, default 4), LRCLIB requests share one rate limit and retry temporary errors with back-off, and duplicate tracks are looked up once. MP3 writes stay sequential and in library order.
+- Diagnostic ZIPs also redact Linux and home-relative paths.
+
 ## 0.12.3
 
 - **Start here** (new button in the LRC Master / LRC Deck panel): when downloaded timed lyrics start at the wrong moment, press it where the vocals really begin. Every timestamp moves by the same amount so the first line starts there; it is shown at once and saved to the MP3 tag (right away, or after the track is unloaded when VirtualDJ holds the file).
