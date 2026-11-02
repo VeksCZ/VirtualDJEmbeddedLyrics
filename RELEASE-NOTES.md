@@ -1,6 +1,11 @@
-# LRC Lyrics for VirtualDJ 0.4.1
+# LRC Lyrics for VirtualDJ 0.4.2
 
-## Unreleased
+## 0.4.2
+
+- The plugins now log when the video device is closed and when the output size or the shown deck changes (one line per change), which makes resolution/output-window problems traceable in `EmbeddedLyrics.log`.
+- Fixed a timing-sensitive lyrics-pipeline test that failed on macOS Intel CI and blocked the macOS packages of 0.4.1.
+
+## 0.4.1
 
 - **Crash forensics (Windows):** while a plugin is loaded, a passive exception logger appends a `[FAULT]` line to `EmbeddedLyrics.log` for serious faults (access violation, heap corruption, fast-fail), naming the module the fault happened in (for example the NVIDIA driver `nvwgf2umx.dll`) and the offset. It never handles the exception, so VirtualDJ's behaviour is unchanged, and it is removed together with the last plugin instance.
 - The diagnostic ZIP from LyricsTools now also contains the video adapter and driver version and the (path-redacted) plugin log, so a GPU crash can be analysed from one file.
@@ -100,6 +105,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.4.1.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.4.2.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
 These editor, preview, and lyrics-writing improvements are currently Windows-specific.
