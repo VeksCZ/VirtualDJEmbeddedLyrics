@@ -5,6 +5,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -24,7 +25,12 @@ public:
     TextTexture& operator=(const TextTexture&) = delete;
     ~TextTexture();
     bool Initialize(ID3D11Device* device);
+    // Drops the cached image and keeps the GPU resources. Only call on the render thread.
     void Reset();
+    // Releases everything including the device reference (call from OnDeviceClose).
+    void Shutdown();
+    // Thread-safe: asks the render thread to redraw the image on its next update.
+    void Invalidate() noexcept { invalidated_.store(true, std::memory_order_release); }
     bool Update(const std::wstring& current, const std::wstring& next,
                 float progress, int width, int height, float fontScale = 1.0f,
                 float verticalPosition = 0.5f);
@@ -105,6 +111,8 @@ private:
     bool missingLines_{};   // last frame left out lines still being rendered
     int textureWidth_{}, textureHeight_{};
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
+    std::atomic<bool> invalidated_{false};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view_;
     std::wstring cacheKey_;

@@ -6,6 +6,7 @@
 #include "LyricsTiming.hpp"
 #include "LyricsLayout.hpp"
 #include "AsyncLyricsLoader.hpp"
+#include "CrashGuard.hpp"
 #include "Diagnostics.hpp"
 #include "MasterDeckSelector.hpp"
 #include "TextTexture.hpp"
@@ -13,6 +14,7 @@
 #include "vdjVideo8.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -186,6 +188,12 @@ public:
         Diagnostics::Info(L"Button track resolved (deck " + std::to_wstring(deck) + L"): " + path.wstring());
     }
     HRESULT VDJ_API OnParameter(int id) override {
+        // VirtualDJ must never see an exception or hardware fault from the plugin.
+        HRESULT result = S_OK;
+        CrashGuard::Run(L"OnParameter", [this, id] { return HandleParameter(id); }, &result);
+        return S_OK;
+    }
+    HRESULT HandleParameter(int id) {
         if ((id == 6 && editTextButton_) || (id == 16 && startHereButton_) ||
             (id == 19 && saveOffsetButton_)) ResolveButtonTrack();
         if (id == 7 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
@@ -285,6 +293,33 @@ public:
     }
     ULONG VDJ_API Release() override { delete this; return 0; }
     HRESULT VDJ_API OnDeviceInit() override {
+        HRESULT result = E_FAIL;
+        CrashGuard::Run(L"OnDeviceInit", [this] { return DeviceInit(); }, &result);
+        disabled_ = FAILED(result);
+        return result;
+    }
+    HRESULT VDJ_API OnDeviceClose() override {
+        HRESULT result = S_OK;
+        CrashGuard::Run(L"OnDeviceClose", [this] { return DeviceClose(); }, &result);
+        return S_OK;
+    }
+    HRESULT VDJ_API OnDraw() override {
+        if (disabled_) return S_OK;
+        HRESULT result = S_OK;
+        const auto outcome = CrashGuard::Run(L"OnDraw", [this] { return DrawFrame(); }, &result);
+        if (outcome == CrashGuard::Outcome::Completed) {
+            failedFrames_ = 0;
+        } else if (outcome == CrashGuard::Outcome::Fault || ++failedFrames_ >= 3) {
+            // Never keep poking a GPU path that already faulted; the host keeps running.
+            disabled_ = true;
+            Diagnostics::Error(L"Lyrics rendering disabled after a fault; reload the plugin or restart the device");
+        }
+        return S_OK;
+    }
+    HRESULT DeviceInit() {
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+        deviceLostLogged_ = false;
+        failedFrames_ = 0;
         if (FAILED(GetDevice(VdjVideoEngineDirectX11, reinterpret_cast<void**>(&device_))) || !device_) {
             Diagnostics::Error(L"VirtualDJ did not provide a DirectX 11 device");
             return E_FAIL;
@@ -297,17 +332,25 @@ public:
         Diagnostics::Info(L"DirectX 11 lyrics renderer initialized");
         return S_OK;
     }
-    HRESULT VDJ_API OnDeviceClose() override {
-        renderer_.Reset(); texture_.Reset(); headingTexture_.Reset(); device_ = nullptr;
+    HRESULT DeviceClose() {
+        std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+        renderer_.Reset(); texture_.Shutdown(); headingTexture_.Shutdown(); device_ = nullptr;
         drawContextLogged_ = false;
         return S_OK;
     }
-    HRESULT VDJ_API OnDraw() override {
+    HRESULT DrawFrame() {
         // The lyrics/text-editor dialogs run on their own background thread and read/write
         // loadedPath_, lyrics_, texture_, activeLine_ etc. directly. Without this lock, the
         // render thread and the editor thread touch that state concurrently, which is what
         // was causing playback to stutter/freeze while an "Edit lyrics" dialog was open.
         std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
+        if (!renderer_.DeviceHealthy()) {
+            if (!deviceLostLogged_) {
+                Diagnostics::Error(L"GPU device removed or reset; lyrics paused until VirtualDJ reinitializes it");
+                deviceLostLogged_ = true;
+            }
+            return S_OK;
+        }
 #ifdef LRC_DECK_VARIANT
         // Without VDJFLAG_VIDEO_OVERLAY nothing is drawn for us: put the deck's own picture
         // down first, on every frame and before any early return, or the deck goes black.
@@ -1087,7 +1130,7 @@ private:
         autoTagLrcParameter_ = settings.autoTag;
         if (recordTimingParameter_ != static_cast<int>(settings.recordTiming)) {
             recordTimingParameter_ = settings.recordTiming ? 1 : 0;
-            OnParameter(9);
+            HandleParameter(9);
         }
         fontFamilyParameter_ = static_cast<float>(settings.font) /
                                static_cast<float>(std::size(kFontNames) - 1);
@@ -1231,6 +1274,9 @@ private:
     TextTexture headingTexture_;
     VideoRenderer renderer_;
     AsyncLyricsLoader loader_;
+    std::atomic<bool> disabled_{false};
+    int failedFrames_{};
+    bool deviceLostLogged_{};
     std::recursive_mutex stateMutex_;
     std::filesystem::path loadedPath_;
     std::vector<std::wstring> trackHeading_;

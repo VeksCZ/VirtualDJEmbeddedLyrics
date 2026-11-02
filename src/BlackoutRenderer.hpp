@@ -9,8 +9,11 @@ public:
     bool Initialize(ID3D11Device* device);
     void Reset();
     bool Draw(bool setFullTargetViewport = true);
+    // False once the GPU device was removed/reset (driver crash, TDR, eGPU unplug).
+    bool DeviceHealthy() const noexcept;
 
 private:
+    Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader_;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> pixelShader_;

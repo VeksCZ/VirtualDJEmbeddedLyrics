@@ -9,6 +9,8 @@ public:
     bool Initialize(ID3D11Device* device);
     void Reset();
     bool Draw(ID3D11ShaderResourceView* texture, bool setFullTargetViewport = true);
+    // False once the GPU device was removed/reset (driver crash, TDR, eGPU unplug).
+    bool DeviceHealthy() const noexcept;
 
 private:
     Microsoft::WRL::ComPtr<ID3D11Device> device_;

@@ -2,6 +2,7 @@
 #include "vdjVideo8.h"
 #include "BlackoutRenderer.hpp"
 #include "Diagnostics.hpp"
+#include "CrashGuard.hpp"
 
 #include <cstring>
 
@@ -25,6 +26,30 @@ public:
     ULONG VDJ_API Release() override { delete this; return 0; }
 
     HRESULT VDJ_API OnDeviceInit() override {
+        HRESULT result = E_FAIL;
+        CrashGuard::Run(L"Blackout OnDeviceInit", [this] { return DeviceInit(); }, &result);
+        disabled_ = FAILED(result);
+        return result;
+    }
+
+    HRESULT VDJ_API OnDeviceClose() override {
+        HRESULT result = S_OK;
+        CrashGuard::Run(L"Blackout OnDeviceClose", [this] { renderer_.Reset(); return S_OK; }, &result);
+        return S_OK;
+    }
+
+    HRESULT VDJ_API OnDraw() override {
+        if (disabled_) return E_FAIL;
+        HRESULT result = E_FAIL;
+        const auto outcome = CrashGuard::Run(L"Blackout OnDraw", [this] { return DrawFrame(); }, &result);
+        // A hardware fault inside the GPU driver path is not retried every frame.
+        if (outcome == CrashGuard::Outcome::Fault) disabled_ = true;
+        return result;
+    }
+
+private:
+    HRESULT DeviceInit() {
+        disabledReported_ = false;
         ID3D11Device* device = nullptr;
         if (FAILED(GetDevice(VdjVideoEngineDirectX11, reinterpret_cast<void**>(&device))) || !device) {
             Diagnostics::Error(L"Blackout did not receive a DirectX 11 device");
@@ -38,12 +63,14 @@ public:
         return S_OK;
     }
 
-    HRESULT VDJ_API OnDeviceClose() override {
-        renderer_.Reset();
-        return S_OK;
-    }
-
-    HRESULT VDJ_API OnDraw() override {
+    HRESULT DrawFrame() {
+        if (!renderer_.DeviceHealthy()) {
+            if (!disabledReported_) {
+                Diagnostics::Error(L"Blackout: GPU device removed or reset; waiting for VirtualDJ to reinitialize");
+                disabledReported_ = true;
+            }
+            return E_FAIL;
+        }
         if (!renderer_.Draw()) {
             Diagnostics::Error(L"Blackout frame rendering failed");
             return E_FAIL;
@@ -51,8 +78,9 @@ public:
         return S_OK;
     }
 
-private:
     BlackoutRenderer renderer_;
+    bool disabled_{};
+    bool disabledReported_{};
 };
 
 STDAPI DllGetClassObject(REFCLSID classId, REFIID interfaceId, LPVOID* object) {

@@ -97,8 +97,12 @@ std::uint32_t DibColor(std::uint32_t colorRef) {
 }
 
 bool TextTexture::Initialize(ID3D11Device* device) {
+    // A new device means every old resource belongs to a dead device: never reuse them.
+    Shutdown();
+    if (!device) return false;
     device_ = device;
-    return device_ != nullptr;
+    device_->GetImmediateContext(&context_);
+    return context_ != nullptr;
 }
 
 void TextTexture::Reset() {
@@ -119,6 +123,13 @@ TextTexture::~TextTexture() {
     wake_.notify_all();
     if (worker_.joinable()) worker_.join();
     ReleaseStyle();
+}
+
+void TextTexture::Shutdown() {
+    Reset();
+    context_.Reset();
+    device_.Reset();
+    invalidated_.store(false, std::memory_order_release);
 }
 
 bool TextTexture::Update(const std::wstring& current, const std::wstring& next,
@@ -306,7 +317,11 @@ bool TextTexture::UpdateTimed(const std::vector<std::wstring>& lines, std::size_
                               int backdropStyle, int backdropStrength,
                               bool backgroundEnabled, std::uint32_t backgroundColor,
                               std::size_t targetLines) {
-    if (!device_ || width <= 0 || height <= 0 || lines.empty() || activeLine >= lines.size()) return false;
+    if (!device_ || !context_ || width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
+        lines.empty() || activeLine >= lines.size()) return false;
+    // Never touch a removed/reset GPU device; VirtualDJ will call OnDeviceInit again.
+    if (device_->GetDeviceRemovedReason() != S_OK) return false;
+    if (invalidated_.exchange(false, std::memory_order_acq_rel)) cacheKey_.clear();
     if (targetLines == 0) targetLines = lines.size();
     if (lines.size() == 1) scrollProgress = 0.0f;
     highlightProgress = std::clamp(highlightProgress, 0.0f, 1.0f);
@@ -605,15 +620,25 @@ bool TextTexture::UpdateBanner(const std::wstring& text, int width, int height,
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = width; desc.Height = height; desc.MipLevels = 1; desc.ArraySize = 1;
     desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_IMMUTABLE; desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    D3D11_SUBRESOURCE_DATA initial{pixels, static_cast<UINT>(width * 4), 0};
-    texture_.Reset(); view_.Reset();
-    const auto hrTexture = device_->CreateTexture2D(&desc, &initial, &texture_);
-    const auto hrView = SUCCEEDED(hrTexture)
-        ? device_->CreateShaderResourceView(texture_.Get(), nullptr, &view_) : hrTexture;
+    desc.Usage = D3D11_USAGE_DEFAULT; desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    HRESULT hrView = S_OK;
+    if (texture_ && view_ && !dynamic_ && textureWidth_ == width && textureHeight_ == height) {
+        // Same size: update the existing texture in place instead of allocating a new
+        // full-screen GPU texture every animation frame (VRAM churn stresses the driver).
+        context_->UpdateSubresource(texture_.Get(), 0, nullptr, pixels,
+                                    static_cast<UINT>(width * 4), 0);
+    } else {
+        D3D11_SUBRESOURCE_DATA initial{pixels, static_cast<UINT>(width * 4), 0};
+        texture_.Reset(); view_.Reset();
+        textureWidth_ = textureHeight_ = 0;
+        const auto hrTexture = device_->CreateTexture2D(&desc, &initial, &texture_);
+        hrView = SUCCEEDED(hrTexture)
+            ? device_->CreateShaderResourceView(texture_.Get(), nullptr, &view_) : hrTexture;
+        if (SUCCEEDED(hrView)) { textureWidth_ = width; textureHeight_ = height; }
+    }
     DestroyCanvas(dc, bitmap, oldBitmap);
     dynamic_ = false;
-    if (FAILED(hrView)) return false;
+    if (FAILED(hrView)) { texture_.Reset(); view_.Reset(); return false; }
     cacheKey_ = key;
     return true;
 }

@@ -16,6 +16,7 @@ float4 PSMain() : SV_TARGET { return float4(0.0, 0.0, 0.0, 1.0); }
 bool BlackoutRenderer::Initialize(ID3D11Device* device) {
     Reset();
     if (!device) return false;
+    device_ = device;
     device->GetImmediateContext(&context_);
     if (!context_) return false;
     Microsoft::WRL::ComPtr<ID3DBlob> vertexCode, pixelCode, errors;
@@ -48,10 +49,15 @@ void BlackoutRenderer::Reset() {
     pixelShader_.Reset();
     vertexShader_.Reset();
     context_.Reset();
+    device_.Reset();
+}
+
+bool BlackoutRenderer::DeviceHealthy() const noexcept {
+    return device_ && device_->GetDeviceRemovedReason() == S_OK;
 }
 
 bool BlackoutRenderer::Draw(bool setFullTargetViewport) {
-    if (!context_ || !vertexShader_ || !pixelShader_) return false;
+    if (!context_ || !vertexShader_ || !pixelShader_ || !DeviceHealthy()) return false;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
     context_->OMGetRenderTargets(1, &target, nullptr);
     if (!target) return false;

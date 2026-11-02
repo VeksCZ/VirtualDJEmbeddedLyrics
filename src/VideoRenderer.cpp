@@ -82,8 +82,13 @@ void VideoRenderer::Reset() {
     pixelShader_.Reset(); vertexShader_.Reset(); context_.Reset(); device_.Reset();
 }
 
+bool VideoRenderer::DeviceHealthy() const noexcept {
+    return device_ && device_->GetDeviceRemovedReason() == S_OK;
+}
+
 bool VideoRenderer::Draw(ID3D11ShaderResourceView* texture, bool setFullTargetViewport) {
-    if (!context_ || !texture) return false;
+    if (!context_ || !texture || !vertexShader_ || !pixelShader_ || !inputLayout_ ||
+        !vertexBuffer_ || !DeviceHealthy()) return false;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
     context_->OMGetRenderTargets(1, &target, nullptr);
     if (!target) return false;
