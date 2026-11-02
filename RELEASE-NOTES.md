@@ -1,6 +1,14 @@
-# LRC Lyrics for VirtualDJ 0.12.3
+# LRC Lyrics for VirtualDJ 0.12.4
 
 ## Changes
+
+- **Crash protection (Windows):** every callback VirtualDJ makes into LRC Master, LRC BlackOut and LRC Deck is wrapped in a guard. A C++ exception or hardware fault inside the plugin no longer reaches VirtualDJ; the plugin switches its own drawing off instead of taking the whole set down.
+- **GPU device loss:** the plugins check `GetDeviceRemovedReason()` before drawing and stop touching a removed/reset GPU device until VirtualDJ initializes it again. Stale textures from an old device are never reused and the device reference is released in `OnDeviceClose`.
+- Corrupt or hostile lyrics files can no longer crash the loader: very long lines skip the regex parsers, implausibly large ID3 tags are rejected and exceptions in the loader thread are contained.
+- The diagnostics log collapses identical repeating errors, is capped at 1 MB (rotating to `.old`) and never throws.
+- macOS: callbacks are wrapped in exception handlers (built by CI, not tried on a real Mac).
+
+## 0.12.3
 
 - **Start here** (new button in the LRC Master / LRC Deck panel): when downloaded timed lyrics start at the wrong moment, press it where the vocals really begin. Every timestamp moves by the same amount so the first line starts there; it is shown at once and saved to the MP3 tag (right away, or after the track is unloaded when VirtualDJ holds the file).
 - **LRC lyrics window (Windows):** new *First line at* field (prefilled with the current playback position) and *Shift timing* button that moves all timestamps the same way before you save.
@@ -83,6 +91,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.8.11.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.12.4.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
 These editor, preview, and lyrics-writing improvements are currently Windows-specific.
