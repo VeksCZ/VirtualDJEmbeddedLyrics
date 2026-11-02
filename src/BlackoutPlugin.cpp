@@ -12,6 +12,9 @@
 
 class BlackoutPlugin final : public IVdjPluginVideoFx8 {
 public:
+    BlackoutPlugin() { Diagnostics::AcquireCrashLogger(); }
+    ~BlackoutPlugin() override { Diagnostics::ReleaseCrashLogger(); }
+
     HRESULT VDJ_API OnGetPluginInfo(TVdjPluginInfo8* info) override {
         info->PluginName = "LRC BlackOut";
         info->Author = "Slava / OpenAI";

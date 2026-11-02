@@ -127,6 +127,8 @@ bool SameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
 
 class EmbeddedLyricsPlugin final : public IVdjPluginVideoFx8 {
 public:
+    EmbeddedLyricsPlugin() { Diagnostics::AcquireCrashLogger(); }
+    ~EmbeddedLyricsPlugin() override { Diagnostics::ReleaseCrashLogger(); }
     HRESULT VDJ_API OnLoad() override {
         // One edit button: the song selected in the browser, else the playing one. (The old
         // separate "Edit browsed" (11) and the Timing offset slider (14) are gone; Earlier/Later

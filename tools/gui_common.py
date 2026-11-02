@@ -203,18 +203,79 @@ def newest_backup(home: Path | None, folder_name: str) -> Path | None:
     return max(candidates, key=lambda path: path.name) if candidates else None
 
 
-def create_diagnostic_zip(destination: Path, *, app_name: str, version: str,
-                          status: str, recent_log: str = "") -> Path:
-    """Create diagnostics without media, tags, credentials, or absolute paths."""
-    destination = destination.expanduser().resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
+def _sanitize_log(text: str) -> str:
     home = str(Path.home())
-    sanitized = recent_log.replace(home, "<USER_HOME>")
-    sanitized = re.sub(
+    sanitized = text.replace(home, "<USER_HOME>")
+    return re.sub(
         r"(?i)(?:[A-Z]:\\|/Volumes/|/Users/|/home/|/root/|<USER_HOME>[\\/])[^\r\n]+",
         "<REDACTED_PATH>",
         sanitized,
     )
+
+
+def collect_gpu_info(timeout: float = 10.0) -> list[dict[str, str]]:
+    """Video adapters and driver versions (the first thing to know about a GPU crash)."""
+    try:
+        if sys.platform == "win32":
+            command = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                       "Get-CimInstance Win32_VideoController | "
+                       "Select-Object Name,DriverVersion,DriverDate | ConvertTo-Json -Compress"]
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        elif sys.platform == "darwin":
+            command = ["system_profiler", "SPDisplaysDataType", "-json"]
+            flags = 0
+        else:
+            return []
+        completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                   text=True, errors="replace", timeout=timeout, check=False,
+                                   creationflags=flags)
+        data = json.loads(completed.stdout or "null")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    if sys.platform == "darwin":
+        entries = data.get("SPDisplaysDataType", []) if isinstance(data, dict) else []
+        return [{"Name": str(item.get("sppci_model", item.get("_name", "")))}
+                for item in entries if isinstance(item, dict)]
+    if isinstance(data, dict):
+        data = [data]
+    return [{key: str(item.get(key, "")) for key in ("Name", "DriverVersion", "DriverDate")}
+            for item in data or [] if isinstance(item, dict)]
+
+
+def plugin_log_candidates() -> list[Path]:
+    local = os.environ.get("LOCALAPPDATA")
+    if sys.platform == "win32" and local:
+        base = Path(local) / "VirtualDJ"
+    else:
+        base = Path.home() / "Library" / "Application Support" / "VirtualDJ"
+    return [base / "EmbeddedLyrics.log.old", base / "EmbeddedLyrics.log"]
+
+
+def read_plugin_log(max_chars: int = 60000) -> str:
+    """Tail of the plugin's own log (crash guard, GPU device loss, load errors)."""
+    parts: list[str] = []
+    for path in plugin_log_candidates():
+        try:
+            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    return "".join(parts)[-max_chars:]
+
+
+def create_diagnostic_zip(destination: Path, *, app_name: str, version: str,
+                          status: str, recent_log: str = "",
+                          gpu_info: list[dict[str, str]] | None = None,
+                          plugin_log: str | None = None) -> Path:
+    """Create diagnostics without media, tags, credentials, or absolute paths.
+
+    The plugin log and the GPU/driver list are collected automatically unless given.
+    """
+    destination = destination.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if gpu_info is None:
+        gpu_info = collect_gpu_info()
+    if plugin_log is None:
+        plugin_log = read_plugin_log()
     details = {
         "app": app_name,
         "version": version,
@@ -222,10 +283,12 @@ def create_diagnostic_zip(destination: Path, *, app_name: str, version: str,
         "platform": platform.platform(),
         "architecture": platform.machine(),
         "python": platform.python_version(),
+        "gpu": gpu_info,
         "status": status,
         "privacy": "No music, ID3 tags, credentials, or absolute user paths are included.",
     }
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("system.json", json.dumps(details, indent=2, ensure_ascii=False) + "\n")
-        archive.writestr("recent.log", sanitized[-20000:])
+        archive.writestr("recent.log", _sanitize_log(recent_log)[-20000:])
+        archive.writestr("plugin.log", _sanitize_log(plugin_log)[-60000:])
     return destination

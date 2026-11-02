@@ -47,6 +47,32 @@ class GuiCommonTests(unittest.TestCase):
             self.assertNotIn("track.mp3", log)
             self.assertIn("<REDACTED_PATH>", log)
 
+    def test_diagnostic_zip_contains_redacted_plugin_log_and_gpu_info(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "diagnostics.zip"
+            gpu = [{"Name": "NVIDIA GeForce RTX", "DriverVersion": "31.0.15.5222", "DriverDate": ""}]
+            plugin_log = ("2026-11-02 21:00:00 [ERROR] GPU device removed or reset\n"
+                          "2026-11-02 21:00:01 [INFO] Lyrics loaded: C:\\Music\\Secret\\song.mp3\n")
+            gui_common.create_diagnostic_zip(
+                destination, app_name="LyricsTools", version="1", status="ok",
+                gpu_info=gpu, plugin_log=plugin_log)
+            with zipfile.ZipFile(destination) as archive:
+                details = json.loads(archive.read("system.json"))
+                logged = archive.read("plugin.log").decode()
+            self.assertEqual(details["gpu"], gpu)
+            self.assertIn("GPU device removed or reset", logged)
+            self.assertNotIn("Secret", logged)
+            self.assertNotIn("song.mp3", logged)
+
+    def test_plugin_log_reader_returns_old_then_current_log(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            (base / "EmbeddedLyrics.log.old").write_text("old\n", encoding="utf-8")
+            (base / "EmbeddedLyrics.log").write_text("new\n", encoding="utf-8")
+            with mock.patch.object(gui_common, "plugin_log_candidates", return_value=[
+                    base / "EmbeddedLyrics.log.old", base / "EmbeddedLyrics.log"]):
+                self.assertEqual(gui_common.read_plugin_log(), "old\nnew\n")
+
     def test_plugin_state_distinguishes_missing_update_and_current(self):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
