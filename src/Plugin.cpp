@@ -338,6 +338,8 @@ public:
         std::lock_guard<std::recursive_mutex> stateLock(stateMutex_);
         renderer_.Reset(); texture_.Shutdown(); headingTexture_.Shutdown(); device_ = nullptr;
         drawContextLogged_ = false;
+        lastLoggedWidth_ = lastLoggedHeight_ = lastLoggedDeck_ = -1;
+        Diagnostics::Info(L"Video device closed; renderer released");
         return S_OK;
     }
     HRESULT DrawFrame() {
@@ -389,6 +391,20 @@ public:
         }
 #endif
         currentDeck_ = deck;
+        // Log only changes, never per frame: a resolution/output-window change or a deck switch
+        // is exactly what a later bug report needs to be able to reconstruct.
+        if (drawContextLogged_ && (static_cast<int>(width) != lastLoggedWidth_ ||
+                                   static_cast<int>(height) != lastLoggedHeight_ ||
+                                   static_cast<int>(deck) != lastLoggedDeck_)) {
+            Diagnostics::Info(std::wstring(LRC_PLUGIN_WNAME) + L" draw changed: deck=" +
+                              std::to_wstring(lastLoggedDeck_) + L"->" + std::to_wstring(deck) +
+                              L", size=" + std::to_wstring(lastLoggedWidth_) + L"x" +
+                              std::to_wstring(lastLoggedHeight_) + L"->" + std::to_wstring(width) +
+                              L"x" + std::to_wstring(height));
+        }
+        lastLoggedWidth_ = static_cast<int>(width);
+        lastLoggedHeight_ = static_cast<int>(height);
+        lastLoggedDeck_ = static_cast<int>(deck);
         if (!drawContextLogged_) {
             Diagnostics::Info(std::wstring(LRC_PLUGIN_WNAME) + L" draw context: deck=" +
                               std::to_wstring(deck) + L", size=" + std::to_wstring(width) +
@@ -1284,6 +1300,7 @@ private:
     std::vector<std::wstring> trackHeading_;
     LyricsDocument lyrics_;
     bool drawContextLogged_{};
+    int lastLoggedWidth_{-1}, lastLoggedHeight_{-1}, lastLoggedDeck_{-1};
     int nextLineButton_{}; int previousLineButton_{}; int advancedButton_{}; int editBrowsedButton_{};
     float fontSizeParameter_{1.0f / 3.0f}; int recordTimingParameter_{};
     float verticalPositionParameter_{0.5f}; int editTextButton_{}; int startHereButton_{};

@@ -37,7 +37,7 @@ public:
 
     HRESULT VDJ_API OnDeviceClose() override {
         HRESULT result = S_OK;
-        CrashGuard::Run(L"Blackout OnDeviceClose", [this] { renderer_.Reset(); return S_OK; }, &result);
+        CrashGuard::Run(L"Blackout OnDeviceClose", [this] { renderer_.Reset(); Diagnostics::Info(L"Blackout device closed; renderer released"); return S_OK; }, &result);
         return S_OK;
     }
 
