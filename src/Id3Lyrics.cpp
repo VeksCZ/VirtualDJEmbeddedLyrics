@@ -111,11 +111,17 @@ void ForEachLine(const std::wstring& text, Fn&& fn) {
     }
 }
 
+// std::regex recurses per character on some patterns; a corrupt tag with a multi-megabyte
+// "line" could overflow the stack of whatever thread loads it. Real lyric lines are short.
+constexpr std::size_t kMaxRegexLineChars = 4096;
+constexpr std::size_t kMaxTagBytes = 64u * 1024 * 1024;
+
 std::wstring SanitizeUntimedLine(std::wstring line) {
     static const std::wregex leadingTimestamps(
         LR"(^\s*(?:[\(\[]\d{1,3}:\d{2}(?:[\.:]\d{1,3})?[\)\]]\s*)+)");
     static const std::wregex wordTimestamps(LR"(<\d{1,3}:\d{2}[\.:]\d{1,3}>)");
     static const std::wregex metadata(LR"(^\s*\[[A-Za-z]{1,8}:.*\]\s*$)");
+    if (line.size() > kMaxRegexLineChars) return line;
     if (std::regex_match(line, metadata)) return {};
     line = std::regex_replace(line, leadingTimestamps, L"");
     line = std::regex_replace(line, wordTimestamps, L"");
@@ -180,7 +186,7 @@ LyricsLoadResult ParseTimestampedText(const std::wstring& text, const std::wstri
         LR"(^\s*[\(\[]([0-9]{1,3}):([0-9]{2})(?:[\.:]([0-9]{1,3}))?[\)\]]\s?(.*)$)");
     ForEachLine(text, [&](std::wstring rawLine) {
         std::wsmatch match;
-        if (!std::regex_match(rawLine, match, timestamp)) return;
+        if (rawLine.size() > kMaxRegexLineChars || !std::regex_match(rawLine, match, timestamp)) return;
         auto fraction = match[3].str();
         if (fraction.empty()) fraction = L"000";
         else if (fraction.size() == 1) fraction += L"00";
@@ -267,7 +273,9 @@ Id3TagBody ReadId3Tag(const std::filesystem::path& audioPath) {
     result.version = header[3];
     if (result.version < 3 || result.version > 4) { result.error = L"Unsupported ID3v2 version"; return result; }
 
-    result.tag.resize(ReadSynchsafe(header + 6));
+    const auto tagSize = ReadSynchsafe(header + 6);
+    if (tagSize > kMaxTagBytes) { result.error = L"ID3v2 tag is implausibly large"; return result; }
+    result.tag.resize(tagSize);
     if (!input.read(reinterpret_cast<char*>(result.tag.data()), static_cast<std::streamsize>(result.tag.size()))) {
         result.error = L"ID3v2 tag is truncated";
         result.tag.clear();

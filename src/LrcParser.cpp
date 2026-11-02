@@ -7,6 +7,21 @@
 
 namespace {
 
+constexpr std::streamoff kMaxSidecarBytes = 4 * 1024 * 1024;
+constexpr std::size_t kMaxLineChars = 8192;  // bounds std::regex work and recursion
+
+// Reads a small text sidecar; refuses oversized files instead of loading them whole.
+bool ReadLimited(const std::filesystem::path& path, std::string& bytes, std::wstring& error) {
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input) return false;
+    const auto size = input.tellg();
+    if (size < 0 || size > kMaxSidecarBytes) { error = L"Sidecar file is too large"; return false; }
+    input.seekg(0);
+    bytes.resize(static_cast<std::size_t>(size));
+    if (size > 0) input.read(bytes.data(), size);
+    return true;
+}
+
 std::wstring Utf8ToWide(const std::string& input) {
     std::wstring output;
     for (std::size_t i = 0; i < input.size();) {
@@ -40,14 +55,17 @@ std::int64_t TimestampMs(const std::wsmatch& match) {
 
 LyricsLoadResult LoadLrc(const std::filesystem::path& lrcPath) {
     LyricsLoadResult result;
-    std::ifstream input(lrcPath, std::ios::binary);
-    if (!input) { result.error = L"Matching LRC file was not found"; return result; }
-    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::string bytes;
+    if (!ReadLimited(lrcPath, bytes, result.error)) {
+        if (result.error.empty()) result.error = L"Matching LRC file was not found";
+        return result;
+    }
     std::wstringstream stream(Utf8ToWide(bytes.substr(bytes.starts_with("\xef\xbb\xbf") ? 3 : 0)));
     const std::wregex lineTime(LR"(\[(\d{1,3}):(\d{2})(?:[\.:](\d{1,3}))?\])");
     const std::wregex wordTime(LR"(<(\d{1,3}):(\d{2})[\.:](\d{1,3})>)");
     std::wstring raw;
     while (std::getline(stream, raw)) {
+        if (raw.size() > kMaxLineChars) continue;
         std::vector<std::int64_t> lineTimes;
         for (auto it = std::wsregex_iterator(raw.begin(), raw.end(), lineTime); it != std::wsregex_iterator(); ++it)
             lineTimes.push_back(TimestampMs(*it));
@@ -83,9 +101,11 @@ LyricsLoadResult LoadPlainTextLyrics(const std::filesystem::path& textPath) {
         return timed;
     }
     LyricsLoadResult result;
-    std::ifstream input(textPath, std::ios::binary);
-    if (!input) { result.error = L"Matching TXT file was not found"; return result; }
-    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::string bytes;
+    if (!ReadLimited(textPath, bytes, result.error)) {
+        if (result.error.empty()) result.error = L"Matching TXT file was not found";
+        return result;
+    }
     std::wstringstream stream(Utf8ToWide(bytes.substr(bytes.starts_with("\xef\xbb\xbf") ? 3 : 0)));
     std::wstring line;
     while (std::getline(stream, line)) {

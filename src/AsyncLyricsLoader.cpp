@@ -2,6 +2,9 @@
 
 #include "Diagnostics.hpp"
 
+#include <exception>
+#include <string>
+
 AsyncLyricsLoader::AsyncLyricsLoader() : worker_([this] { Run(); }) {}
 
 AsyncLyricsLoader::~AsyncLyricsLoader() {
@@ -42,7 +45,17 @@ void AsyncLyricsLoader::Run() {
             pending_.reset();
             generation = generation_;
         }
-        auto loaded = LoadLyricsForTrack(path);
+        // An exception escaping a std::thread calls std::terminate and would kill VirtualDJ
+        // (corrupt tag, huge file, I/O error ...). Turn any failure into an empty result.
+        LyricsLoadResult loaded;
+        try {
+            loaded = LoadLyricsForTrack(path);
+        } catch (const std::exception& error) {
+            loaded.error = L"Lyrics loader failed: " +
+                std::wstring(error.what(), error.what() + std::char_traits<char>::length(error.what()));
+        } catch (...) {
+            loaded.error = L"Lyrics loader failed with an unknown error";
+        }
         {
             std::scoped_lock lock{mutex_};
             if (generation == generation_) completed_ = Completed{path, std::move(loaded)};

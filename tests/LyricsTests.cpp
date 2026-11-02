@@ -109,5 +109,27 @@ int main(int argc, char** argv) {
         assert(untimed.document.lines.size() > 40);
         assert(untimed.document.lines.front().text == L"Po lávce tvého nártu");
     }
+    {
+        // Hostile input must degrade to an error/empty result, never crash the host.
+        const auto directory = std::filesystem::temp_directory_path();
+        const auto huge = directory / "lrc_huge_sidecar.lrc";
+        { std::ofstream out(huge, std::ios::binary); out << "[00:01.00]" << std::string(5 * 1024 * 1024, 'a'); }
+        const auto hugeResult = LoadLrc(huge);
+        assert(hugeResult.document.empty() && !hugeResult.error.empty());
+        const auto longLine = directory / "lrc_long_line.lrc";
+        { std::ofstream out(longLine, std::ios::binary);
+          out << "[00:01.00]" << std::string(100000, 'a') << "\n[00:02.00]ok\n"; }
+        const auto longResult = LoadLrc(longLine);
+        assert(longResult.document.lines.size() == 1 && longResult.document.lines[0].text == L"ok");
+        const auto bogusTag = directory / "lrc_bogus_tag.mp3";
+        { std::ofstream out(bogusTag, std::ios::binary);
+          const unsigned char header[] = {'I', 'D', '3', 4, 0, 0, 0x7f, 0x7f, 0x7f, 0x7f};
+          out.write(reinterpret_cast<const char*>(header), sizeof(header)); }
+        assert(LoadEmbeddedTimedLyrics(bogusTag).document.empty());
+        assert(LoadEmbeddedUntimedLyrics(bogusTag).document.empty());
+        std::error_code ignored;
+        std::filesystem::remove(huge, ignored); std::filesystem::remove(longLine, ignored);
+        std::filesystem::remove(bogusTag, ignored);
+    }
     std::cout << "All lyrics parser tests passed\n";
 }
