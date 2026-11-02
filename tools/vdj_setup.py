@@ -511,11 +511,17 @@ def _backup_item(path: Path, virtualdj_home: Path, backup_root: Path) -> None:
     if not path.exists():
         return
     home = virtualdj_home.resolve()
-    resolved = path.resolve()
     try:
-        relative = resolved.relative_to(home)
-    except ValueError as exc:
-        raise RuntimeError(f"Refusing to back up a path outside VirtualDJ home: {path}") from exc
+        # Lexical first: users often make Plugins64 a junction/symlink to another drive, and
+        # the resolved target is then (legitimately) outside the home folder.
+        relative = path.relative_to(home)
+    except ValueError:
+        try:
+            relative = path.resolve().relative_to(home)
+        except ValueError as exc:
+            raise RuntimeError(f"Refusing to back up a path outside VirtualDJ home: {path}") from exc
+    if ".." in relative.parts:
+        raise RuntimeError(f"Refusing to back up a path outside VirtualDJ home: {path}")
     _copy_item(path, backup_root / relative)
 
 
@@ -570,6 +576,29 @@ def _restore_tree(backup: Path, virtualdj_home: Path) -> int:
         os.replace(temporary, destination)
         restored += 1
     return restored
+
+
+_BACKUP_NAME = re.compile(r"^\d{8}-\d{6}-\d{3}-before-[a-z-]+$")
+MAX_KEPT_BACKUPS = 20
+
+
+def prune_backups(virtualdj_home: Path, keep: int = MAX_KEPT_BACKUPS) -> int:
+    """Delete the oldest installer backups beyond ``keep``; only our own timestamped folders."""
+    root = virtualdj_home / "LRC Lyrics Backups"
+    try:
+        folders = sorted((p for p in root.iterdir()
+                          if p.is_dir() and not p.is_symlink() and _BACKUP_NAME.match(p.name)),
+                         key=lambda p: p.name, reverse=True)
+    except OSError:
+        return 0
+    removed = 0
+    for old in folders[max(keep, 1):]:
+        try:
+            shutil.rmtree(old)
+            removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def _new_backup(virtualdj_home: Path, action: str) -> Path:
@@ -719,6 +748,7 @@ def _run_action_windows(
         log(f"[WARNING] Online lyrics lookup could not be registered for the plugin: {exc}")
     log(f"LRC Lyrics {layout.version} was installed into: {overlay}")
     log(f"Backup: {backup}")
+    prune_backups(virtualdj_home)
 
 
 def _run_action_mac(
@@ -744,11 +774,8 @@ def _run_action_mac(
         if not candidates:
             raise FileNotFoundError("No LRC Lyrics backup is available.")
         selected = candidates[0]
-        for source in selected.rglob("*"):
-            if source.is_file():
-                destination = virtualdj_home / source.relative_to(selected)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
+        if not _restore_tree(selected, virtualdj_home):
+            raise FileNotFoundError("The newest LRC Lyrics backup is empty.")
         log(f"Restored the newest backup: {selected}")
         return
 
@@ -842,11 +869,8 @@ def _run_action_mac(
                 shutil.rmtree(destination)
             else:
                 destination.unlink(missing_ok=True)
-        for source in backup.rglob("*"):
-            if source.is_file():
-                destination = virtualdj_home / source.relative_to(backup)
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
+        _restore_tree(backup, virtualdj_home)
         raise
     log(f"LRC Lyrics {layout.version} was installed into: {overlay}")
     log(f"Backup: {backup}")
+    prune_backups(virtualdj_home)

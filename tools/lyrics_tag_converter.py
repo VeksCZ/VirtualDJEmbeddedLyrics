@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import shutil
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,6 +123,51 @@ def discover_pairs(root: Path) -> tuple[list[tuple[Path, Path | None, Path | Non
         pairs[mp3] = (lrc, txt)
     return [(mp3, sidecars[0], sidecars[1]) for mp3, sidecars in sorted(
         pairs.items(), key=lambda item: str(item[0]).casefold())], unmatched
+
+
+MAX_GUARDED_FILE_BYTES = 256 * 1024 * 1024
+
+
+def save_tags_safely(tags, mp3_path: Path, version: int, verify: Callable[[object], bool]) -> bool:
+    """Save ID3 tags; restore the original file if saving or verification fails.
+
+    mutagen may rewrite the whole file when the new tag does not fit the existing padding.
+    A crash or full disk in the middle would damage a track from the DJ's library, so a copy
+    is kept until the written tag has been read back and verified. If the process itself dies,
+    the copy stays in the temp folder as ``lrc-tag-backup-*.mp3``.
+    """
+    from mutagen.id3 import ID3
+
+    backup: Path | None = None
+    try:
+        if mp3_path.stat().st_size <= MAX_GUARDED_FILE_BYTES:
+            descriptor, name = tempfile.mkstemp(prefix="lrc-tag-backup-", suffix=".mp3")
+            os.close(descriptor)
+            backup = Path(name)
+            shutil.copyfile(mp3_path, backup)
+    except OSError:
+        if backup is not None:
+            backup.unlink(missing_ok=True)
+        backup = None
+    ok = False
+    try:
+        tags.save(mp3_path, v2_version=version)
+        ok = bool(verify(ID3(mp3_path)))
+    except Exception:
+        ok = False
+    if ok:
+        if backup is not None:
+            backup.unlink(missing_ok=True)
+        return True
+    if backup is not None:
+        restoring = mp3_path.with_name(f".{mp3_path.name}.restoring")
+        try:
+            shutil.copyfile(backup, restoring)
+            os.replace(restoring, mp3_path)
+            backup.unlink(missing_ok=True)
+        finally:
+            restoring.unlink(missing_ok=True)
+    return False
 
 
 def load_mutagen():
@@ -489,9 +537,8 @@ def write_recording(mp3_path: Path, timing_path: Path) -> int:
     remove_legacy_lyrics_txxx(tags)
     set_grouping_lyrics_marker(tags, "Synced")
     version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
-    tags.save(mp3_path, v2_version=version)
-    verify = ID3(mp3_path)
-    if not verify.getall("SYLT") or verify.getall("USLT"):
+    if not save_tags_safely(tags, mp3_path, version,
+                            lambda verify: bool(verify.getall("SYLT")) and not verify.getall("USLT")):
         return 5
     timing_path.unlink(missing_ok=True)
     return 0
@@ -530,11 +577,9 @@ def write_editor_text(mp3_path: Path, text_path: Path, synchronized: bool) -> in
                       desc="Edited in VirtualDJ Embedded Lyrics", text=plain_text))
     set_grouping_lyrics_marker(tags, kind)
     version = tags.version[1] if tags.version and tags.version[1] in (3, 4) else 3
-    tags.save(mp3_path, v2_version=version)
-    verify = ID3(mp3_path)
-    valid = bool(verify.getall("SYLT")) and not verify.getall("USLT") if synchronized else (
-        bool(verify.getall("USLT")) and not verify.getall("SYLT"))
-    if not valid:
+    if not save_tags_safely(tags, mp3_path, version, lambda verify: (
+            bool(verify.getall("SYLT")) and not verify.getall("USLT") if synchronized else
+            bool(verify.getall("USLT")) and not verify.getall("SYLT"))):
         return 5
     text_path.unlink(missing_ok=True)
     return 0

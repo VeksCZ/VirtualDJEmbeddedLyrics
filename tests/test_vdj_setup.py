@@ -265,5 +265,47 @@ class PackageLayoutTests(unittest.TestCase):
                 self.assertFalse(helper.exists())
 
 
+class BackupSafetyTests(unittest.TestCase):
+    def test_backup_follows_a_symlinked_plugins_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = (root / "VirtualDJ").resolve()
+            elsewhere = root / "OtherDrive" / "Plugins64"
+            (elsewhere / "VideoOverlay").mkdir(parents=True)
+            (elsewhere / "VideoOverlay" / "LRCMaster.dll").write_bytes(b"old")
+            home.mkdir()
+            try:
+                (home / "Plugins64").symlink_to(elsewhere, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are not available")
+            backup = home / "LRC Lyrics Backups" / "20260101-000000-000-before-install"
+            backup.mkdir(parents=True)
+            vdj_setup._backup_item(home / "Plugins64" / "VideoOverlay" / "LRCMaster.dll", home, backup)
+            self.assertEqual(
+                (backup / "Plugins64" / "VideoOverlay" / "LRCMaster.dll").read_bytes(), b"old")
+
+    def test_backup_refuses_paths_that_escape_the_home_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            home = (root / "VirtualDJ").resolve()
+            home.mkdir()
+            outside = root / "outside.txt"
+            outside.write_text("x")
+            with self.assertRaises(RuntimeError):
+                vdj_setup._backup_item(outside, home, root / "backup")
+
+    def test_prune_keeps_newest_installer_backups_and_foreign_folders(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            root = home / "LRC Lyrics Backups"
+            names = [f"2026010{day}-120000-000-before-install" for day in range(1, 8)]
+            for name in names:
+                (root / name).mkdir(parents=True)
+            (root / "my own notes").mkdir()
+            self.assertEqual(vdj_setup.prune_backups(home, keep=3), 4)
+            remaining = sorted(path.name for path in root.iterdir())
+            self.assertEqual(remaining, names[-3:] + ["my own notes"])
+
+
 if __name__ == "__main__":
     unittest.main()

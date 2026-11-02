@@ -336,6 +336,30 @@ class MarkLyricsGroupingTests(unittest.TestCase):
             self.assertEqual(markers[plain.resolve()], "# - uslt")
 
 
+class SafeTagSaveTests(unittest.TestCase):
+    def test_failed_verification_restores_the_original_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mp3 = Path(directory) / "song.mp3"
+            ID3().save(mp3, v2_version=3)
+            mp3.write_bytes(mp3.read_bytes() + b"\xff\xfb" * 4096)
+            original = mp3.read_bytes()
+            tags = ID3(mp3)
+            tags.add(USLT(encoding=3, lang="und", desc="", text="x" * 50000))
+            self.assertFalse(converter.save_tags_safely(tags, mp3, 3, lambda _verify: False))
+            self.assertEqual(mp3.read_bytes(), original)
+            self.assertEqual(list(Path(directory).iterdir()), [mp3])
+
+    def test_successful_save_keeps_the_new_tag_and_removes_the_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mp3 = Path(directory) / "song.mp3"
+            ID3().save(mp3, v2_version=3)
+            tags = ID3(mp3)
+            tags.add(USLT(encoding=3, lang="und", desc="", text="hello"))
+            self.assertTrue(converter.save_tags_safely(
+                tags, mp3, 3, lambda verify: bool(verify.getall("USLT"))))
+            self.assertTrue(ID3(mp3).getall("USLT"))
+
+
 class TimingWriterTests(unittest.TestCase):
     def test_writes_standard_sylt_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
