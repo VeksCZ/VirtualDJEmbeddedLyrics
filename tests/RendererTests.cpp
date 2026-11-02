@@ -79,6 +79,13 @@ int main() {
         !PixelIs(device.Get(), context.Get(), output.Get(), 255, 255, 255, 255)) {
         std::cerr << "Overlay WARP render failed\n"; return 5;
     }
+    if (!video.DeviceHealthy() || !blackout.DeviceHealthy()) {
+        std::cerr << "Healthy WARP device reported as removed\n"; return 6;
+    }
+    video.Reset(); blackout.Reset();
+    if (video.DeviceHealthy() || blackout.DeviceHealthy() || video.Draw(overlayView.Get()) || blackout.Draw()) {
+        std::cerr << "Renderers must refuse to draw after Reset\n"; return 7;
+    }
     return 0;
 }
 #else
