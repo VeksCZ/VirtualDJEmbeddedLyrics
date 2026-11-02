@@ -25,6 +25,11 @@ public:
     HRESULT VDJ_API OnDeviceClose() override { pipeline_ = nil; device_ = nil; return S_OK; }
 
     HRESULT VDJ_API OnDraw() override {
+        try { return DrawFrame(); } catch (...) { return S_FALSE; }
+    }
+
+private:
+    HRESULT DrawFrame() {
         void* encoderPointer = nullptr;
         if (GetDevice(VdjVideoEngineMetal, &encoderPointer) != S_OK || !encoderPointer) return S_FALSE;
         id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)encoderPointer;
@@ -34,7 +39,6 @@ public:
         return S_OK;
     }
 
-private:
     bool EnsurePipeline(id<MTLDevice> device) {
         if (pipeline_ && device_ == device) return true;
         NSError* error = nil;

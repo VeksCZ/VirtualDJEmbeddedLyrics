@@ -210,6 +210,11 @@ public:
     }
 
     HRESULT VDJ_API OnParameter(int id) override {
+        // Never let an exception (C++ or Objective-C) escape into VirtualDJ.
+        try { return HandleParameter(id); } catch (...) { return S_OK; }
+    }
+
+    HRESULT HandleParameter(int id) {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (id == 7 && nextLineButton_) { AdvanceUntimedLine(); nextLineButton_ = 0; }
         else if (id == 8 && previousLineButton_) {
@@ -295,13 +300,19 @@ public:
 
     ULONG VDJ_API Release() override { delete this; return 0; }
     HRESULT VDJ_API OnDeviceClose() override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        lyricsLayer_.Reset();
-        bannerLayer_.Reset();
+        try {
+            std::lock_guard<std::recursive_mutex> lock(mutex_);
+            lyricsLayer_.Reset();
+            bannerLayer_.Reset();
+        } catch (...) {}
         return S_OK;
     }
 
     HRESULT VDJ_API OnDraw() override {
+        try { return DrawFrame(); } catch (...) { return S_OK; }
+    }
+
+    HRESULT DrawFrame() {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
 #ifdef LRC_DECK_VARIANT
         DrawDeck();  // no OVERLAY flag: put the deck's own picture down first, every frame
