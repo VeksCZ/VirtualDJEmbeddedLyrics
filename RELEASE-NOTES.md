@@ -1,4 +1,8 @@
-# LRC Lyrics for VirtualDJ 0.4.2
+# LRC Lyrics for VirtualDJ 0.4.3
+
+## 0.4.3
+
+- Update check: LyricsTools now treats 0.4.x releases as newer than installs numbered 0.8.0-0.12.4 (the old numbering), both for the app update and for the "Update available" state of an installed plugin.
 
 ## 0.4.2
 
@@ -105,6 +109,6 @@
 
 ## Windows download
 
-Extract the complete LyricsTools-Windows-v0.4.2.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
+Extract the complete LyricsTools-Windows-v0.4.3.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
 
 These editor, preview, and lyrics-writing improvements are currently Windows-specific.
