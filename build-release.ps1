@@ -18,10 +18,11 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION value: $Versi
 
 $BuildDirectory = Join-Path $ProjectRoot 'build-release'
 $DistRoot = Join-Path $ProjectRoot 'dist'
-$PackageName = "LyricsTools-Windows-v$Version"
+# The release contains only the plugins and their helper. The lyrics tools (download, import,
+# problems, MyLists sync, plugin installer) live in DJ Music Manager.
+$PackageName = "LRC-Plugins-Windows-v$Version"
 $PackageDirectory = Join-Path $DistRoot $PackageName
-$InternalDirectory = Join-Path $PackageDirectory '_internal'
-$PluginsDirectory = Join-Path $InternalDirectory 'Plugins'
+$PluginsDirectory = Join-Path $PackageDirectory 'Plugins'
 $PackageZip = Join-Path $DistRoot "$PackageName.zip"
 
 function Assert-ChildPath {
@@ -109,13 +110,6 @@ foreach ($artifact in @($PackageZip, "$PackageZip.sha256")) {
 New-Item -ItemType Directory -Force -Path $PackageDirectory, $PluginsDirectory | Out-Null
 
 $AppDist = Join-Path $BuildDirectory 'app-dist'
-& $PythonCommand -m PyInstaller --noconfirm --clean --onefile --windowed --name LyricsTools `
-    --paths (Join-Path $ProjectRoot 'tools') --distpath $AppDist `
-    --workpath (Join-Path $BuildDirectory 'app-build') --specpath (Join-Path $BuildDirectory 'app-spec') `
-    (Join-Path $ProjectRoot 'tools\lyrics_tools_gui.py')
-if ($LASTEXITCODE -ne 0) { throw 'Standalone LyricsTools build failed.' }
-Copy-Item -LiteralPath (Join-Path $AppDist 'LyricsTools.exe') -Destination $PackageDirectory
-
 # Windowless helper the plugins start for tag writes and online lookups (no system Python).
 & $PythonCommand -m PyInstaller --noconfirm --clean --onefile --console --name LrcHelper `
     --paths (Join-Path $ProjectRoot 'tools') --distpath $AppDist `
@@ -128,15 +122,19 @@ Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -De
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCDeck.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $AppDist 'LrcHelper.exe') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $InternalDirectory
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $PackageDirectory
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination (Join-Path $PackageDirectory 'README.txt')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination $PackageDirectory
-New-Item -ItemType Directory -Force -Path (Join-Path $PackageDirectory 'tools') | Out-Null
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\README.md') -Destination (Join-Path $PackageDirectory 'tools')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'INSTALL.txt') -Destination $PackageDirectory
 
-if (-not (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe'))) {
-    throw 'LyricsTools.exe is missing from the package root.'
+foreach ($required in @('LRCMaster.dll', 'LRCBlackOut.dll', 'LRCDeck.dll', 'LrcHelper.exe', 'EmbeddedLyricsTagWriter.py')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PluginsDirectory $required))) {
+        throw "$required is missing from the package."
+    }
+}
+if (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LyricsTools.exe')) {
+    throw 'LyricsTools.exe must not be packaged; the tools live in DJ Music Manager.'
 }
 if (Test-Path -LiteralPath (Join-Path $PackageDirectory 'LRCPluginSetup.exe')) {
     throw 'The obsolete standalone plugin setup must not be packaged.'
@@ -152,7 +150,7 @@ Assert-ChildPath -Child $PackageDirectory -Parent $DistRoot
 if (-not $KeepExtracted) {
     Remove-Item -LiteralPath $PackageDirectory -Recurse -Force
 } else {
-    Write-Host "Local EXE: $(Join-Path $PackageDirectory 'LyricsTools.exe')" -ForegroundColor Green
+    Write-Host "Local package folder: $PackageDirectory" -ForegroundColor Green
 }
 Assert-ChildPath -Child $BuildDirectory -Parent $ProjectRoot
 Remove-Item -LiteralPath $BuildDirectory -Recurse -Force

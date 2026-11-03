@@ -1,5 +1,14 @@
 # LRC Lyrics for VirtualDJ 0.4.3
 
+## Unreleased
+
+- **The release is now plugin-only.** `LyricsTools` (the separate Windows/macOS application) is retired:
+  its lyrics tools, plugin installer and diagnostics moved into DJ Music Manager, which now also runs on
+  macOS. Packages are named `LRC-Plugins-Windows-v<version>.zip`, `LRC-Plugins-macOS-AppleSilicon-v<version>.zip`
+  and `LRC-Plugins-macOS-Intel-v<version>.zip` and contain `Plugins/` (plugins + `LrcHelper`), `INSTALL.txt`,
+  `README.md` and `VERSION`. Install with DJ Music Manager (**LRC plugin**) or by hand using `INSTALL.txt`.
+- Messages in the LRC lyrics window now point to DJ Music Manager (TIDAL sign-in) instead of LyricsTools.
+
 ## 0.4.3
 
 - Update check: LyricsTools now treats 0.4.x releases as newer than installs numbered 0.8.0-0.12.4 (the old numbering), both for the app update and for the "Update available" state of an installed plugin.

@@ -1,0 +1,35 @@
+LRC Lyrics for VirtualDJ - manual installation
+==============================================
+
+The easiest way is DJ Music Manager (VirtualDJ tab, button "LRC plugin"): it downloads the
+latest release for your system, backs up replaced files and installs them in the right
+folders. Use this guide only if you do not use DJ Music Manager.
+
+1. Close VirtualDJ completely.
+2. Extract this ZIP. Everything to copy is in the "Plugins" folder next to this file.
+3. Find your VirtualDJ home folder (in VirtualDJ: Settings > Options > cog button).
+   Windows:  %LOCALAPPDATA%\VirtualDJ   (older installs: Documents\VirtualDJ)
+   macOS:    ~/Library/Application Support/VirtualDJ
+
+Windows
+-------
+Copy into <VirtualDJ home>\Plugins64\VideoOverlay\ :
+    LRCMaster.dll, LRCBlackOut.dll, LrcHelper.exe, EmbeddedLyricsTagWriter.py
+Copy into <VirtualDJ home>\Plugins64\VideoEffect\ :
+    LRCDeck.dll, EmbeddedLyricsTagWriter.py        (the deck plugin needs its own copy)
+
+macOS
+-----
+Use the folder "PluginsArm" on Apple Silicon or "Plugins64" on Intel Macs.
+Copy into <VirtualDJ home>/<PluginsArm or Plugins64>/VideoOverlay/ :
+    LRCMaster.bundle, LRCBlackOut.bundle, LrcHelper
+Copy into <VirtualDJ home>/<PluginsArm or Plugins64>/VideoEffect/ :
+    LRCDeck.bundle
+If macOS blocks the files, run once in Terminal on the copied files:
+    xattr -dr com.apple.quarantine <the copied bundles and LrcHelper>
+
+4. Start VirtualDJ. LRC Master, LRC BlackOut (video overlays) and LRC Deck (a video effect)
+   are now available. See README.md for how to use them.
+
+To remove the plugin, close VirtualDJ and delete the files you copied.
+The plugin log is %LOCALAPPDATA%\VirtualDJ\EmbeddedLyrics.log (Windows).

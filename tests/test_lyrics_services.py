@@ -11,7 +11,6 @@ TOOL_DIR = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOL_DIR))
 
 import lrc_tool  # noqa: E402
-import restore_lrc  # noqa: E402
 
 
 class LrcParserTests(unittest.TestCase):
@@ -44,58 +43,6 @@ class BackupAndRestoreTests(unittest.TestCase):
             self.assertNotEqual(first_target, second_target)
             self.assertEqual(first_target.read_text(encoding="utf-8"), "first")
             self.assertEqual(second_target.read_text(encoding="utf-8"), "second")
-
-    def test_restore_uses_structured_backup(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            library = root / "music"
-            backup = root / "backup"
-            mp3 = library / "Album" / "song.mp3"
-            mp3.parent.mkdir(parents=True)
-            mp3.touch()
-            source = backup / "Album" / "song.lrc"
-            source.parent.mkdir(parents=True)
-            source.write_text("lyrics", encoding="utf-8")
-            (backup / lrc_tool.BACKUP_FORMAT_MARKER).write_text("2\n", encoding="utf-8")
-
-            result = restore_lrc.restore_library(library, backup, log=lambda _: None)
-
-            self.assertEqual(result, (1, 0, 0, 0))
-            self.assertEqual(mp3.with_suffix(".lrc").read_text(encoding="utf-8"), "lyrics")
-
-    def test_ambiguous_legacy_backup_is_never_restored(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            library = root / "music"
-            backup = root / "backup"
-            for album in ("A", "B"):
-                mp3 = library / album / "song.mp3"
-                mp3.parent.mkdir(parents=True)
-                mp3.touch()
-            backup.mkdir()
-            (backup / "song.lrc").write_text("ambiguous", encoding="utf-8")
-
-            result = restore_lrc.restore_library(library, backup, log=lambda _: None)
-
-            self.assertEqual(result, (0, 2, 0, 0))
-            self.assertFalse((library / "A" / "song.lrc").exists())
-            self.assertFalse((library / "B" / "song.lrc").exists())
-
-    def test_unique_legacy_flat_backup_is_supported(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            library = root / "music"
-            backup = root / "backup"
-            mp3 = library / "Album" / "unique.mp3"
-            mp3.parent.mkdir(parents=True)
-            mp3.touch()
-            backup.mkdir()
-            (backup / "unique.lrc").write_text("legacy", encoding="utf-8")
-
-            result = restore_lrc.restore_library(library, backup, log=lambda _: None)
-
-            self.assertEqual(result, (1, 0, 0, 0))
-            self.assertEqual(mp3.with_suffix(".lrc").read_text(encoding="utf-8"), "legacy")
 
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -133,7 +133,7 @@ LookupResult RunBuiltInLookup(const MacLyricsRequest& request) {
                                                         : L"LRCLIB unavailable (" + match.error + L")";
     }
     result.fields[L"message"] += std::wstring(result.fields[L"message"].empty() ? L"" : L"; ") +
-        L"TIDAL is searched only when the plugin is installed by LyricsTools";
+        L"TIDAL is searched only when LrcHelper is installed next to the plugin";
     return result;
 }
 
@@ -309,7 +309,7 @@ std::wstring Field(const LookupResult& r, const wchar_t* key) {
     const auto query = Field(result, L"query");
     if (status != L"found" || result.text.empty()) {
         std::wstring text = status == L"login_required"
-            ? L"Not found. TIDAL is not signed in: sign in once in LyricsTools (Online tab)."
+            ? L"Not found. TIDAL is not signed in: sign in once in DJ Music Manager when it asks while downloading lyrics."
             : status == L"error" ? L"Search failed." : L"No lyrics found online.";
         if (!message.empty()) text += L"\n" + message;
         if (!query.empty()) text += L"\nLooked for: " + query;

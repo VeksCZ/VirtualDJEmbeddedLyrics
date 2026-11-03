@@ -10,33 +10,27 @@ master video output. The project provides two video overlays for Windows and mac
 
 ## Download and install
 
-1. Download **LyricsTools** matching your system: `Windows`,
-   `macOS-AppleSilicon`, or `macOS-Intel`, from the
-   [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest).
-2. Extract the complete ZIP. Do not run the application from inside the ZIP preview.
-3. Open **LyricsTools.exe** on Windows or **LyricsTools.app** on macOS.
-4. Select the first **Plugin** tab and confirm the detected VirtualDJ folder.
-5. Choose **Install / update plugin**. If VirtualDJ is running, LyricsTools can
-   ask it to close normally after you save your work.
-6. Start VirtualDJ again.
+The plugin is a separate, small download. There are two ways to install it.
 
-Release ZIPs include this complete README as both `README.md` and `README.txt`,
-plus the detailed `tools/README.md` guide. These match the source revision used
-to build the release; later GitHub edits appear in the next build.
+**With DJ Music Manager (recommended).** Open the **VirtualDJ** tab and press **LRC plugin**. It
+downloads the latest release for your system (Windows, macOS Apple Silicon or macOS Intel),
+keeps a backup of replaced files and installs everything in the right folders. VirtualDJ must be
+closed. Start VirtualDJ again afterwards.
 
-The Activity panel shows running actions in blue, warnings in amber and failures
-in red. A green **Done** message marks completion of an action; any per-file
-warnings or errors remain visible above it for review.
+**By hand.**
 
-LyricsTools detects the active VirtualDJ home folder from the VirtualDJ
-registry setting, the current `%LOCALAPPDATA%\VirtualDJ` location, or the legacy
-`Documents\VirtualDJ` location. If it cannot choose safely, it asks for the
-folder. In VirtualDJ, **Settings > Options > cog button** opens the active home
-folder so you can copy its path.
+1. Download the plugin package for your system from the
+   [latest GitHub release](https://github.com/VeksCZ/VirtualDJEmbeddedLyrics/releases/latest):
+   `LRC-Plugins-Windows`, `LRC-Plugins-macOS-AppleSilicon` or `LRC-Plugins-macOS-Intel`.
+2. Close VirtualDJ, extract the ZIP and follow `INSTALL.txt` inside it (copy the files from its
+   `Plugins` folder into your VirtualDJ plugin folders).
+3. Start VirtualDJ.
 
-No administrator access, CMake, Visual Studio, Python or source checkout is
-required to display lyrics. Existing plugin files and known legacy versions are
-backed up under `LRC Lyrics Backups` in the selected VirtualDJ home folder.
+Release ZIPs include this complete README as both `README.md` and `README.txt`, plus
+`INSTALL.txt`. They match the source revision used to build the release.
+
+In VirtualDJ, **Settings > Options > cog button** opens the active home folder so you can copy
+its path.
 
 ## First use
 
@@ -81,7 +75,7 @@ can briefly show through while the crossfader blends two decks).
 LRC Master and LRC Deck share all appearance and Settings-panel options (stored
 in `%LOCALAPPDATA%\VirtualDJ\LRC Advanced.ini` on Windows and in the VirtualDJ
 preferences on macOS); a change saved in either one is picked up by the others
-immediately. The lyrics timing offset stays per deck. On macOS LyricsTools installs
+immediately. The lyrics timing offset stays per deck. On macOS the installer puts
 `LRCDeck.bundle` into the `VideoEffect` folder next to `VideoOverlay`, and the same
 pad and `ONSONGLOAD` actions work there.
 
@@ -98,7 +92,7 @@ LRC Master reads, in priority order:
 Timestamped content found in TXT or nominally unsynchronized fields is displayed
 as synchronized lyrics.
 
-LyricsTools writes new synchronized lyrics as one standard ID3v2 `SYLT` frame
+DJ Music Manager and the plugin write new synchronized lyrics as one standard ID3v2 `SYLT` frame
 and new plain lyrics as one standard `USLT` frame. When it rewrites lyrics, it
 removes the older duplicate custom TXXX lyric frames. The plugin continues to
 read those legacy fields for existing libraries. A standard SYLT frame retains
@@ -133,7 +127,7 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   ISRC, then by artist/title/length, then LRCLIB). The window reports where the
   lyrics were found, what they matched and whether they are timed; nothing is
   written until **Save to MP3 tag**. TIDAL needs your own TIDAL account, signed in
-  once in LyricsTools (Online tab); LRCLIB needs no account. Without the bundled
+  once in DJ Music Manager (it asks while downloading lyrics); LRCLIB needs no account. Without the bundled
   helper the window still searches LRCLIB on its own. On macOS the same window
   opens from LRC Master's **Edit lyrics** / **Edit browsed** buttons.
 - **Start here** fixes timed lyrics that start at the wrong moment: press it where the vocals
@@ -145,7 +139,7 @@ to an LRC file; nonstandard LRC metadata may not be recoverable.
   untimed lyrics to VirtualDJ **User 1** after lyrics have been loaded. It also
   replaces the older `#lrc` marker and preserves unrelated User 1 content.
 
-`User 1` is stored in the VirtualDJ database, not in the MP3. LyricsTools writes
+`User 1` is stored in the VirtualDJ database, not in the MP3. DJ Music Manager writes
 the standard ID3 `Grouping` field for the portable markers `Lyrics: Synced` and
 `Lyrics: Unsynced`; after a real Import, Mark, or TIDAL/normalize run it also
 updates `#sylt / # - uslt` directly in the appropriate VirtualDJ database. Missing
@@ -157,69 +151,29 @@ creates exactly one standard `SYLT` for timed lyrics, otherwise exactly one
 standard `USLT` for plain lyrics, and removes recognized legacy lyric duplicates.
 Unrelated ID3 frames are not removed.
 
-## Included application
+## Companion tools
 
-Each platform has one no-console **LyricsTools** download. Its first tab handles
-plugin installation, update, uninstall, recovery, and video-window reset. The
-remaining tabs provide music, lyrics, MyLists, Search DB, and problem-queue tools.
-On Windows, `LyricsTools.exe` is prominent at the package root and support files
-are contained in `_internal`. On macOS the support files are inside the app.
+The plugin package contains the plugins and **LrcHelper**, a small windowless program the
+plugins start to save tags and to search lyrics online. It includes its own runtime, so no system
+Python is needed.
 
-LyricsTools includes its runtime; end users do not need to install Python. It
-opens in Simple mode and exposes TIDAL/normalization and
-restore tools after enabling **Advanced**. Its tabs cover:
+The tools around the lyrics are part of **DJ Music Manager**, which is a separate program:
 
-- fully mirroring a music directory tree and its tracks into an isolated
-  VirtualDJ MyLists root, with optional add-only Search DB registration;
-- importing same-name LRC/TXT files into MP3 lyrics tags;
-- scanning existing embedded lyrics and writing the portable Grouping marker;
-- downloading or normalizing lyrics with structure-preserving LRC backups;
-- restoring LRC sidecars from those backups.
-- finding missing lyrics, invalid LRC, unreadable tags, and unmatched sidecars
-  in a local problem queue with CSV export.
+- downloading lyrics (TIDAL first, then LRCLIB; LRCLIB synchronized lyrics are preferred over
+  plain ones) with a preview, and lyrics overview of a folder;
+- **Edit lyrics** (timed SYLT and untimed USLT of one MP3) and **Lyrics problems** (missing lyrics,
+  invalid LRC, unreadable tags, unmatched sidecars, with CSV export);
+- restoring `.lrc` files from backups, and plugin diagnostics (a privacy-safe ZIP);
+- installing and updating this plugin, and mirroring folders into VirtualDJ MyLists;
+- on startup it warns when the plugin logged a serious fault (`[FAULT]` in the plugin log).
 
-Start **LyricsTools** and choose a folder. Preview mode is enabled on first use.
-Online lookup checks TIDAL first and uses LRCLIB only when TIDAL does not return
-lyrics. LRCLIB synchronized lyrics are preferred over its plain lyrics.
-Source LRC/TXT files are deleted only after successful verification and only
-when you explicitly enable deletion. A separate conservative option can remove
-a timed TXT that was ignored because a same-name LRC was successfully imported
-and verified. Plain or otherwise skipped TXT files are retained.
+DJ Music Manager runs on Windows and macOS. The plugin works without it.
 
-Python is required only by the Windows plugin's optional **Record timing** helper,
-not by either packaged GUI application or normal lyrics display.
+Python is required only by the Windows plugin's optional **Record timing** helper, not by normal
+lyrics display.
 
-On macOS, extract the complete ZIP and open **LyricsTools.app**. If
-Gatekeeper blocks a locally signed
-app on first launch, Control-click it, choose **Open**, and confirm once. The GUI
-detects both `~/Library/Application Support/VirtualDJ` and the legacy
-`~/Documents/VirtualDJ` home. Music on external drives is registered in that
-volume's `/Volumes/<name>/VirtualDJ/database.xml`.
-
-Each macOS package contains universal LRC Master, LRC Deck and LRC BlackOut `.bundle`
-plugins inside the architecture-specific LyricsTools app. The Plugin tab selects
-the proper VirtualDJ plugin location automatically. Folder/MyLists synchronization, Search DB
-registration, and MP3 lyrics maintenance are available on both platforms.
-
-The **Plugin** tab validates the selected folder, shows a color-coded installation
-state, keeps replaced files in `LRC Lyrics Backups`, and never bypasses the check
-that VirtualDJ is closed. If VirtualDJ is running, it offers to request a normal
-shutdown and never force-kills it. LyricsTools can create a privacy-safe
-diagnostic ZIP. Update checks run only when requested; an update can then be
-downloaded, SHA-256 verified, extracted, and launched automatically.
-
-The **Sync folders to VDJ** tab is a one-way, full mirror. It rebuilds only the
-named managed root: new files appear, and playlist references to files or folders
-that are no longer in the selected source tree disappear. Unrelated manual lists
-remain untouched. It can also add current source tracks to Search DB without
-deleting any other database entry or existing analysis. Tracks are routed to
-VirtualDJ's correct per-drive database (for example `D:\VirtualDJ\database.xml`).
-Both the music folder and VirtualDJ home can be selected manually. Preview mode
-performs no writes. Real synchronization requires VirtualDJ to be closed and
-creates a timestamped backup first.
-
-Full tool documentation is in [tools/README.md](tools/README.md). The tools are
-not required to run the VirtualDJ plugins.
+On macOS, locally signed plugins may need to be allowed once; see `INSTALL.txt`. Each macOS
+package contains universal LRC Master, LRC Deck and LRC BlackOut `.bundle` plugins.
 
 ## VirtualDJScript helpers
 
@@ -246,29 +200,27 @@ get_browsed_song 'Grouping' & param_contains 'Lyrics: Synced' ? get_browsed_song
 ```
 
 VDJScript handles one loaded or browsed track here; it does not iterate through
-every private lyrics frame in a library. Use the **Mark existing lyrics** GUI tab
-for a recursive MP3 scan.
+every private lyrics frame in a library. Use DJ Music Manager's lyrics overview for a
+recursive MP3 scan.
 
 ## Update or uninstall
 
-To update the application, use the top-right settings menu or extract a newer
-LyricsTools release. To update the plugin, use its first **Plugin** tab. The
-operation is repeatable and keeps a backup of replaced files.
+To update the plugin, press **LRC plugin** in DJ Music Manager again, or copy the files from a
+newer release package over the old ones (VirtualDJ closed). The operation is repeatable; DJ Music
+Manager keeps a backup of replaced files.
 
-To remove or restore the plugin, use the **Plugin** tab. Only
-managed files are removed, and they are backed up first.
+To remove the plugin, close VirtualDJ and delete the files listed in `INSTALL.txt`.
 
-If VirtualDJ has remembered an unwanted external-video window size or monitor,
-use **Reset video window layout** in the Plugin tab. It backs up `settings.xml`
-and forgets only the saved video-window geometry; VirtualDJ chooses its default
-again and can remember the new position for the current monitor arrangement.
+If VirtualDJ has remembered an unwanted external-video window size or monitor, close VirtualDJ
+and delete the `<videoWindowPosition>` block from its `settings.xml` (make a copy first);
+VirtualDJ then chooses its default again and remembers the new position.
 
 ## Troubleshooting
 
 ### The overlays are not listed
 
 - Restart VirtualDJ after installation.
-- Open LyricsTools' **Plugin** tab and confirm the displayed VirtualDJ home path.
+- Check that the files were copied into the VirtualDJ home folder that VirtualDJ really uses.
 - If asked for a path, open it using **Settings > Options > cog button** in
   VirtualDJ.
 
@@ -280,8 +232,8 @@ is `%LOCALAPPDATA%\VirtualDJ\EmbeddedLyrics.log`.
 
 ### Saving lyrics from the plugin does not work
 
-LyricsTools installs `LrcHelper.exe` next to the plugins; it saves tags and searches
-online without any system Python. Reinstall the plugin from LyricsTools if it is
+`LrcHelper.exe` sits next to the plugins; it saves tags and searches
+online without any system Python. Reinstall the plugin (DJ Music Manager or `INSTALL.txt`) if it is
 missing. Only without it does the plugin fall back to a system Python with Mutagen:
 
 Install current Python 3 from [python.org](https://www.python.org/downloads/windows/)

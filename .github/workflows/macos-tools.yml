@@ -33,7 +33,7 @@ jobs:
       - run: ./build-macos-tools-release.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LRC-apps-macOS-${{ matrix.variant }}
+          name: LRC-Plugins-macOS-${{ matrix.variant }}
           path: |
-            dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip
-            dist/LyricsTools-macOS-${{ matrix.variant }}-*.zip.sha256
+            dist/LRC-Plugins-macOS-${{ matrix.variant }}-*.zip
+            dist/LRC-Plugins-macOS-${{ matrix.variant }}-*.zip.sha256

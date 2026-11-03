@@ -91,7 +91,7 @@ std::wstring ToEditLineBreaks(const std::wstring& text) {
     return result;
 }
 
-// Runs on a worker thread: starts LyricsTools' headless lookup and parses its result file.
+// Runs on a worker thread: starts the LrcHelper headless lookup and parses its result file.
 std::unique_ptr<LookupResult> RunLookup(const std::wstring& executable, const std::wstring& script,
                                         const std::filesystem::path& audio) {
     auto result = std::make_unique<LookupResult>();
@@ -107,8 +107,8 @@ std::unique_ptr<LookupResult> RunLookup(const std::wstring& executable, const st
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
                         nullptr, nullptr, &startup, &process)) {
-        result->failure = L"LyricsTools could not be started (error " +
-                          std::to_wstring(GetLastError()) + L"). Reinstall the plugin from LyricsTools.";
+        result->failure = L"The lyrics helper could not be started (error " +
+                          std::to_wstring(GetLastError()) + L"). Reinstall the plugin (DJ Music Manager, or copy the files from the release).";
         return result;
     }
     CloseHandle(process.hThread);
@@ -127,7 +127,7 @@ std::unique_ptr<LookupResult> RunLookup(const std::wstring& executable, const st
     std::filesystem::remove(output, error);
     std::string raw = buffer.str();
     if (raw.empty()) {
-        result->failure = L"LyricsTools returned no answer.";
+        result->failure = L"The lyrics helper returned no answer.";
         return result;
     }
     raw.erase(std::remove(raw.begin(), raw.end(), '\r'), raw.end());
@@ -154,7 +154,7 @@ void ShowCurrentState(HWND w, const State& s) {
     SetDlgItemTextW(w, kCurrent, text.c_str());
 }
 
-// Fallback when the LrcHelper/LyricsTools is not installed: LRCLIB only, straight from C++.
+// Fallback when the LrcHelper is not installed: LRCLIB only, straight from C++.
 std::unique_ptr<LookupResult> RunBuiltInLookup(const std::filesystem::path& audio, double duration) {
     auto result = std::make_unique<LookupResult>();
     const auto tags = ReadBasicTrackTags(audio);
@@ -178,7 +178,7 @@ std::unique_ptr<LookupResult> RunBuiltInLookup(const std::filesystem::path& audi
             ? L"LRCLIB: not found" : L"LRCLIB unavailable (" + match.error + L")";
     }
     result->fields[L"message"] += std::wstring(result->fields[L"message"].empty() ? L"" : L"; ") +
-        L"TIDAL is searched only when the plugin is installed by LyricsTools";
+        L"TIDAL is searched only when LrcHelper is installed next to the plugin";
     return result;
 }
 
@@ -218,7 +218,7 @@ void FinishSearch(HWND w, State& s, std::unique_ptr<LookupResult> result) {
     const auto query = Field(*result, L"query");
     if (status != L"found" || result->text.empty()) {
         std::wstring text = status == L"login_required"
-            ? L"Not found. TIDAL is not signed in: sign in once in LyricsTools (Online tab)."
+            ? L"Not found. TIDAL is not signed in: sign in once in DJ Music Manager when it asks while downloading lyrics."
             : status == L"error" ? L"Search failed." : L"No lyrics found online.";
         if (!message.empty()) text += L"\r\n" + message;
         if (!query.empty()) text += L"\r\nLooked for: " + query;

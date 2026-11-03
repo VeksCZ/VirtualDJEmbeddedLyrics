@@ -1020,7 +1020,7 @@ private:
             if (SUCCEEDED(GetStringInfo(command,value,sizeof(value))) && std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(value))) == path) return true; }
         return false;
     }
-    // LrcHelper.exe (installed by LyricsTools) bundles Python, mutagen and tidalapi, so tag
+    // LrcHelper.exe (installed with the plugin) bundles Python, mutagen and tidalapi, so tag
     // writes and online lookups need nothing else on the machine. LRC Deck lives in
     // VideoEffect and shares the single copy installed next to LRC Master.
     static std::filesystem::path HelperExecutable() {

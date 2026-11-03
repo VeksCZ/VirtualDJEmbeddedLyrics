@@ -25,24 +25,18 @@ ctest --test-dir "$build_dir" -C Release --output-on-failure
 
 dist_dir="$project_root/dist"
 variant="${MACOS_VARIANT:-$(uname -m)}"
-package_name="LyricsTools-macOS-$variant-v$version"
+package_name="LRC-Plugins-macOS-$variant-v$version"
 package_dir="$work_dir/stage/$package_name"
 mkdir -p "$package_dir"
 
-"$python_bin" -m PyInstaller --noconfirm --clean --onedir --windowed \
-    --name LyricsTools --paths "$project_root/tools" \
-    --distpath "$work_dir/app-dist" --workpath "$work_dir/app-build" \
-    --specpath "$work_dir/app-spec" "$project_root/tools/lyrics_tools_gui.py"
-cp -R "$work_dir/app-dist/LyricsTools.app" "$package_dir/LyricsTools.app"
 # Windowless helper the plugin starts to save tags and search lyrics online.
 "$python_bin" -m PyInstaller --noconfirm --clean --onefile --console \
     --name LrcHelper --paths "$project_root/tools" \
     --distpath "$work_dir/helper-dist" --workpath "$work_dir/helper-build" \
     --specpath "$work_dir/helper-spec" "$project_root/tools/lrc_helper.py"
 "$work_dir/helper-dist/LrcHelper" --help >/dev/null 2>&1 || test $? -eq 2
-app="$package_dir/LyricsTools.app"
-resources="$app/Contents/Resources/LRC"
-mkdir -p "$resources/Plugins"
+plugins="$package_dir/Plugins"
+mkdir -p "$plugins"
 
 master_bundle="$(find "$build_dir" -type d -name 'LRCMaster.bundle' -print -quit)"
 blackout_bundle="$(find "$build_dir" -type d -name 'LRCBlackOut.bundle' -print -quit)"
@@ -58,20 +52,24 @@ fi
 /usr/bin/nm -gU "$master_bundle/Contents/MacOS/LRCMaster" | /usr/bin/grep -q ' _DllGetClassObject$'
 /usr/bin/nm -gU "$blackout_bundle/Contents/MacOS/LRCBlackOut" | /usr/bin/grep -q ' _DllGetClassObject$'
 /usr/bin/nm -gU "$deck_bundle/Contents/MacOS/LRCDeck" | /usr/bin/grep -q ' _DllGetClassObject$'
-cp -R "$master_bundle" "$resources/Plugins/LRCMaster.bundle"
-cp -R "$blackout_bundle" "$resources/Plugins/LRCBlackOut.bundle"
-cp -R "$deck_bundle" "$resources/Plugins/LRCDeck.bundle"
-cp "$work_dir/helper-dist/LrcHelper" "$resources/Plugins/LrcHelper"
-chmod 755 "$resources/Plugins/LrcHelper"
-cp "$project_root/VERSION" "$resources/VERSION"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
+cp -R "$master_bundle" "$plugins/LRCMaster.bundle"
+cp -R "$blackout_bundle" "$plugins/LRCBlackOut.bundle"
+cp -R "$deck_bundle" "$plugins/LRCDeck.bundle"
+cp "$work_dir/helper-dist/LrcHelper" "$plugins/LrcHelper"
+chmod 755 "$plugins/LrcHelper"
+cp "$project_root/VERSION" "$package_dir/VERSION"
 
-/usr/bin/codesign --force --deep --sign - "$app"
-/usr/bin/codesign --verify --deep --strict "$app"
+# Ad-hoc signatures (locally signed; VirtualDJ loads the bundles from its plugin folder).
+for item in "$plugins/LRCMaster.bundle" "$plugins/LRCBlackOut.bundle" "$plugins/LRCDeck.bundle" "$plugins/LrcHelper"; do
+    /usr/bin/codesign --force --sign - "$item"
+    /usr/bin/codesign --verify --strict "$item"
+done
 cp "$project_root/README.md" "$package_dir/README.txt"
 cp "$project_root/README.md" "$package_dir/README.md"
-mkdir -p "$package_dir/tools"
-cp "$project_root/tools/README.md" "$package_dir/tools/README.md"
+cp "$project_root/INSTALL.txt" "$package_dir/INSTALL.txt"
+for required in LRCMaster.bundle LRCBlackOut.bundle LRCDeck.bundle LrcHelper; do
+    test -e "$plugins/$required" || { echo "$required is missing from the package" >&2; exit 1; }
+done
 
 mkdir -p "$dist_dir"
 zip_path="$dist_dir/$package_name.zip"
