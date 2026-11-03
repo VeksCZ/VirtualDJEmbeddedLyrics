@@ -1,4 +1,4 @@
-# LRC Lyrics for VirtualDJ 0.4.3
+# LRC Lyrics for VirtualDJ 0.4.4
 
 ## Changes
 
