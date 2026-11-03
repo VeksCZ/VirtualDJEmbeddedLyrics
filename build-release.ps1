@@ -51,7 +51,7 @@ function Get-ReleaseNotesBody {
         }
     }
     if (-not $sections.Contains('Changes')) { throw "RELEASE-NOTES.md has no '## Changes' section." }
-    $downloadKey = $sections.Keys | Where-Object { $_ -like 'Windows download*' } | Select-Object -First 1
+    $downloadKey = $sections.Keys | Where-Object { $_ -like '*download*' } | Select-Object -First 1
     $body = [System.Collections.Generic.List[string]]::new()
     $body.Add("# LRC Lyrics for VirtualDJ $Version"); $body.Add('')
     $body.Add('## Changes'); $body.AddRange($sections['Changes'])

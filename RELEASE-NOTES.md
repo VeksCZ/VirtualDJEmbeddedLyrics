@@ -1,6 +1,6 @@
 # LRC Lyrics for VirtualDJ 0.4.3
 
-## Unreleased
+## Changes
 
 - **The release is now plugin-only.** `LyricsTools` (the separate Windows/macOS application) is retired:
   its lyrics tools, plugin installer and diagnostics moved into DJ Music Manager, which now also runs on
@@ -22,8 +22,6 @@
 
 - **Crash forensics (Windows):** while a plugin is loaded, a passive exception logger appends a `[FAULT]` line to `EmbeddedLyrics.log` for serious faults (access violation, heap corruption, fast-fail), naming the module the fault happened in (for example the NVIDIA driver `nvwgf2umx.dll`) and the offset. It never handles the exception, so VirtualDJ's behaviour is unchanged, and it is removed together with the last plugin instance.
 - The diagnostic ZIP from LyricsTools now also contains the video adapter and driver version and the (path-redacted) plugin log, so a GPU crash can be analysed from one file.
-
-## Changes
 
 - **Version numbering:** the project now uses the same low version numbers as DJ Music Manager. 0.4.1 contains everything from the former 0.9 to 0.12.4 releases (the numbers below are the old ones).
 - **Crash protection (Windows):** every callback VirtualDJ makes into LRC Master, LRC BlackOut and LRC Deck is wrapped in a guard. A C++ exception or hardware fault inside the plugin no longer reaches VirtualDJ; the plugin switches its own drawing off instead of taking the whole set down.
@@ -116,8 +114,6 @@
 - Added **Edit browser** for preparing the MP3 selected in the VirtualDJ browser without changing the master output.
 - Improved the Windows track intro: artist and title are white, and the intro joins the lyric time line so it scrolls away smoothly with the first lyrics.
 
-## Windows download
+## Download
 
-Extract the complete LyricsTools-Windows-v0.4.3.zip, open LyricsTools.exe and choose Install / update plugin. Keep the _internal folder beside the EXE.
-
-These editor, preview, and lyrics-writing improvements are currently Windows-specific.
+Windows: `LRC-Plugins-Windows-v<version>.zip`. macOS: `LRC-Plugins-macOS-AppleSilicon-v<version>.zip` or `LRC-Plugins-macOS-Intel-v<version>.zip`. Install with DJ Music Manager (**LRC plugin**) or copy the files by hand following `INSTALL.txt` inside the ZIP.
