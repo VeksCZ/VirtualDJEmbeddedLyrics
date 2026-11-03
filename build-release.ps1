@@ -112,16 +112,16 @@ New-Item -ItemType Directory -Force -Path $PackageDirectory, $PluginsDirectory |
 $AppDist = Join-Path $BuildDirectory 'app-dist'
 # Windowless helper the plugins start for tag writes and online lookups (no system Python).
 & $PythonCommand -m PyInstaller --noconfirm --clean --onefile --console --name LrcHelper `
-    --paths (Join-Path $ProjectRoot 'tools') --distpath $AppDist `
+    --paths (Join-Path $ProjectRoot 'helper') --distpath $AppDist `
     --workpath (Join-Path $BuildDirectory 'helper-build') --specpath (Join-Path $BuildDirectory 'helper-spec') `
-    (Join-Path $ProjectRoot 'tools\lrc_helper.py')
+    (Join-Path $ProjectRoot 'helper\lrc_helper.py')
 if ($LASTEXITCODE -ne 0) { throw 'LrcHelper build failed.' }
 
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCMaster.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCBlackOut.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $BuildDirectory 'Release\LRCDeck.dll') -Destination $PluginsDirectory
 Copy-Item -LiteralPath (Join-Path $AppDist 'LrcHelper.exe') -Destination $PluginsDirectory
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'helper\lyrics_tag_converter.py') -Destination (Join-Path $PluginsDirectory 'EmbeddedLyricsTagWriter.py')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Destination $PackageDirectory
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'README.md') -Destination (Join-Path $PackageDirectory 'README.txt')
@@ -191,12 +191,12 @@ if ($Publish) {
         $macRun = $null
         for ($attempt = 0; $attempt -lt 12 -and -not $macRun; $attempt++) {
             Start-Sleep -Seconds 5
-            $candidates = gh run list --repo $Repository --workflow=macos-tools.yml --branch $publishTag `
+            $candidates = gh run list --repo $Repository --workflow=macos-build.yml --branch $publishTag `
                 --json databaseId,status,conclusion --limit 1 | ConvertFrom-Json
             if ($candidates) { $macRun = $candidates[0] }
         }
         if (-not $macRun) {
-            Write-Warning "Could not find the macOS workflow run for $publishTag. Attach the macOS packages manually: gh run list --repo $Repository --workflow=macos-tools.yml --branch $publishTag"
+            Write-Warning "Could not find the macOS workflow run for $publishTag. Attach the macOS packages manually: gh run list --repo $Repository --workflow=macos-build.yml --branch $publishTag"
         } else {
             gh run watch $macRun.databaseId --repo $Repository --exit-status
             $macFailed = $LASTEXITCODE -ne 0

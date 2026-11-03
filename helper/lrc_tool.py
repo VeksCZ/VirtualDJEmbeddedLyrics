@@ -311,7 +311,7 @@ class TidalClient:
                 self.save_session()
                 return
         if not self.interactive:
-            raise self.LoginRequired("TIDAL login is required; sign in once in LyricsTools.")
+            raise self.LoginRequired("TIDAL login is required; sign in once in DJ Music Manager.")
         self.log("TIDAL login is required. Opening the device authorization page...")
         login, future = self.session.login_oauth()
         raw_url = str(login.verification_uri_complete)

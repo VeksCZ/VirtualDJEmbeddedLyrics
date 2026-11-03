@@ -11,7 +11,7 @@
 #include <thread>
 
 // The lyrics window: what the MP3 holds now, an online search (TIDAL, then LRCLIB, run by
-// LyricsTools in headless mode) and the manual Timed/Untimed editor. Nothing is written to
+// LrcHelper in headless mode) and the manual Timed/Untimed editor. Nothing is written to
 // the MP3 until "Save to MP3 tag"; found lyrics only replace the text in the editor.
 namespace {
 constexpr wchar_t kClass[] = L"EmbeddedLyricsEditorDialog";

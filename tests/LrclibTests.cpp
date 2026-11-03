@@ -1,4 +1,4 @@
-// Matching rules of the built-in LRCLIB fallback (must agree with tools/lrc_tool.py).
+// Matching rules of the built-in LRCLIB fallback (must agree with helper/lrc_tool.py).
 // Uses explicit checks instead of assert() so the Release CTest run really verifies them.
 #include "LrclibLookup.hpp"
 

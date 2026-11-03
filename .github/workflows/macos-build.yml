@@ -1,4 +1,4 @@
-name: macOS tools
+name: macOS build
 
 on:
   push:
@@ -29,8 +29,8 @@ jobs:
       - run: cmake -S . -B build-macos -DBUILD_TESTING=ON
       - run: cmake --build build-macos
       - run: ctest --test-dir build-macos --output-on-failure
-      - run: bash -n build-macos-tools-release.sh
-      - run: ./build-macos-tools-release.sh
+      - run: bash -n build-macos-release.sh
+      - run: ./build-macos-release.sh
       - uses: actions/upload-artifact@v4
         with:
           name: LRC-Plugins-macOS-${{ matrix.variant }}

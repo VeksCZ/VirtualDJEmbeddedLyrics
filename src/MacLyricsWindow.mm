@@ -380,7 +380,7 @@ std::wstring Field(const LookupResult& r, const wchar_t* key) {
     const auto text = timed ? _timed : _untimed;
     if (CountLines(text) == 0) { [self cancel:nil]; return; }
     if (_request.helper.empty()) {
-        self.status.stringValue = @"Saving needs LrcHelper. Install or update the plugin from LyricsTools.";
+        self.status.stringValue = @"Saving needs LrcHelper. Install or update the plugin from DJ Music Manager.";
         return;
     }
     const auto pending = TempFile("LrcEditor", ".lyrics");

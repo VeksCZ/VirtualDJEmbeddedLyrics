@@ -874,7 +874,7 @@ private:
         if (const auto helper = HelperExecutable(); !helper.empty()) {
             edit.lookupExecutable = helper.wstring();
         } else {
-            // Older installs: LyricsTools registers itself here (install/update or start).
+            // Older installs registered their own lookup command here; the helper next to the plugin replaces it.
             const auto ini = AdvancedSettingsPath().wstring();
             wchar_t value[2048]{};
             GetPrivateProfileStringW(L"Lookup", L"Executable", L"", value, 2048, ini.c_str());

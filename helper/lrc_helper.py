@@ -2,7 +2,7 @@
 """Windowless helper the VirtualDJ plugins start for work that needs Python.
 
 Built as LrcHelper.exe and installed next to the plugin DLLs, so the plugins need
-no system Python, no mutagen and no particular LyricsTools location:
+no system Python, no mutagen and no particular DJ Music Manager location:
 
   LrcHelper.exe --lookup-lyrics MP3 RESULT_FILE          online lyrics search
   LrcHelper.exe --write-editor-text MP3 TEXT timed|untimed

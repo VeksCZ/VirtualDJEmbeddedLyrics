@@ -38,6 +38,6 @@ Thumbs.db
 *.log
 
 # MP3 & Lyrics Tools local state and OAuth credentials
-tools/gui_settings.json
-tools/lyrics_report.csv
-tools/tidal_session.json
+helper/gui_settings.json
+helper/lyrics_report.csv
+helper/tidal_session.json

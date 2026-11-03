@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-TOOL_DIR = Path(__file__).resolve().parents[1] / "tools"
+TOOL_DIR = Path(__file__).resolve().parents[1] / "helper"
 sys.path.insert(0, str(TOOL_DIR))
 
 import lrc_tool  # noqa: E402

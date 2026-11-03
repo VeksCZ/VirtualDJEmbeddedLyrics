@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless single-track lyrics lookup used by the VirtualDJ plugin's lyrics dialog.
 
-Sources are tried in the same order as the LyricsTools "Online" tab: TIDAL by ISRC,
+Sources are tried in the same order as the DJ Music Manager lyrics download: TIDAL by ISRC,
 TIDAL search by artist/title/duration, then LRCLIB. Nothing is written to the MP3;
 the plugin shows the result and lets the user decide whether to save it.
 

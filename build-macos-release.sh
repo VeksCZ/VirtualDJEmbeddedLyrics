@@ -31,9 +31,9 @@ mkdir -p "$package_dir"
 
 # Windowless helper the plugin starts to save tags and search lyrics online.
 "$python_bin" -m PyInstaller --noconfirm --clean --onefile --console \
-    --name LrcHelper --paths "$project_root/tools" \
+    --name LrcHelper --paths "$project_root/helper" \
     --distpath "$work_dir/helper-dist" --workpath "$work_dir/helper-build" \
-    --specpath "$work_dir/helper-spec" "$project_root/tools/lrc_helper.py"
+    --specpath "$work_dir/helper-spec" "$project_root/helper/lrc_helper.py"
 "$work_dir/helper-dist/LrcHelper" --help >/dev/null 2>&1 || test $? -eq 2
 plugins="$package_dir/Plugins"
 mkdir -p "$plugins"

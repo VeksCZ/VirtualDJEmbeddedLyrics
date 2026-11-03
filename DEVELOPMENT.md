@@ -11,7 +11,7 @@ described in the main README (or with DJ Music Manager).
 - Python 3 with dependencies from `requirements.txt` and `requirements-build.txt`
 
 The public VirtualDJ 8 SDK headers are vendored under
-`tools/sdk/VirtualDJ8_SDK_20211003`.
+`third_party/sdk/VirtualDJ8_SDK_20211003`.
 
 ## Build and package
 
@@ -36,7 +36,7 @@ The macOS plugin bundles and the helper can be built, tested and packaged on a M
 ```bash
 python3 -m pip install -r requirements.txt
 python3 -m pip install -r requirements-build.txt
-./build-macos-tools-release.sh
+./build-macos-release.sh
 ```
 
 This creates a `LRC-Plugins-macOS-<architecture>` ZIP. CI publishes one package
@@ -50,8 +50,8 @@ entry points, and code signatures, and tests the platform-neutral lyrics core.
 After a successful release build, install the generated package with DJ Music Manager
 (VirtualDJ tab, **LRC plugin** installs the latest *published* release) or by hand as described in
 `INSTALL.txt`. The lyrics tools, the plugin installer and their tests live in the DJ Music Manager
-repository (`lyricstools/`); `tools/` here keeps only the four Python files that are built into
-`LrcHelper` / `EmbeddedLyricsTagWriter.py`, as a snapshot (see `tools/README.md`).
+repository (`lyricstools/`); `helper/` here keeps only the four Python files that are built into
+`LrcHelper` / `EmbeddedLyricsTagWriter.py`, as a snapshot (see `helper/README.md`).
 
 ## Tests
 
@@ -65,5 +65,5 @@ helper modules (lyrics lookup, LRC pipeline, ID3 tag writing).
 3. Test LRC Master, LRC BlackOut, synchronized lyrics, untimed lyrics, missing
    lyrics and User 1 auto-tagging in VirtualDJ.
 4. Verify a clean install from the generated ZIP (`INSTALL.txt`) and with DJ Music Manager.
-   If the Python helper files changed, copy them from `lyricstools/` in DJ Music Manager first.
+   If the Python helper files changed, run `./sync-from-manager.ps1` first (it copies them from `lyricstools/` in DJ Music Manager).
 5. Commit, push, create tag `v<VERSION>` and publish the ZIP plus SHA-256 file.

@@ -45,7 +45,7 @@ if(MSVC)
 endif()
 
 if(APPLE)
-    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
+    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     function(add_mac_vdj_plugin target source output_name)
         add_library(${target} MODULE ${source} ${ARGN})
         target_include_directories(${target} PRIVATE src)
@@ -117,7 +117,7 @@ if(BUILD_TESTING)
 endif()
 
 if(WIN32)
-    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tools/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
+    set(VDJ_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/sdk/VirtualDJ8_SDK_20211003" CACHE PATH "VirtualDJ SDK headers")
     if(EXISTS "${VDJ_SDK_DIR}/vdjPlugin8.h" AND EXISTS "${VDJ_SDK_DIR}/vdjVideo8.h")
         # Same source, two plugins: LRC Master (master-only overlay) and LRC Deck (an
         # ordinary Video FX for a single deck's FX chain, see LRC_DECK_VARIANT in Plugin.cpp).
@@ -127,7 +127,7 @@ if(WIN32)
                 src/EmbeddedLyricsEditor.cpp
                 src/LrclibHttpWin.cpp
                 src/LrclibLookup.cpp
-                src/Plugin.cpp
+                src/LyricsPlugin.cpp
                 src/TextTexture.cpp
                 src/VideoRenderer.cpp
                 src/PluginExports.def

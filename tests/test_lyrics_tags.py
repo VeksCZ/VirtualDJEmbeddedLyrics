@@ -9,7 +9,7 @@ from mutagen.id3 import ID3, SYLT, TIT1, TXXX, USLT
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from tools import lyrics_tag_converter as converter  # noqa: E402
+from helper import lyrics_tag_converter as converter  # noqa: E402
 
 
 class DiscoveryTests(unittest.TestCase):
