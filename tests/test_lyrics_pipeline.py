@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import threading
+import types
 import time
 import unittest
 import urllib.error
@@ -138,27 +139,25 @@ class ParallelRunTests(unittest.TestCase):
 
 class LrclibClientTests(unittest.TestCase):
     def test_slots_are_spaced_across_threads(self):
+        # Deterministic: a fixed clock makes every reserved slot a function of the call order
+        # alone, so thread scheduling and sleep jitter on busy CI runners cannot matter.
         client = lrc_tool.LrclibClient()
         client.MIN_INTERVAL = 0.05
-        stamps = []
-        lock = threading.Lock()
+        client.last_request = 0.0
+        sleeps = []
+        fake_time = types.SimpleNamespace(monotonic=lambda: 1000.0, sleep=sleeps.append)
 
-        def worker():
-            client._wait_for_slot()
-            with lock:
-                stamps.append(time.monotonic())
+        with mock.patch.object(lrc_tool, "time", fake_time):
+            threads = [threading.Thread(target=client._wait_for_slot) for _ in range(5)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
 
-        threads = [threading.Thread(target=worker) for _ in range(5)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        stamps.sort()
-        gaps = [b - a for a, b in zip(stamps, stamps[1:])]
-        # Wake-up jitter on busy CI runners can squeeze two neighbouring gaps, so check the
-        # whole span (ideal 4 x 0.05 s) instead of the tightest single gap.
-        self.assertGreaterEqual(stamps[-1] - stamps[0], 0.15)
-        self.assertGreater(min(gaps), 0)
+        # The first request goes at once; the other four wait 1x..4x the minimum interval.
+        self.assertEqual(len(sleeps), 4)
+        for expected, actual in zip((0.05, 0.10, 0.15, 0.20), sorted(sleeps)):
+            self.assertAlmostEqual(actual, expected, places=6)
 
     def _http_error(self, code):
         return urllib.error.HTTPError("u", code, "x", {"Retry-After": "0"}, None)
