@@ -47,13 +47,28 @@ def version_tuple(value: str) -> tuple[int, ...]:
     return tuple(map(int, match.group(1).split("."))) if match else ()
 
 
+# Releases 0.8.0-0.12.4 used the old numbering; 0.4.1 continued from them under the
+# DJ Music Manager scheme. A plain tuple comparison would call every new 0.4.x release
+# older than those installs, so a version in the old range counts as older than any version
+# below it. Remove this once nobody runs the old numbering any more.
+LEGACY_FIRST = (0, 8, 0)
+LEGACY_LAST = (0, 12, 4)
+
+
+def is_newer(candidate: str, current: str) -> bool:
+    new, old = version_tuple(candidate), version_tuple(current)
+    if LEGACY_FIRST <= old <= LEGACY_LAST and new < LEGACY_FIRST:
+        return True
+    return new > old
+
+
 def check_latest_version(current: str, timeout: int = 10) -> tuple[str, str, bool]:
     data = latest_release(timeout)
     latest = str(data.get("tag_name") or "").removeprefix("v")
     url = str(data.get("html_url") or "")
     if not version_tuple(latest):
         raise RuntimeError("GitHub returned an invalid release version.")
-    return latest, url, version_tuple(latest) > version_tuple(current)
+    return latest, url, is_newer(latest, current)
 
 
 def latest_release(timeout: int = 10) -> dict:
@@ -180,7 +195,7 @@ def plugin_state(home: Path | None, package_version: str, setup_module) -> tuple
         installed = str(json.loads(manifest.read_text(encoding="utf-8-sig")).get("Version") or "")
     except (OSError, ValueError, AttributeError):
         installed = ""
-    if installed and version_tuple(installed) < version_tuple(package_version):
+    if installed and is_newer(package_version, installed):
         return "warning", f"Update available: {installed} → {package_version}"
     return "ok", f"Plugin {installed or package_version} is installed"
 

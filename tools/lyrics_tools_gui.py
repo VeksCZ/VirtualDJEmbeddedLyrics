@@ -811,7 +811,7 @@ class App(tk.Tk):
             try:
                 release = gui_common.latest_release()
                 latest = str(release.get("tag_name") or "").removeprefix("v")
-                available = gui_common.version_tuple(latest) > gui_common.version_tuple(current)
+                available = gui_common.is_newer(latest, current)
                 self.events.queue.put(("update", (release, latest, available, current, silent)))
             except Exception as exc:
                 # The automatic startup check must never interrupt a person who is offline or

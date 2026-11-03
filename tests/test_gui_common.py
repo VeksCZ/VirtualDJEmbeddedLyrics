@@ -27,6 +27,15 @@ class GuiCommonTests(unittest.TestCase):
         self.assertEqual(gui_common.version_tuple("1.2"), (1, 2))
         self.assertEqual(gui_common.version_tuple("latest"), ())
 
+    def test_is_newer_handles_the_renumbering_from_0_12_to_0_4(self):
+        self.assertTrue(gui_common.is_newer("0.4.2", "0.12.4"))
+        self.assertTrue(gui_common.is_newer("0.4.2", "0.9.1"))
+        self.assertTrue(gui_common.is_newer("0.4.2", "0.4.1"))
+        self.assertFalse(gui_common.is_newer("0.4.2", "0.4.2"))
+        self.assertFalse(gui_common.is_newer("0.4.1", "0.4.2"))
+        self.assertFalse(gui_common.is_newer("0.12.3", "0.12.4"))
+        self.assertFalse(gui_common.is_newer("0.4.2", "0.5.0"))
+
     def test_diagnostic_zip_redacts_user_and_media_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             destination = Path(temporary) / "diagnostics.zip"
