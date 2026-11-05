@@ -244,7 +244,7 @@ def canonicalize_lyrics_frames(tags) -> tuple[str | None, bool]:
         tags.delall("USLT")
         remove_legacy_lyrics_txxx(tags)
         tags.add(SYLT(encoding=Encoding.UTF16, lang="und", format=2, type=1,
-                      desc="Converted by LyricsTools",
+                      desc="Converted by DJ Music Manager",
                       text=[(line.text, line.time_ms) for line in timed_lines]))
         return "Synced", True
     if uslt_frames:
@@ -263,7 +263,7 @@ def canonicalize_lyrics_frames(tags) -> tuple[str | None, bool]:
             tags.delall("USLT")
             remove_legacy_lyrics_txxx(tags)
             tags.add(USLT(encoding=Encoding.UTF16, lang="und",
-                          desc="Converted by LyricsTools", text=text))
+                          desc="Converted by DJ Music Manager", text=text))
             return "Unsynced", True
     return None, False
 

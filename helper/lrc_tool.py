@@ -16,6 +16,7 @@ import difflib
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import threading
@@ -40,12 +41,33 @@ LANG_PREFIX_RE = re.compile(r"^\ufeff?\s*[a-zA-Z]{2,3}\|\|")
 BACKUP_FORMAT_MARKER = ".lrc-backup-format"
 
 
-def default_runtime_dir() -> Path:
+# Per-user data shared by DJ Music Manager and the plugin helper (TIDAL sign-in, reports).
+# It used to live in a folder named after the retired LyricsTools application.
+RUNTIME_DIR_NAME = "Lyrics"
+LEGACY_RUNTIME_DIR_NAME = "LyricsTools"
+
+
+def _runtime_parent() -> Path:
     if sys.platform == "darwin":
-        return (Path.home() / "Library" / "Application Support" /
-                "VirtualDJEmbeddedLyrics" / "LyricsTools")
-    base = Path(os.environ.get("LOCALAPPDATA", Path.home()))
-    return base / "VirtualDJEmbeddedLyrics" / "LyricsTools"
+        return Path.home() / "Library" / "Application Support" / "VirtualDJEmbeddedLyrics"
+    return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "VirtualDJEmbeddedLyrics"
+
+
+def default_runtime_dir() -> Path:
+    """Data folder; the first call copies the legacy folder so nobody has to sign in to TIDAL again.
+
+    The legacy folder is only copied, never moved or deleted: plugin packages released before the
+    rename still read it.
+    """
+    parent = _runtime_parent()
+    current, legacy = parent / RUNTIME_DIR_NAME, parent / LEGACY_RUNTIME_DIR_NAME
+    if not current.exists() and legacy.is_dir():
+        try:
+            shutil.copytree(legacy, current)
+        except OSError:
+            shutil.rmtree(current, ignore_errors=True)
+            return legacy
+    return current
 
 
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
