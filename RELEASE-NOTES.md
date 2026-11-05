@@ -1,6 +1,6 @@
 # LRC Lyrics for VirtualDJ
 
-## Changes
+## 0.4.6
 
 - The helper stores its data (TIDAL sign-in, reports) in `%LOCALAPPDATA%\VirtualDJEmbeddedLyrics\Lyrics` (macOS: `~/Library/Application Support/VirtualDJEmbeddedLyrics/Lyrics`) instead of `...\LyricsTools`. The old folder is copied on first use and left in place, so nobody has to sign in to TIDAL again. Tags converted by the helper now say "Converted by DJ Music Manager".
 
