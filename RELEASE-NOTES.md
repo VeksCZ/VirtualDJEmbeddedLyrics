@@ -1,8 +1,11 @@
-# LRC Lyrics for VirtualDJ 0.4.4
+# LRC Lyrics for VirtualDJ
 
 ## Changes
 
 - The helper stores its data (TIDAL sign-in, reports) in `%LOCALAPPDATA%\VirtualDJEmbeddedLyrics\Lyrics` (macOS: `~/Library/Application Support/VirtualDJEmbeddedLyrics/Lyrics`) instead of `...\LyricsTools`. The old folder is copied on first use and left in place, so nobody has to sign in to TIDAL again. Tags converted by the helper now say "Converted by DJ Music Manager".
+
+## 0.4.4
+
 - **The release is now plugin-only.** `LyricsTools` (the separate Windows/macOS application) is retired:
   its lyrics tools, plugin installer and diagnostics moved into DJ Music Manager, which now also runs on
   macOS. Packages are named `LRC-Plugins-Windows-v<version>.zip`, `LRC-Plugins-macOS-AppleSilicon-v<version>.zip`
