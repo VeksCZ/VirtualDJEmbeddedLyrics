@@ -871,17 +871,8 @@ private:
         edit.audioPath = targetPath;
         edit.durationSeconds = durationSeconds;
         edit.positionSeconds = positionSeconds;
-        if (const auto helper = HelperExecutable(); !helper.empty()) {
-            edit.lookupExecutable = helper.wstring();
-        } else {
-            // Older installs registered their own lookup command here; the helper next to the plugin replaces it.
-            const auto ini = AdvancedSettingsPath().wstring();
-            wchar_t value[2048]{};
-            GetPrivateProfileStringW(L"Lookup", L"Executable", L"", value, 2048, ini.c_str());
-            edit.lookupExecutable = value;
-            GetPrivateProfileStringW(L"Lookup", L"Script", L"", value, 2048, ini.c_str());
-            edit.lookupScript = value;
-        }
+        // Without the helper next to the plugin the editor falls back to the built-in LRCLIB search.
+        if (const auto helper = HelperExecutable(); !helper.empty()) edit.lookupExecutable = helper.wstring();
         if (!ShowEmbeddedLyricsEditor(GetForegroundWindow(), edit)) return;
         const auto& editedText = edit.synchronized ? edit.timedText : edit.untimedText;
         if (editedText.empty()) return;
